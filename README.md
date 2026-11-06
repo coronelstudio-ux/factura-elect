@@ -27,11 +27,11 @@ Son dos apps web instalables (PWA), cada una con su ícono. Todo se guarda **en 
 
 ```
 index.html              Página de entrada con los enlaces para instalar cada app
-facturador/             App del principal (index.html, app.js, manifest, sw.js, icons/)
+facturador/             App del principal (index.html, app.js, kude-pdf.js, manifest, sw.js, icons/)
 pedidos/                App del cargador (index.html, app.js, manifest, sw.js, icons/)
 shared/core.js          Cálculo de IVA, RUC (módulo 11), clientes, QR, cámara, compartir, respaldo
 shared/styles.css       Estilos comunes (del facturador original)
-vendor/                 qrcode-generator, jsQR, lz-string, html2canvas, jsPDF (para funcionar sin internet)
+vendor/                 qrcode-generator, jsQR, lz-string, jsPDF (para funcionar sin internet)
 docs/                   Archivo original facturador-prueba-local.html
 ```
 
@@ -43,6 +43,10 @@ Para instalar como app y usar la cámara hace falta HTTPS. Con **GitHub Pages**:
 2. Abrí `https://<usuario>.github.io/factura-elect/` en el celular.
 3. Entrá a la app que corresponda e instalala (Android: menú ⋮ → *Instalar app*; iPhone: Compartir → *Agregar a inicio*).
 
+Cada app también tiene **Ajustes → Instalar en este dispositivo**, que abre el instalador cuando el navegador lo permite.
+
+**Si dice «ya está instalada»:** las versiones anteriores compartían el mismo identificador y el celular las tomaba como una sola app. Ya está corregido (`"id"` único en cada `manifest.webmanifest`), pero el ícono que quedó instalado conserva el identificador viejo: desinstalalo (mantener presionado → Desinstalar), abrí de nuevo la página e instalá cada app.
+
 Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://localhost:8080/`.
 
 ## Seguridad y datos (prueba)
@@ -51,3 +55,8 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - El QR lleva los datos del pedido comprimidos, **no cifrados**.
 - Cada app guarda sus datos por separado. Usá **Ajustes → Descargar respaldo** de vez en cuando.
 - Los datos de empresa, timbrado y contribuyentes son **ficticios**; la aprobación de SIFEN es simulada.
+
+## KuDE y PDF
+
+- En pantalla el KuDE se adapta al ancho: en celulares los productos se muestran como lista, sin desplazamiento lateral.
+- **Descargar PDF** arma un A4 con los datos reales (texto seleccionable, varias páginas si hace falta, QR vectorial con la URL de consulta y el CDC). Ver `facturador/kude-pdf.js`.

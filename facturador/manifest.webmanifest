@@ -2,7 +2,7 @@
   "name": "Facturador",
   "short_name": "Facturador",
   "description": "Facturación electrónica y bandeja de pedidos",
-  "id": "./",
+  "id": "factura-elect-facturador",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

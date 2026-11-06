@@ -1,5 +1,5 @@
 // Guarda la app para usarla sin internet. Primero intenta la red (para recibir actualizaciones) y si no hay, usa la copia.
-const CACHE = "pedidos-v1";
+const CACHE = "pedidos-v2";
 const ASSETS = ["./", "./index.html", "./app.js", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png",
   "../shared/core.js", "../shared/styles.css", "../vendor/lz-string.min.js", "../vendor/qrcode.js"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });

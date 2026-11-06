@@ -152,6 +152,15 @@
   }
 
   // ----- KuDE: mismo diseño que el PDF de prueba -----
+  const consultUrl = () => "https://ekuatia.set.gov.py/consultas" + (company.env === "test" ? "-test" : "") + "/";
+  // Contenido del QR de consulta (en prueba no lleva el hash del CSC real)
+  const qrText = inv => consultUrl() + "qr?nVersion=150&Id=" + String(inv.cdc || "").replace(/\s/g, "");
+  const qrCache = {};
+  function qrImg(inv) {
+    const key = qrText(inv);
+    if (!(key in qrCache)) { const cv = FE.qrCanvas(key); qrCache[key] = cv ? cv.toDataURL("image/png") : ""; }
+    return qrCache[key];
+  }
   function kudeHTML(inv) {
     const T = inv.totals;
     const cdcFmt = inv.cdc || "Pendiente de aprobación";
@@ -198,13 +207,25 @@
             <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T.totalPyg : T.total)}</td></tr>
           </tbody>
         </table>
+        <div class="klist">
+          ${inv.items.map((it, i) => { const c = calcItem(it); return `<div class="ki">
+            <div class="ki-top"><span class="ki-cod">INF${String(i + 1).padStart(3, "0")}</span><b>${esc(it.desc)}</b></div>
+            <div class="ki-row"><span>${it.qty} UNI × ${fmt(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
+            <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fmt(c.total)}</b></div>
+          </div>`; }).join("")}
+          <div class="kt"><span>Subtotal exentas</span><span>${fmt(T.exe)}</span></div>
+          <div class="kt"><span>Subtotal 5%</span><span>${fmt(T.b5)}</span></div>
+          <div class="kt"><span>Subtotal 10%</span><span>${fmt(T.b10)}</span></div>
+          <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fmt(T.total)}</span></div>
+          <div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(isUSD ? T.totalPyg : T.total)}</span></div>
+        </div>
         </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fmt(T.iva5)}</span><span>(10%) ${fmt(T.iva10)}</span><span>TOTAL IVA ${fmt(T.iva)}</span></div>
       </div>
       <div class="box"><div class="foot">
-        <div class="qr">${inv.cdc ? "QR de prueba<br>(se genera al aprobar)" : "QR al aprobarse"}</div>
+        ${inv.cdc && qrImg(inv) ? `<div class="qr has"><img src="${qrImg(inv)}" alt="QR de consulta"></div>` : `<div class="qr">QR al aprobarse</div>`}
         <div>
           <div style="font-size:10px">Consulte la validez de esta factura electrónica con el número de CDC en:</div>
-          <a class="link" href="#" onclick="return false">https://ekuatia.set.gov.py/consultas${test ? "-test" : ""}/</a>
+          <a class="link" href="#" onclick="return false">${esc(consultUrl())}</a>
           <div class="cdc">CDC: ${esc(cdcFmt)}</div>
           <div class="legal">ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA DE UN DOCUMENTO ELECTRÓNICO (XML)</div>
           <div class="legal"><b>Información de interés del facturador electrónico emisor.</b><br>Si su documento electrónico presenta algún error, podrá solicitar la modificación dentro de las 72 horas siguientes a la emisión de este comprobante.</div>
@@ -410,6 +431,8 @@
             <button class="link" data-delclient="${esc(c.id)}" style="color:var(--bad)">Quitar</button></div>`).join("")
             : `<div class="muted small">Se guardan solos al emitir facturas aprobadas.</div>`}
         </div></div>
+      <div class="section"><div class="section-title">Instalar en este dispositivo</div>
+        <div class="card">${FE.installHTML("Facturador")}</div></div>
       <div class="section"><div class="section-title">Seguridad</div>
         <div class="btn-row"><button class="btn soft" data-changepin>Cambiar PIN</button><button class="btn" data-lock>Bloquear ahora</button></div>
       </div>
@@ -571,7 +594,7 @@
       state.preview = buildInvoice(state.draft); go("preview"); return;
     }
     if (ds.back) { go(ds.back); return; }
-    if (ds.pdf !== undefined) { downloadKudePdf(ds.pdf && ds.pdf !== "1" ? ds.pdf : state.preview && state.preview.number); return; }
+    if (ds.pdf !== undefined) { downloadKudePdf(); return; }
     if (ds.removeLogo !== undefined) { company.logo = null; save(); toast("Logo quitado"); render(); return; }
     if (ds.emit) { emit(); return; }
     if (ds.open) { state.detailId = +ds.open; go("detail"); return; }
@@ -604,6 +627,7 @@
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
     if (ds.changepin !== undefined) { Lock.change(); return; }
     if (ds.lock !== undefined) { Lock.lockNow(); return; }
+    if (ds.install !== undefined) { FE.promptInstall(); return; }
     if (ds.backup !== undefined) { FE.exportBackup(store, "facturador"); return; }
   });
 
@@ -642,30 +666,18 @@
     reader.readAsDataURL(file);
   }
 
-  // Descarga del KuDE como PDF (html2canvas + jsPDF incluidos en /vendor). Si falla, usa imprimir.
-  const LIBS = { h2c: "../vendor/html2canvas.min.js", jspdf: "../vendor/jspdf.umd.min.js" };
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
-      const sc = document.createElement("script"); sc.src = src; sc.onload = resolve; sc.onerror = reject;
-      document.head.appendChild(sc);
-    });
-  }
-  async function downloadKudePdf(number) {
-    const el = document.getElementById("kudeBody");
-    if (!el) { toast("Primero abrí la vista previa"); return; }
+  // PDF del KuDE con texto real (seleccionable y buscable), dibujado con jsPDF a partir de los datos.
+  async function downloadKudePdf() {
+    const inv = state.screen === "preview" ? state.preview : ((invoices.find(x => x.id === state.detailId) || {}).kude);
+    if (!inv) { toast("No hay datos para generar el PDF"); return; }
+    if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await loadScript(LIBS.h2c); await loadScript(LIBS.jspdf);
-      const canvas = await window.html2canvas(el, { scale: 2, backgroundColor: "#FFFFFF" });
-      const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-      const margin = 10, imgW = 210 - margin * 2;
-      const imgH = canvas.height * imgW / canvas.width;
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgW, imgH);
-      pdf.save("KuDE_" + String(number || "prueba").replace(/[^0-9A-Za-z-]/g, "_") + ".pdf");
+      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.cdc ? qrText(inv) : "" });
       toast("PDF descargado");
     } catch (err) {
-      toast("No se pudo generar el PDF aquí. Se abre la impresión: elegí Guardar como PDF");
+      console.error(err);
+      toast("No se pudo generar el PDF. Se abre la impresión: elegí Guardar como PDF");
       window.print();
     }
   }
@@ -757,6 +769,7 @@
   })();
 
   render();
+  FE.onInstallChange(() => { if (state.screen === "settings") render(); });
   Lock.init();
   FE.registerSW();
 })();

@@ -165,6 +165,8 @@
           <button class="btn soft" data-saveseller style="margin-top:10px">Guardar nombre</button>
           <div class="kv" style="margin-top:8px"><span class="muted">Código de este dispositivo</span><span>${esc(settings.deviceId)}</span></div>
         </div></div>
+      <div class="section"><div class="section-title">Instalar en este dispositivo</div>
+        <div class="card">${FE.installHTML("Pedidos")}</div></div>
       <div class="section"><div class="section-title">Respaldo</div>
         <div class="card">
           <p class="small muted" style="margin-top:0">Los pedidos se guardan solo en este dispositivo. Descargá un respaldo de vez en cuando.</p>
@@ -346,6 +348,7 @@
       if (!v) { toast("Escribí tu nombre"); return; }
       settings.seller = v; save(); render(); toast("Nombre guardado"); return;
     }
+    if (ds.install !== undefined) { FE.promptInstall(); return; }
     if (ds.backup !== undefined) { FE.exportBackup(store, "pedidos"); return; }
   });
   screenEl.addEventListener("input", e => {
@@ -370,6 +373,7 @@
   document.querySelector(".tabbar").addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });
 
   render();
+  FE.onInstallChange(() => { if (state.screen === "settings") render(); });
   if (!settings.seller) askSeller();
   FE.registerSW();
 })();

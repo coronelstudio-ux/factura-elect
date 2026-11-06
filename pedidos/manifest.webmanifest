@@ -2,7 +2,7 @@
   "name": "Pedidos",
   "short_name": "Pedidos",
   "description": "Carga de pedidos para enviar al facturador",
-  "id": "./",
+  "id": "factura-elect-pedidos",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

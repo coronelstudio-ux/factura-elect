@@ -189,3 +189,38 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-c
 .kv > span:last-child { text-align: right; overflow-wrap: anywhere; }
 select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
 .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; margin-left: 4px; }
+
+/* ===== KuDE adaptable: en pantallas angostas los productos se muestran como lista, sin desplazamiento lateral ===== */
+.kude { container-type: inline-size; overflow-wrap: anywhere; }
+.kude .klist { display: none; }
+.kude .ki { padding: 6px 8px; border-bottom: 1px solid #DDD; font-size: 10.5px; }
+.kude .ki-top { display: flex; gap: 6px; align-items: baseline; }
+.kude .ki-cod { color: #555; font-size: 9px; flex: none; }
+.kude .ki-row { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kude .ki-row .lbl { color: #555; }
+.kude .kt { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; font-size: 10.5px; border-bottom: 1px solid #DDD; font-variant-numeric: tabular-nums; }
+.kude .kt.b { font-weight: 700; border-bottom: 1px solid #111; }
+.kude .qr img { width: 100%; height: 100%; image-rendering: pixelated; }
+.kude .qr.has { padding: 0; border: 0; }
+@container (max-width: 600px) {
+  .kude .tblwrap table { display: none; }
+  .kude .klist { display: block; }
+  .kude .hd > div { display: block; width: 100%; }
+  .kude .hd > div + div { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #BBB; }
+  .kude .liq { flex-wrap: wrap; }
+}
+@container (max-width: 360px) {
+  .kude .grid > div { display: block; width: 100%; }
+  .kude .foot > div:first-child, .kude .foot > div:last-child { display: block; width: 100%; }
+  .kude .qr { margin: 0 auto 8px; }
+}
+@supports not (container-type: inline-size) {
+  .kude .tblwrap table { display: none; }
+  .kude .klist { display: block; }
+  .kude .hd > div { display: block; width: 100%; }
+}
+@media print {
+  .kude .tblwrap table { display: table !important; }
+  .kude .klist { display: none !important; }
+}
+.install-ok { color: var(--accent); font-weight: 700; }

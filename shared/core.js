@@ -400,7 +400,31 @@
     }
   }
 
+  // ================= Instalar como app =================
+  // Chrome/Edge en Android y computadora avisan con beforeinstallprompt; iPhone se instala desde Compartir.
+  let installEvt = null; const installSubs = [];
+  global.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; installSubs.forEach(f => f()); });
+  global.addEventListener("appinstalled", () => { installEvt = null; toast("App instalada"); installSubs.forEach(f => f()); });
+  const isStandalone = () => (global.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  function installHTML(appName) {
+    if (isStandalone()) return `<div class="small"><span class="install-ok">✓ Ya estás usando la app instalada.</span></div>`;
+    if (installEvt) return `<button class="btn primary" data-install>Instalar ${esc(appName)}</button>`;
+    if (isIOS()) return `<div class="small">En iPhone: tocá <b>Compartir</b> y luego <b>Agregar a inicio</b>.</div>`;
+    return `<div class="small">Abrí el menú del navegador (⋮) y elegí <b>Instalar app</b> o <b>Agregar a pantalla principal</b>.
+      <div class="muted" style="margin-top:6px">Si dice que ya está instalada, desinstalá la versión anterior (mantené presionado el ícono → Desinstalar) y volvé a abrir esta página.</div></div>`;
+  }
+  async function promptInstall() {
+    if (!installEvt) return false;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch (_) {}
+    installEvt = null; installSubs.forEach(f => f());
+    return true;
+  }
+  const onInstallChange = f => installSubs.push(f);
+
   global.FE = {
+    installHTML, promptInstall, onInstallChange, isStandalone,
     fmt, esc, fmtDate, todayKey, localDayKey, INNOMINATE_LIMIT, registry, dv11, parseRuc, classify, opName,
     calcItem, calcItems, taxLabel, makeStore, randomId, toast, sheet, confirmSheet, itemSheet,
     upsertClient, clientPicker, encodePedido, decodePedido, qrCanvas, readQrFromFile, openScanner,
