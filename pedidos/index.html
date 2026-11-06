@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1F5AA6">
+<title>Pedidos</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pedidos">
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  /* Pedidos usa azul para no confundirla con el Facturador (verde) */
+  :root { --accent: #1F5AA6; --accent-strong: #184A8A; --accent-soft: #E6EEF8; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #7FB0F0; --accent-strong: #9AC2F5; --accent-soft: #1A2A40; --accent-text: #0F1712; } }
+  :root[data-theme="dark"] { --accent: #7FB0F0; --accent-strong: #9AC2F5; --accent-soft: #1A2A40; --accent-text: #0F1712; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="row1">
+      <h1 id="title">Nuevo pedido</h1>
+      <span class="env">Pedidos</span>
+    </div>
+    <div class="company" id="companyLine"></div>
+  </header>
+  <main class="screen" id="screen"></main>
+  <nav class="tabbar" aria-label="Navegación principal" style="--tabs:4">
+    <button class="tab" data-go="new"><span class="ico">&#43;</span>Nuevo</button>
+    <button class="tab" data-go="list"><span class="ico">&#9776;</span>Pedidos</button>
+    <button class="tab" data-go="clients"><span class="ico">&#9786;</span>Clientes</button>
+    <button class="tab" data-go="settings"><span class="ico">&#9881;</span>Ajustes</button>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+<script src="../vendor/lz-string.min.js"></script>
+<script src="../vendor/qrcode.js"></script>
+<script src="../shared/core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

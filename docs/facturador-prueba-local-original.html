@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Facturador electrónico</title>
+<style>
+  :root {
+    --bg: #F4F7F5;
+    --surface: #FFFFFF;
+    --text: #17211B;
+    --muted: #5D6B62;
+    --border: #DCE4DE;
+    --accent: #1E7B4C;
+    --accent-strong: #176139;
+    --accent-soft: #E7F4EC;
+    --accent-text: #FFFFFF;
+    --bad: #B42318;
+    --bad-soft: #FDECEA;
+    --warn: #8C6100;
+    --warn-soft: #FDF4DC;
+    --radius: 14px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1712; --surface: #17221B; --text: #E8F1EB; --muted: #98A89E; --border: #2A3A2F;
+      --accent: #4CC48A; --accent-strong: #63D39C; --accent-soft: #1D3327; --accent-text: #0F1712;
+      --bad: #F08A80; --bad-soft: #3A1D1A; --warn: #E8C36A; --warn-soft: #34290F; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1712; --surface: #17221B; --text: #E8F1EB; --muted: #98A89E; --border: #2A3A2F;
+    --accent: #4CC48A; --accent-strong: #63D39C; --accent-soft: #1D3327; --accent-text: #0F1712;
+    --bad: #F08A80; --bad-soft: #3A1D1A; --warn: #E8C36A; --warn-soft: #34290F; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.4; -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 480px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+  .topbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 12px) 18px 10px; }
+  .topbar .row1 { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .topbar h1 { font-size: 19px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  .env { font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 4px 10px; border-radius: 999px; }
+  .company { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .screen { flex: 1; padding: 6px 18px 130px; }
+  .tabbar { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
+    background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4,1fr);
+    padding: 6px 0 calc(env(safe-area-inset-bottom,0px) + 6px); z-index: 10; }
+  .tab { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; min-height: 52px; cursor: pointer; padding: 6px 0; }
+  .tab.on { color: var(--accent); font-weight: 700; }
+  .tab .ico { display: block; font-size: 17px; line-height: 1.1; margin-bottom: 2px; }
+
+  h2 { font-size: 22px; margin: 6px 0 4px; font-weight: 700; letter-spacing: -.01em; }
+  .lead { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+  .section { margin-top: 18px; }
+  .section-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+  .num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-text); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex: none; }
+  .num.done { background: var(--accent-soft); color: var(--accent); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .hero { background: var(--accent); color: var(--accent-text); border-radius: var(--radius); padding: 18px; }
+  .hero .label { font-size: 13px; opacity: .85; }
+  .hero .value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .hero .meta { font-size: 13px; opacity: .9; margin-top: 8px; }
+  .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .row:last-child { border-bottom: 0; }
+  .row .main { min-width: 0; }
+  .row .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .sub { font-size: 13px; color: var(--muted); margin-top: 1px; }
+  .amount { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.ok { color: var(--accent); background: var(--accent-soft); }
+  .chip.bad { color: var(--bad); background: var(--bad-soft); }
+  .chip.warn { color: var(--warn); background: var(--warn-soft); }
+  .chip.neutral { color: var(--muted); background: var(--border); }
+  .chip.neutral::before { display: none; }
+
+  .notice { border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 10px; }
+  .notice.ok { background: var(--accent-soft); color: var(--text); }
+  .notice.bad { background: var(--bad-soft); color: var(--text); }
+  .notice.warn { background: var(--warn-soft); color: var(--text); }
+  .notice b { display: block; margin-bottom: 2px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; font-weight: 600; }
+  input, select {
+    width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; min-height: 50px; appearance: none;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--border); border-radius: 12px; padding: 4px; gap: 4px; }
+  .seg button { font: inherit; font-size: 14px; border: 0; background: transparent; color: var(--muted); min-height: 42px; border-radius: 9px; cursor: pointer; font-weight: 600; }
+  .seg button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .btn { font: inherit; font-size: 16px; font-weight: 700; min-height: 50px; border-radius: 12px; padding: 12px 16px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; width: 100%; }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.soft { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn-row .btn { font-size: 15px; min-height: 48px; }
+  .link { background: none; border: 0; color: var(--accent); font: inherit; font-weight: 600; padding: 8px 0; min-height: 44px; cursor: pointer; }
+  .add { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: none; border: 1.5px dashed var(--accent); color: var(--accent); border-radius: 12px; min-height: 48px; font: inherit; font-weight: 700; cursor: pointer; margin-top: 8px; }
+
+  .item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .item:last-of-type { border-bottom: 0; }
+  .item .desc { font-weight: 600; }
+  .item .calc { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .item .del { grid-column: 2; grid-row: 1 / span 2; align-self: start; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; min-height: 32px; padding: 0 0 0 6px; }
+
+  .detect { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .detect .kind { font-weight: 700; color: var(--accent); }
+  .detect .why { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  .sticky-total { position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
+    background: var(--surface); border-top: 1px solid var(--border); padding: 12px 18px; z-index: 9; }
+  .sticky-total .line { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .sticky-total .big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sticky-total .muted { font-size: 13px; }
+
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 140px; background: var(--text); color: var(--bg);
+    padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; z-index: 30; }
+  .toast.show { opacity: 1; }
+  .hidden { display: none !important; }
+
+  /* ===== KuDE: mismo diseño que el PDF de prueba, compacto ===== */
+  .kude { background: #FFFFFF; color: #111; font-family: Helvetica, Arial, sans-serif; font-size: 11px; line-height: 1.3; padding: 10px; border-radius: 8px; border: 1px solid #CFD8D2; }
+  .kude .band { text-align: center; color: #B42318; font-weight: 700; font-size: 10px; }
+  .kude .logo-img { max-width: 150px; max-height: 56px; display: block; margin-bottom: 6px; }
+  .kude .band2 { text-align: center; color: #B42318; font-size: 8px; margin-top: -2px; margin-bottom: 4px; }
+  .kude .ttl { text-align: center; font-size: 11px; margin: 2px 0 6px; }
+  .kude .box { border: 1px solid #111; padding: 6px 8px; margin-bottom: 6px; }
+  .kude .hd > div { display: inline-block; width: 49%; vertical-align: top; }
+  .kude .logo { border: 1px dashed #8A8A8A; color: #8A8A8A; font-size: 9px; text-align: center; padding: 8px 4px; width: 60%; margin-bottom: 6px; }
+  .kude .em { font-size: 9.5px; }
+  .kude .em b { font-size: 11px; }
+  .kude .r { text-align: right; }
+  .kude .fact { font-weight: 700; font-size: 12px; margin-top: 8px; }
+  .kude .grid { font-size: 10px; }
+  .kude .grid > div { display: inline-block; width: 49%; vertical-align: top; margin-bottom: 4px; }
+  .kude .grid div span { font-weight: 700; }
+  .tblwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .kude table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 9.5px; table-layout: fixed; }
+  .kude td, .kude th { overflow: hidden; }
+  .kude td.n, .kude th.n { white-space: nowrap; }
+  .kude col.c-cod { width: 11%; } .kude col.c-desc { width: 26%; } .kude col.c-un { width: 8%; } .kude col.c-qty { width: 9%; } .kude col.c-pu { width: 13%; } .kude col.c-dc { width: 7%; } .kude col.c-ex { width: 9%; } .kude col.c-5 { width: 8.5%; } .kude col.c-10 { width: 8.5%; }
+  .kude th { text-align: left; border-bottom: 1px solid #111; padding: 3px 2px; font-size: 9.5px; }
+  .kude td { padding: 3px 2px; border-bottom: 1px solid #DDD; }
+  .kude .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .kude .tot-row td { border-bottom: 1px solid #111; font-weight: 700; }
+  .kude .liq { font-weight: 700; font-size: 10px; display: flex; justify-content: space-between; padding-top: 4px; gap: 6px; }
+  .kude .foot > div:first-child { display: inline-block; width: 92px; vertical-align: top; }
+  .kude .foot > div:last-child { display: inline-block; width: calc(100% - 100px); vertical-align: top; }
+  .kude .qr { width: 84px; height: 84px; border: 1px solid #111; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: #666; padding: 4px; }
+  .kude .cdc { background: #C9DBEF; text-align: center; font-weight: 700; font-size: 10px; padding: 4px; margin: 4px 0; letter-spacing: .02em; }
+  .kude .link { color: #1F5AA6; font-size: 10px; padding: 0; min-height: 0; text-decoration: none; }
+  .kude .legal { font-size: 9px; margin-top: 4px; }
+  .kude .note { font-size: 8.5px; color: #555; margin-top: 6px; text-align: left; }
+
+  @media print {
+    body * { visibility: hidden !important; }
+    #kudeBody, #kudeBody * { visibility: visible !important; }
+    #kudeBody { position: absolute; left: 0; top: 0; width: 100%; }
+    .tabbar, .topbar, .sticky-total { display: none !important; }
+    .kude { border: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="row1">
+      <h1 id="title">Inicio</h1>
+      <span class="env" id="envChip">Prueba</span>
+    </div>
+    <div class="company" id="companyLine"></div>
+  </header>
+
+  <main class="screen" id="screen"></main>
+
+  <nav class="tabbar" aria-label="Navegación principal">
+    <button class="tab" data-go="home"><span class="ico">&#8962;</span>Inicio</button>
+    <button class="tab" data-go="new"><span class="ico">&#43;</span>Nueva</button>
+    <button class="tab" data-go="history"><span class="ico">&#9776;</span>Historial</button>
+    <button class="tab" data-go="settings"><span class="ico">&#9881;</span>Ajustes</button>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script>
+(function () {
+  // ================= Datos de ejemplo (ficticios) =================
+  const company = {
+    name: "Comercial Ejemplo S.A.", fantasy: "Ejemplo Store", ruc: "80012345", dv: "0",
+    activity: "Venta al por menor de artículos de librería", address: "Av. Principal Nº 1234",
+    city: "Asunción", phone: "021 000 000", mail: "facturacion@ejemplo.com.py",
+    timbrado: "00000000", start: "01/11/2026", end: "31/10/2027",
+    establishment: "001", point: "001", leftToUse: 320, env: "test", certExpires: "15/03/2027", csc: "0001", logo: null
+  };
+
+  // Búsqueda simulada en el registro de contribuyentes (en producción: consulta RUC de la DNIT, manual 9.6)
+  const registry = {
+    "4567890-1": { name: "Juan Pérez", type: "Persona física", regime: "Simple", oee: false },
+    "3210987-3": { name: "María Gómez", type: "Persona física", regime: "Unipersonal", oee: false },
+    "80098765-9": { name: "Librería Central S.A.", type: "Persona jurídica", regime: "Sociedad", oee: false },
+    "80011111-7": { name: "Municipalidad de Ejemplo", type: "Persona jurídica", regime: "Organismo del Estado", oee: true }
+  };
+
+  const invoices = [
+    { id: 1, number: "001-001-0000012", date: "2026-11-04T16:22:48", client: "Juan Pérez", ruc: "4567890-1", total: 129000, status: "ok", cdc: "0180 0123 4500 0100 1000 0012 2202 6110 4141 7392 8510", operation: "B2B" },
+    { id: 2, number: "001-001-0000011", date: "2026-11-03T09:05:00", client: "Consumidor final", ruc: "", total: 42000, status: "warn", cdc: "", operation: "B2C" },
+    { id: 3, number: "001-001-0000010", date: "2026-11-02T16:40:00", client: "Librería Central S.A.", ruc: "80098765-9", total: 1250000, status: "bad", cdc: "", operation: "B2B", reason: "1103 Número de timbrado no vigente" },
+    { id: 4, number: "001-001-0000009", date: "2026-11-02T11:12:00", client: "María Gómez", ruc: "3210987-3", total: 96800, status: "ok", cdc: "", operation: "B2B" }
+  ];
+
+  const INNOMINATE_LIMIT = 7000000;
+
+  // ================= Algoritmo: operación según el tipo de receptor =================
+  // Dígito verificador: módulo 11 (NT 014), pesos 2 a 9 desde la derecha.
+  function dv11(digits) {
+    let total = 0, w = 2;
+    for (let i = digits.length - 1; i >= 0; i--) { total += Number(digits[i]) * w; w = w === 9 ? 2 : w + 1; }
+    const dv = 11 - (total % 11);
+    return dv >= 10 ? 0 : dv;
+  }
+  function parseRuc(text) {
+    const clean = String(text || "").replace(/\s/g, "").toUpperCase();
+    const m = clean.match(/^(\d{4,8})-?(\d)$/);
+    if (!m) return null;
+    return { base: m[1], dv: Number(m[2]), full: m[1] + "-" + m[2] };
+  }
+  // Devuelve { mode, operation, label, why, valid }
+  function classify(receiver, total) {
+    if (receiver.mode === "sin") {
+      const needsDoc = total >= INNOMINATE_LIMIT;
+      return {
+        mode: "sin", operation: "B2C", label: "Consumidor final", valid: !needsDoc || !!receiver.doc,
+        why: needsDoc
+          ? "Desde Gs 7.000.000 hay que identificar al comprador con su documento."
+          : "Sin RUC: se factura como venta a consumidor."
+      };
+    }
+    const parsed = parseRuc(receiver.ruc);
+    if (!parsed) return { mode: "con", valid: false, label: "", why: "Escribí el RUC con su dígito verificador, por ejemplo 4567890-1." };
+    if (dv11(parsed.base) !== parsed.dv) return { mode: "con", valid: false, label: "", why: "El dígito verificador no corresponde a ese RUC. Revisá el número." };
+    const info = registry[parsed.full];
+    if (!info) {
+      return { mode: "con", valid: true, operation: "B2B", label: "Contribuyente", name: "",
+        why: "RUC válido. No aparece en la búsqueda de prueba: se factura como empresa a empresa." };
+    }
+    if (info.oee) {
+      return { mode: "con", valid: true, operation: "B2G", label: info.regime, name: info.name,
+        why: "Organismo del Estado: se factura como venta al Estado y necesita el código DNCP." };
+    }
+    return { mode: "con", valid: true, operation: "B2B", label: `${info.type} · ${info.regime}`, name: info.name,
+      why: "Contribuyente con RUC: se factura como empresa a empresa. No tenés que elegirlo." };
+  }
+  const opName = { B2B: "Empresa a empresa", B2C: "Empresa a consumidor", B2G: "Empresa a Estado", B2F: "Empresa a extranjero" };
+
+  // ================= Estado =================
+  const state = { screen: "home", filter: "all", detailId: null, lastResult: null,
+    draft: newDraft(), preview: null };
+  function newDraft() {
+    return { mode: "con", ruc: "", name: "", doc: "", email: "", condition: "contado", installments: 1,
+      currency: "PYG", exchange: "", items: [] };
+  }
+
+  // ================= Cálculos =================
+  const fmt = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmtDate = iso => { const d = new Date(iso); return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }) + " · " + d.toLocaleTimeString("es-PY", { hour: "2-digit", minute: "2-digit" }); };
+  function calcItem(it) {
+    const gross = Math.round(it.qty * it.price);
+    const disc = Math.round(gross * (it.discount || 0) / 100);
+    const total = gross - disc;
+    const iva10 = it.tax === "10" ? Math.floor(total / 11) : 0;
+    const iva5 = it.tax === "5" ? Math.floor(total / 21) : 0;
+    return { total, iva10, iva5, iva: iva10 + iva5, exe: it.tax === "E" ? total : 0, b5: it.tax === "5" ? total : 0, b10: it.tax === "10" ? total : 0 };
+  }
+  function calcDraft(d) {
+    const t = { exe: 0, b5: 0, b10: 0, iva5: 0, iva10: 0, iva: 0, total: 0, count: d.items.length };
+    d.items.forEach(it => { const c = calcItem(it); t.total += c.total; t.exe += c.exe; t.b5 += c.b5; t.b10 += c.b10; t.iva5 += c.iva5; t.iva10 += c.iva10; });
+    t.iva = t.iva5 + t.iva10; return t;
+  }
+  const taxLabel = t => t === "10" ? "IVA 10%" : t === "5" ? "IVA 5%" : "Exento";
+
+  // ================= Utilidades de interfaz =================
+  function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2200); }
+  const statusChip = s => s === "ok" ? '<span class="chip ok">Aprobada</span>' : s === "bad" ? '<span class="chip bad">Rechazada</span>' : '<span class="chip warn">Pendiente</span>';
+  function companyLine() { document.getElementById("companyLine").textContent = company.name + " · RUC " + company.ruc + "-" + company.dv; document.getElementById("envChip").textContent = company.env === "test" ? "Prueba" : "Producción"; }
+
+  // ================= Pantallas =================
+  function screenHome() {
+    const today = invoices.filter(i => i.status === "ok" && i.date.startsWith("2026-11-04")).reduce((a, i) => a + i.total, 0);
+    const pending = invoices.filter(i => i.status === "warn").length;
+    const rejected = invoices.filter(i => i.status === "bad").length;
+    return `
+      <div class="hero">
+        <div class="label">Facturado hoy</div>
+        <div class="value">Gs ${fmt(today)}</div>
+        <div class="meta">${invoices.filter(i => i.date.startsWith("2026-11-04") && i.status === "ok").length} aprobada(s) · ${pending} pendiente(s)</div>
+      </div>
+      <div class="quick">
+        <button class="btn primary" data-go="new">Nueva factura</button>
+        <button class="btn soft" data-go="history">Ver historial</button>
+      </div>
+      ${rejected ? `<div class="notice bad"><b>Hay ${rejected} factura rechazada</b>Abrila en el historial para ver el motivo y corregirla.</div>` : ""}
+      <div class="notice ok"><b>Te quedan ${company.leftToUse} números</b>Todavía tenés numeración disponible en el timbrado ${company.timbrado}.</div>
+      <div class="section">
+        <div class="section-title">Últimos comprobantes</div>
+        <div class="card">${invoices.slice(0, 4).map(rowInvoice).join("")}</div>
+      </div>`;
+  }
+  function rowInvoice(i) {
+    return `<div class="row" data-open="${i.id}" role="button" tabindex="0">
+      <div class="main"><div class="title">${esc(i.client)}</div><div class="sub">${esc(i.number)} · ${fmtDate(i.date)}</div></div>
+      <div style="text-align:right"><div class="amount">Gs ${fmt(i.total)}</div><div style="margin-top:4px">${statusChip(i.status)}</div></div>
+    </div>`;
+  }
+
+  function screenNew() {
+    const d = state.draft;
+    const t = calcDraft(d);
+    const r = classify(d, t.total);
+    const hasItems = d.items.length > 0;
+    const canPreview = r.valid && hasItems && (d.mode === "sin" || r.label) ;
+    const step1Done = r.valid;
+    return `
+      <div class="lead">Elegí el tipo de cliente. El tipo de operación se detecta solo.</div>
+
+      <div class="section">
+        <div class="section-title"><span class="num ${step1Done ? "done" : ""}">1</span>Cliente</div>
+        <div class="seg">
+          <button data-mode="con" class="${d.mode === "con" ? "on" : ""}">Con RUC</button>
+          <button data-mode="sin" class="${d.mode === "sin" ? "on" : ""}">Sin RUC</button>
+        </div>
+
+        ${d.mode === "con" ? `
+          <div class="grid2">
+            <div><label for="fRuc">RUC</label><input id="fRuc" inputmode="text" placeholder="4567890-1" value="${esc(d.ruc)}"></div>
+            <div><label for="fName">Nombre o razón social</label><input id="fName" placeholder="Se completa solo" value="${esc(d.name)}"></div>
+          </div>
+        ` : `
+          <label for="fDoc">Documento de identidad ${(calcDraft(d).total >= INNOMINATE_LIMIT) ? "(obligatorio)" : "(opcional)"}</label>
+          <input id="fDoc" inputmode="numeric" placeholder="Número de documento" value="${esc(d.doc)}">
+          <label for="fName2">Nombre (opcional)</label>
+          <input id="fName2" placeholder="Consumidor final" value="${esc(d.name)}">
+        `}
+
+        ${d.mode === "con" && d.ruc.trim() ? `
+          <div class="${r.valid ? "detect" : "notice bad"}">
+            ${r.valid ? `<div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div>
+              ${r.name ? `<div class="small" style="margin-top:2px">${esc(r.name)}</div>` : ""}
+              <div class="why">${esc(r.why)}</div>`
+              : `<div>${esc(r.why)}</div>`}
+          </div>` : ""}
+        ${d.mode === "sin" ? `
+          <div class="detect"><div class="kind">Consumidor final · Empresa a consumidor (B2C)</div>
+            <div class="why">${esc(r.why)}</div></div>` : ""}
+
+        <label for="fEmail">Correo para enviar la factura (opcional)</label>
+        <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
+      </div>
+
+      <div class="section">
+        <div class="section-title"><span class="num ${hasItems ? "done" : ""}">2</span>Productos</div>
+        <div class="card">
+          ${!hasItems ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos o servicios.</div>` :
+            d.items.map((it, idx) => {
+              const c = calcItem(it);
+              return `<div class="item">
+                <div class="desc">${esc(it.desc)}</div>
+                <div class="amount">Gs ${fmt(c.total)}</div>
+                <div class="calc">${it.qty} × Gs ${fmt(it.price)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</div>
+                <button class="del" data-del="${idx}">Quitar</button>
+              </div>`;
+            }).join("")}
+          <button class="add" data-add="1">+ Agregar producto o servicio</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title"><span class="num">3</span>Condición de venta</div>
+        <div class="seg">
+          <button data-cond="contado" class="${d.condition === "contado" ? "on" : ""}">Contado</button>
+          <button data-cond="credito" class="${d.condition === "credito" ? "on" : ""}">Crédito</button>
+        </div>
+        <div class="grid2" style="margin-top:4px">
+          ${d.condition === "credito" ? `<div><label for="fCuotas">Cuotas</label><input id="fCuotas" inputmode="numeric" value="${d.installments}"></div>` : `<div></div>`}
+          <div><label for="fCur">Moneda</label>
+            <select id="fCur"><option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select></div>
+        </div>
+        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" inputmode="numeric" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
+      </div>
+
+      <div class="sticky-total">
+        <div class="line"><span class="muted">${t.count ? t.count + (t.count === 1 ? " producto" : " productos") : "Total"}</span>
+          <span class="big">${d.currency === "USD" ? "USD " : "Gs "}${fmt(t.total)}</span></div>
+        <button class="btn primary" data-preview="1" ${canPreview ? "" : "disabled"}>Ver factura</button>
+      </div>`;
+  }
+
+  function addItemSheet() {
+    const back = document.createElement("div");
+    back.id = "sheet";
+    back.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:30;display:flex;align-items:flex-end;justify-content:center;";
+    back.innerHTML = `
+      <div style="background:var(--surface);width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:18px 18px calc(env(safe-area-inset-bottom,0px) + 18px);">
+        <div style="font-weight:700;font-size:18px;margin-bottom:4px">Nuevo producto</div>
+        <label for="iDesc">Descripción</label><input id="iDesc" placeholder="Ej. Resma A4 500 hojas">
+        <div class="grid2">
+          <div><label for="iQty">Cantidad</label><input id="iQty" inputmode="decimal" value="1"></div>
+          <div><label for="iPrice">Precio unitario</label><input id="iPrice" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="iTax">Impuesto</label><select id="iTax"><option value="10">IVA 10%</option><option value="5">IVA 5%</option><option value="E">Exento</option></select></div>
+          <div><label for="iDisc">Descuento (%)</label><input id="iDisc" inputmode="numeric" value="0"></div>
+        </div>
+        <div class="btn-row" style="margin-top:18px">
+          <button class="btn" id="iCancel">Cancelar</button>
+          <button class="btn primary" id="iSave">Agregar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", e => { if (e.target === back) back.remove(); });
+    back.querySelector("#iCancel").onclick = () => back.remove();
+    back.querySelector("#iSave").onclick = () => {
+      const desc = back.querySelector("#iDesc").value.trim();
+      const qty = parseFloat(back.querySelector("#iQty").value.replace(",", ".")) || 0;
+      const price = Math.round(parseFloat(back.querySelector("#iPrice").value.replace(/\./g, "").replace(",", ".")) || 0);
+      const disc = parseFloat(back.querySelector("#iDisc").value) || 0;
+      const tax = back.querySelector("#iTax").value;
+      if (!desc) { toast("Escribí el nombre del producto"); return; }
+      if (qty <= 0 || price <= 0) { toast("La cantidad y el precio tienen que ser mayores a cero"); return; }
+      state.draft.items.push({ desc, qty, price, tax, discount: disc });
+      back.remove(); render();
+    };
+    setTimeout(() => back.querySelector("#iDesc").focus(), 60);
+  }
+
+  // ----- KuDE: mismo diseño que el PDF de prueba -----
+  function kudeHTML(inv) {
+    const T = inv.totals;
+    const cdcFmt = inv.cdc || "Pendiente de aprobación";
+    const isUSD = inv.currency === "USD";
+    return `
+    <div class="kude" id="kudeBody">
+      <div class="band">AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA</div>
+      ${company.env === "test" ? `<div class="band2">DOCUMENTO ELECTRÓNICO SIN VALOR COMERCIAL NI FISCAL - GENERADO EN AMBIENTE DE PRUEBA</div>` : ""}
+      <div class="ttl">KuDE de Factura Electrónica</div>
+      <div class="box">
+        <div class="hd">
+          <div>
+            ${company.logo ? `<img class="logo-img" src="${company.logo}" alt="Logo del emisor">` : `<div class="logo">Logo del emisor<br>(lo carga el cliente)</div>`}
+            <div class="em"><b>${esc(company.name)}</b><br>${esc(company.fantasy)}<br>${esc(company.address)}<br>${esc(company.city)} · Tel. ${esc(company.phone)}<br>${esc(company.mail)}<br>Actividad: ${esc(company.activity)}</div>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:12px">RUC: ${esc(company.ruc)}-${esc(company.dv)}</div>
+            <div style="margin-top:4px">Timbrado Nº: ${esc(company.timbrado)}<br>Inicio de vigencia: ${esc(company.start)}<br>Fin de vigencia: ${esc(company.end)}</div>
+            <div class="fact" style="margin-top:12px">FACTURA ELECTRÓNICA</div>
+            <div style="font-weight:700;font-size:11px">${esc(inv.number)}</div>
+          </div>
+        </div>
+      </div>
+      <div class="box">
+        <div class="grid">
+          <div><span>Fecha y hora de emisión</span><br>${esc(inv.dateLabel)}</div>
+          <div><span>RUC / Documento Nº</span><br>${esc(inv.receiverId || "Innominado")}</div>
+          <div><span>Condición de venta</span><br>${inv.condition === "credito" ? "[ ] Contado   [X] Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "[X] Contado   [ ] Crédito"}</div>
+          <div><span>Nombre o razón social</span><br>${esc(inv.receiverName)}</div>
+          <div><span>Moneda</span><br>${isUSD ? "USD" + (inv.exchange ? " · TC " + esc(inv.exchange) : "") : "PYG"}</div>
+          <div><span>Dirección / Correo</span><br>${esc(inv.receiverEmail || "-")}</div>
+          <div><span>Tipo de transacción</span><br>Venta de mercadería</div>
+                  </div>
+      </div>
+      <div class="box" style="padding:0"><div class="tblwrap">
+        <table>
+          <colgroup><col class="c-cod"><col class="c-desc"><col class="c-un"><col class="c-qty"><col class="c-pu"><col class="c-dc"><col class="c-ex"><col class="c-5"><col class="c-10"></colgroup>
+          <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th><th class="n">Precio</th><th class="n">Desc.</th><th class="n">Exentas</th><th class="n">5%</th><th class="n">10%</th></tr></thead>
+          <tbody>
+            ${inv.items.map((it, i) => { const c = calcItem(it); return `<tr>
+              <td>INF0${i + 12}</td><td>${esc(it.desc)}</td><td>UNI</td>
+              <td class="n">${it.qty}</td><td class="n">${fmt(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
+              <td class="n">${it.tax === "E" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fmt(c.total) : "0"}</td></tr>`; }).join("")}
+            <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fmt(T.exe)}</td><td class="n">${fmt(T.b5)}</td><td class="n">${fmt(T.b10)}</td></tr>
+            <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fmt(T.total)}</td></tr>
+            <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T.totalPyg : T.total)}</td></tr>
+          </tbody>
+        </table>
+        </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fmt(T.iva5)}</span><span>(10%) ${fmt(T.iva10)}</span><span>TOTAL IVA ${fmt(T.iva)}</span></div>
+      </div>
+      <div class="box">
+        <div class="foot">
+          <div class="qr">${inv.cdc ? "QR de prueba<br>(se genera al aprobar)" : "QR al aprobarse"}</div>
+          <div>
+            <div style="font-size:10px">Consulte la validez de esta factura electrónica con el número de CDC en:</div>
+            <a class="link" href="#" onclick="return false">https://ekuatia.set.gov.py/consultas-test/</a>
+            <div class="cdc">CDC: ${esc(cdcFmt)}</div>
+            <div class="legal">ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA DE UN DOCUMENTO ELECTRÓNICO (XML)</div>
+            <div class="legal"><b>Información de interés del facturador electrónico emisor.</b><br>Si su documento electrónico presenta algún error, podrá solicitar la modificación dentro de las 72 horas siguientes a la emisión de este comprobante.</div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Prueba: IdCSC ${esc(company.csc)} con CSC de prueba del manual · Datos ficticios, no es un documento tributario.</div>
+    </div>`;
+  }
+
+  function buildInvoice(d) {
+    const t = calcDraft(d);
+    const r = classify(d, t.total);
+    const now = new Date();
+    const numero = company.establishment + "-" + company.point + "-" + String(13).padStart(7, "0");
+    const isSin = d.mode === "sin";
+    return {
+      number: numero,
+      dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8),
+      receiverId: isSin ? (d.doc || "") : d.ruc,
+      receiverName: isSin ? (d.name || "Consumidor final") : (d.name || r.name || ""),
+      receiverEmail: d.email,
+      items: d.items, currency: d.currency, exchange: d.exchange,
+      condition: d.condition, installments: d.installments,
+      operation: r.operation, operationLabel: opName[r.operation] || "",
+      totals: { exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total,
+        totalPyg: d.currency === "USD" && d.exchange ? Math.round(t.total * parseFloat(String(d.exchange).replace(/\./g, "")) || 0) : t.total },
+      cdc: ""
+    };
+  }
+
+  function screenPreview() {
+    const inv = state.preview;
+    if (!inv) return screenNew();
+    return `
+      <button class="link" data-back="new">← Editar factura</button>
+      <h2>Vista previa</h2>
+      <p class="lead">Revisá los datos. Una vez aprobada, la factura no se puede cambiar: solo cancelarla o emitir una nota de crédito.</p>
+      ${kudeHTML(inv)}
+      <div style="margin-top:14px" class="btn-row">
+        <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar logo<input type="file" id="logoFile" accept="image/*" hidden></label>
+        <button class="btn" data-pdf="1">Descargar PDF</button>
+        <button class="btn primary" data-emit="1">Emitir factura</button>
+      </div>
+      <div class="muted small" style="margin-top:10px;text-align:center">Se usa el ambiente de prueba. La aprobación de SIFEN es simulada.</div>`;
+  }
+
+  function screenResult() {
+    const r = state.lastResult;
+    if (!r) return screenHome();
+    const ok = r.status === "ok";
+    return `
+      <div class="card" style="margin-top:6px;text-align:left;padding:18px">
+        <div>${ok ? '<span class="chip ok">Aprobada</span>' : '<span class="chip bad">Rechazada</span>'}</div>
+        <h2 style="margin-top:10px">${ok ? "Factura emitida" : "No se pudo aprobar"}</h2>
+        <div class="small muted">${esc(r.number)} · ${esc(r.client)}</div>
+        <div class="amount" style="font-size:22px;margin-top:6px">Gs ${fmt(r.total)}</div>
+        ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small" style="font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;margin-top:2px">${esc(r.cdc)}</div>`
+          : `<div class="notice bad" style="margin-top:12px"><b>Motivo</b>${esc(r.reason)}<br>Corregí el dato y volvé a emitir.</div>`}
+      </div>
+      ${ok ? `
+        <div class="section"><div class="section-title">Enviar al cliente</div>
+          <div class="btn-row">
+            <button class="btn soft" data-share="pdf">Descargar PDF</button>
+            <button class="btn primary" data-share="mail">Enviar por correo</button>
+          </div>
+          <div class="muted small" style="margin-top:8px">WhatsApp llega en una próxima versión.</div>
+        </div>` : ""}
+      <div class="btn-row" style="margin-top:18px">
+        <button class="btn" data-go="history">Ver historial</button>
+        <button class="btn primary" data-go="new">Nueva factura</button>
+      </div>`;
+  }
+
+  function screenHistory() {
+    const list = invoices.filter(i => state.filter === "all" || i.status === state.filter);
+    const count = k => k === "all" ? invoices.length : invoices.filter(i => i.status === k).length;
+    const seg = (k, label) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${label} · ${count(k)}</button>`;
+    return `
+      <h2>Historial</h2>
+      <div class="seg" style="grid-auto-columns:1fr">${seg("all", "Todas")}${seg("ok", "Aprobadas")}${seg("warn", "Pendientes")}${seg("bad", "Rechazadas")}</div>
+      <div class="card" style="margin-top:12px">
+        ${list.length ? list.map(rowInvoice).join("") : `<div class="muted small">No hay comprobantes en este filtro.</div>`}
+      </div>`;
+  }
+
+  function screenDetail() {
+    const i = invoices.find(x => x.id === state.detailId);
+    if (!i) return screenHistory();
+    return `
+      <button class="link" data-back="history">← Historial</button>
+      <h2>${esc(i.number)}</h2>
+      <div style="margin-bottom:14px">${statusChip(i.status)}</div>
+      <div class="card">
+        <div class="row" style="cursor:default"><span class="muted">Cliente</span><span>${esc(i.client)}</span></div>
+        <div class="row" style="cursor:default"><span class="muted">RUC / documento</span><span>${esc(i.ruc || "Sin identificar")}</span></div>
+        <div class="row" style="cursor:default"><span class="muted">Operación</span><span>${esc(opName[i.operation])} (${i.operation})</span></div>
+        <div class="row" style="cursor:default"><span class="muted">Fecha</span><span>${fmtDate(i.date)}</span></div>
+        <div class="row" style="cursor:default"><span class="muted">Total</span><span class="amount">Gs ${fmt(i.total)}</span></div>
+        ${i.cdc ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">CDC</div><div class="small" style="font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;margin-top:4px">${esc(i.cdc)}</div></div>` : ""}
+        ${i.reason ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">Motivo del rechazo</div><div style="margin-top:4px;color:var(--bad)">${esc(i.reason)}</div></div>` : ""}
+      </div>
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn soft" data-share="pdf" ${i.status === "ok" ? "" : "disabled"}>Descargar PDF</button>
+        <button class="btn soft" data-share="mail" ${i.status === "ok" ? "" : "disabled"}>Enviar por correo</button>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn" data-cancel="${i.id}" ${i.status === "ok" ? "" : "disabled"}>Cancelar factura</button>
+        <button class="btn primary" data-go="new">Nueva factura</button>
+      </div>
+      <div class="muted small" style="margin-top:12px">Podés cancelar hasta 48 horas después de la aprobación. Después, emití una nota de crédito.</div>`;
+  }
+
+  function screenSettings() {
+    return `
+      <h2>Ajustes</h2>
+      <div class="section"><div class="section-title">Empresa</div>
+        <div class="card">
+          <div class="row" style="cursor:default"><span class="muted">Razón social</span><span>${esc(company.name)}</span></div>
+          <div class="row" style="cursor:default"><span class="muted">RUC</span><span>${esc(company.ruc)}-${esc(company.dv)}</span></div>
+          <div class="row" style="cursor:default"><span class="muted">Establecimiento y punto</span><span>${esc(company.establishment)}-${esc(company.point)}</span></div>
+          <div class="row"><span class="muted">Logo</span><span style="display:flex;gap:10px;align-items:center">${company.logo ? `<img src="${company.logo}" alt="" style="height:28px;max-width:90px;object-fit:contain">` : `<span class="small muted">Sin logo</span>`}<label class="link" style="cursor:pointer">Cargar<input type="file" id="logoFile" accept="image/*" hidden></label>${company.logo ? `<button class="link" data-remove-logo="1">Quitar</button>` : ""}</span></div>
+        </div></div>
+      <div class="section"><div class="section-title">Timbrado y certificado</div>
+        <div class="card">
+          <div class="row" style="cursor:default"><span class="muted">Timbrado Nº</span><span>${esc(company.timbrado)}</span></div>
+          <div class="row" style="cursor:default"><span class="muted">Números disponibles</span><span>${company.leftToUse}</span></div>
+          <div class="row" style="cursor:default"><span class="muted">Certificado vence</span><span>${esc(company.certExpires)}</span></div>
+          <div class="row" style="cursor:default"><span class="muted">Código de seguridad</span><span>Activo · ID ${esc(company.csc)}</span></div>
+        </div></div>
+      <div class="section"><div class="section-title">Ambiente</div>
+        <div class="seg"><button data-env="test" class="${company.env === "test" ? "on" : ""}">Prueba</button><button data-env="prod" class="${company.env === "prod" ? "on" : ""}">Producción</button></div>
+        <div class="muted small" style="margin-top:8px">Usá prueba hasta completar las pruebas de la DNIT.</div>
+      </div>`;
+  }
+
+  // ================= Render y eventos =================
+  const titles = { home: "Inicio", new: "Nueva factura", preview: "Vista previa", result: "Resultado", history: "Historial", detail: "Comprobante", settings: "Ajustes" };
+  function render() {
+    const s = state.screen;
+    const map = { home: screenHome, new: screenNew, preview: screenPreview, result: screenResult, history: screenHistory, detail: screenDetail, settings: screenSettings };
+    document.getElementById("screen").innerHTML = (map[s] || screenHome)();
+    document.getElementById("title").textContent = titles[s] || "Inicio";
+    document.querySelectorAll(".tab").forEach(t => {
+      const k = t.dataset.go;
+      t.classList.toggle("on", s === k || (k === "history" && s === "detail") || (k === "new" && s === "preview"));
+    });
+    document.getElementById("screen").style.paddingBottom = s === "new" ? "170px" : "130px";
+    companyLine(); window.scrollTo(0, 0);
+  }
+  function go(s) { state.screen = s; render(); }
+
+  // Lee lo que escribió el usuario sin volver a dibujar la pantalla
+  function syncFields() {
+    const d = state.draft, g = id => document.getElementById(id);
+    if (g("fRuc")) d.ruc = g("fRuc").value;
+    if (g("fName")) d.name = g("fName").value;
+    if (g("fName2")) d.name = g("fName2").value;
+    if (g("fDoc")) d.doc = g("fDoc").value;
+    if (g("fEmail")) d.email = g("fEmail").value;
+    if (g("fCuotas")) d.installments = parseInt(g("fCuotas").value, 10) || 1;
+    if (g("fCur")) d.currency = g("fCur").value;
+    if (g("fTc")) d.exchange = g("fTc").value;
+  }
+  function refreshTotal() {
+    const bar = document.querySelector(".sticky-total"); if (!bar) return;
+    const d = state.draft, t = calcDraft(d), r = classify(d, t.total);
+    bar.querySelector(".big").textContent = (d.currency === "USD" ? "USD " : "Gs ") + fmt(t.total);
+    bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0);
+  }
+
+  document.getElementById("screen").addEventListener("click", e => {
+    const t = e.target.closest("button, [data-open]");
+    if (!t) return;
+    if (t.dataset.mode) { syncFields(); state.draft.mode = t.dataset.mode; render(); return; }
+    if (t.dataset.cond) { syncFields(); state.draft.condition = t.dataset.cond; render(); return; }
+    if (t.dataset.add) { syncFields(); addItemSheet(); return; }
+    if (t.dataset.del !== undefined) { syncFields(); state.draft.items.splice(+t.dataset.del, 1); render(); return; }
+    if (t.dataset.preview) {
+      syncFields();
+      const r = classify(state.draft, calcDraft(state.draft).total);
+      if (!r.valid) { toast(r.why); return; }
+      state.preview = buildInvoice(state.draft); go("preview"); return;
+    }
+    if (t.dataset.back) { go(t.dataset.back); return; }
+    if (t.dataset.pdf !== undefined) { downloadKudePdf(state.preview && state.preview.number); return; }
+    if (t.dataset.removeLogo !== undefined) { company.logo = null; toast("Logo quitado"); render(); return; }
+    if (t.dataset.emit) {
+      const inv = state.preview;
+      const approved = Math.random() > 0.15; // simulación
+      const result = {
+        id: invoices.length + 1, number: inv.number, date: new Date().toISOString(),
+        client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.total,
+        operation: inv.operation, status: approved ? "ok" : "bad",
+        cdc: approved ? "0180 0123 4500 0100 1000 0013 2202 6110 4141 7392 8521" : "",
+        reason: approved ? "" : "1103 Número de timbrado no vigente (simulación)"
+      };
+      invoices.unshift(result);
+      state.lastResult = result; state.draft = newDraft(); state.preview = null;
+      go("result"); return;
+    }
+    if (t.dataset.open) { state.detailId = +t.dataset.open; go("detail"); return; }
+    if (t.dataset.filter) { state.filter = t.dataset.filter; render(); return; }
+    if (t.dataset.share) { toast(t.dataset.share === "pdf" ? "PDF listo (demo)" : "Factura enviada por correo (demo)"); return; }
+    if (t.dataset.cancel) {
+      const inv = invoices.find(x => x.id === +t.dataset.cancel);
+      if (inv) { inv.status = "bad"; inv.reason = "Cancelada por el emisor (demo)"; toast("Cancelación registrada (demo)"); }
+      render(); return;
+    }
+    if (t.dataset.env) { company.env = t.dataset.env; toast("Ambiente: " + (company.env === "test" ? "prueba" : "producción")); render(); return; }
+  });
+
+  // Actualiza la detección mientras escribe y conserva el foco y el cursor
+  document.getElementById("screen").addEventListener("input", e => {
+    syncFields();
+    const id = e.target.id, pos = e.target.selectionStart;
+    if (id === "fRuc" || id === "fDoc") {
+      render();
+      const el = document.getElementById(id);
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
+    } else {
+      refreshTotal();
+    }
+  });
+  document.getElementById("screen").addEventListener("change", e => {
+    if (e.target.id === "logoFile") { loadLogo(e.target.files && e.target.files[0]); return; }
+    syncFields(); render();
+  });
+
+  function loadLogo(file) {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|jpg|svg\+xml|webp)$/.test(file.type)) { toast("Elegí una imagen PNG, JPG o SVG"); return; }
+    if (file.size > 2 * 1024 * 1024) { toast("La imagen supera 2 MB. Usá una más liviana"); return; }
+    const reader = new FileReader();
+    reader.onload = () => { company.logo = reader.result; toast("Logo cargado"); render(); };
+    reader.onerror = () => toast("No se pudo leer la imagen");
+    reader.readAsDataURL(file);
+  }
+
+  // Descarga real del KuDE como PDF (html2canvas + jsPDF desde cdnjs). Si no carga, usa imprimir.
+  const LIBS = {
+    h2c: "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+    jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+  };
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+      const sc = document.createElement("script"); sc.src = src; sc.onload = resolve; sc.onerror = reject;
+      document.head.appendChild(sc);
+    });
+  }
+  async function downloadKudePdf(number) {
+    const el = document.getElementById("kudeBody");
+    if (!el) { toast("Primero abrí la vista previa"); return; }
+    try {
+      toast("Generando PDF…");
+      await loadScript(LIBS.h2c); await loadScript(LIBS.jspdf);
+      const canvas = await window.html2canvas(el, { scale: 2, backgroundColor: "#FFFFFF" });
+      const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+      const margin = 10, imgW = 210 - margin * 2;
+      const imgH = canvas.height * imgW / canvas.width;
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgW, imgH);
+      pdf.save("KuDE_" + String(number || "prueba").replace(/[^0-9A-Za-z-]/g, "_") + ".pdf");
+      toast("PDF descargado");
+    } catch (err) {
+      toast("No se pudo generar el PDF aquí. Se abre la impresión: elegí Guardar como PDF");
+      window.print();
+    }
+  }
+
+  document.querySelector(".tabbar").addEventListener("click", e => {
+    const b = e.target.closest("[data-go]"); if (!b) return;
+    go(b.dataset.go);
+  });
+  document.getElementById("screen").addEventListener("keydown", e => {
+    if ((e.key === "Enter") && e.target.dataset && e.target.dataset.open) { e.preventDefault(); e.target.click(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

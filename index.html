@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Factura Elect</title>
+<link rel="icon" href="facturador/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="shared/styles.css">
+<style>
+  .apps { display: grid; gap: 12px; margin-top: 14px; }
+  .appcard { display: flex; gap: 14px; align-items: center; text-decoration: none; color: var(--text); }
+  .appcard img { width: 64px; height: 64px; flex: none; }
+  .appcard b { font-size: 17px; display: block; }
+  ol { padding-left: 20px; margin: 6px 0 0; } li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="app"><main class="screen" style="padding-top:24px">
+  <h2>Factura Elect · prueba</h2>
+  <p class="lead">Dos apps separadas. Cada una se instala con su propio ícono y guarda sus datos solo en el dispositivo.</p>
+  <div class="apps">
+    <a class="card appcard" href="facturador/"><img src="facturador/icons/icon-192.png" alt="">
+      <span><b>Facturador</b><span class="small muted">Para el principal. Factura, lee los QR de pedidos y decide si facturarlos. Pide PIN.</span></span></a>
+    <a class="card appcard" href="pedidos/"><img src="pedidos/icons/icon-192.png" alt="">
+      <span><b>Pedidos</b><span class="small muted">Para quien carga pedidos. Crea y elimina pedidos y los comparte como QR. No ve facturas.</span></span></a>
+  </div>
+  <div class="section"><div class="section-title">Cómo instalar</div>
+    <div class="card small">
+      <b>Android (Chrome)</b><ol><li>Abrí la app que querés.</li><li>Menú ⋮ → <i>Instalar app</i> o <i>Agregar a pantalla principal</i>.</li></ol>
+      <b style="display:block;margin-top:10px">iPhone (Safari)</b><ol><li>Abrí la app que querés.</li><li>Botón Compartir → <i>Agregar a inicio</i>.</li></ol>
+      <p class="muted" style="margin-bottom:0">Instalá cada app por separado: el cargador instala solo <b>Pedidos</b>.</p>
+    </div></div>
+</main></div>
+</body>
+</html>
