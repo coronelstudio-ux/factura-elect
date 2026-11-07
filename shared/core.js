@@ -539,6 +539,22 @@
     }
   }
 
+  // ================= Tema claro / oscuro =================
+  // "auto" sigue al sistema; "light" o "dark" lo fijan. Se guarda en este dispositivo.
+  const THEME_KEY = "fe_theme";
+  function getTheme() { try { return localStorage.getItem(THEME_KEY) || "auto"; } catch (_) { return "auto"; } }
+  function applyTheme(t) {
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  function setTheme(t) {
+    try { t === "auto" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, t); } catch (_) {}
+    applyTheme(t);
+  }
+  const themeHTML = () => { const t = getTheme(), b = (k, l) => `<button data-theme-set="${k}" class="${t === k ? "on" : ""}">${l}</button>`;
+    return `<div class="seg">${b("auto", "Automático")}${b("light", "☀ Claro")}${b("dark", "☾ Oscuro")}</div>`; };
+  if (global.document) applyTheme(getTheme());
+
   // ================= Instalar como app =================
   // Chrome/Edge en Android y computadora avisan con beforeinstallprompt; iPhone se instala desde Compartir.
   let installEvt = null; const installSubs = [];
@@ -563,6 +579,7 @@
   const onInstallChange = f => installSubs.push(f);
 
   global.FE = {
+    getTheme, setTheme, themeHTML,
     installHTML, promptInstall, onInstallChange, isStandalone,
     fmt, esc, fmtDate, todayKey, localDayKey, INNOMINATE_LIMIT, registry, dv11, parseRuc, classify, opName,
     calcItem, calcItems, taxLabel, DOC_TYPES, DOC_SHORT, EXT_DOC_TYPES, receiverIdText, receiverIdLabel, receiverDisplayName,

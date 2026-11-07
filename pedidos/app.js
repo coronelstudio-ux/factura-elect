@@ -140,6 +140,7 @@
   function screenSettings() {
     return `
       <h2>Ajustes</h2>
+      <div class="section"><div class="section-title">Apariencia</div>${FE.themeHTML()}</div>
       <div class="section"><div class="section-title">Vendedor</div>
         <div class="card">
           <label for="sSeller" style="margin-top:0">Tu nombre (aparece en cada pedido)</label>
@@ -321,6 +322,7 @@
       if (!v) { toast("Escribí tu nombre"); return; }
       settings.seller = v; save(); render(); toast("Nombre guardado"); return;
     }
+    if (ds.themeSet) { FE.setTheme(ds.themeSet); render(); return; }
     if (ds.install !== undefined) { FE.promptInstall(); return; }
     if (ds.backup !== undefined) { FE.exportBackup(store, "pedidos"); return; }
   });

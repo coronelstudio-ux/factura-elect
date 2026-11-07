@@ -398,6 +398,7 @@
   function screenSettings() {
     return `
       <h2>Ajustes</h2>
+      <div class="section"><div class="section-title">Apariencia</div>${FE.themeHTML()}</div>
       <div class="section"><div class="section-title">Empresa</div>
         <div class="card">
           <div class="kv"><span class="muted">Razón social</span><span>${esc(company.name)}</span></div>
@@ -627,6 +628,7 @@
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
     if (ds.changepin !== undefined) { Lock.change(); return; }
     if (ds.lock !== undefined) { Lock.lockNow(); return; }
+    if (ds.themeSet) { FE.setTheme(ds.themeSet); render(); return; }
     if (ds.install !== undefined) { FE.promptInstall(); return; }
     if (ds.backup !== undefined) { FE.exportBackup(store, "facturador"); return; }
   });
