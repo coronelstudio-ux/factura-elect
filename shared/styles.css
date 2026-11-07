@@ -212,7 +212,7 @@ select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
 @container (max-width: 360px) {
   .kude .grid > div { display: block; width: 100%; }
   .kude .foot > div:first-child, .kude .foot > div:last-child { display: block; width: 100%; }
-  .kude .qr { margin: 0 auto 8px; }
+  .kude .foot > div.qr { width: 110px; height: 110px; margin: 0 auto 8px; }
 }
 @supports not (container-type: inline-size) {
   .kude .tblwrap table { display: none; }
@@ -224,3 +224,4 @@ select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
   .kude .klist { display: none !important; }
 }
 .install-ok { color: var(--accent); font-weight: 700; }
+.cdc-text { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: normal; overflow-wrap: normal; white-space: normal; line-height: 1.5; }

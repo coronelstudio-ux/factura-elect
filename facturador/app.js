@@ -13,7 +13,7 @@
     city: "Asunción", phone: "021 000 000", mail: "facturacion@ejemplo.com.py",
     timbrado: "00000000", start: "01/11/2026", end: "31/10/2027",
     establishment: "001", point: "001", leftToUse: 320, env: "test", certExpires: "15/03/2027", csc: "0001", logo: null,
-    nextNumber: 13
+    nextNumber: 13, taxpayerType: "2" // 1 persona física, 2 persona jurídica (posición 25 del CDC)
   };
   const seedInvoices = [
     { id: 1, number: "001-001-0000012", date: "2026-11-04T16:22:48", client: "Juan Pérez", ruc: "4567890-1", total: 129000, status: "ok", cdc: "0180 0123 4500 0100 1000 0012 2202 6110 4141 7392 8510", operation: "B2B" },
@@ -32,7 +32,7 @@
   const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: newDraft(), preview: null,
     pedFilter: "pendiente", pedSeller: "", pedidoId: null };
   function newDraft() {
-    return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", email: "", condition: "contado", installments: 1,
+    return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
       currency: "PYG", exchange: "", items: [] };
   }
   const nextNumberStr = () => company.establishment + "-" + company.point + "-" + String(company.nextNumber).padStart(7, "0");
@@ -40,7 +40,7 @@
   // ================= Utilidades de interfaz =================
   const statusChip = s => s === "ok" ? '<span class="chip ok">Aprobada</span>' : s === "bad" ? '<span class="chip bad">Rechazada</span>' : '<span class="chip warn">Pendiente</span>';
   const pedChip = s => s === "facturado" ? '<span class="chip ok">Facturado</span>' : s === "rechazado" ? '<span class="chip bad">Rechazado</span>' : '<span class="chip warn">Pendiente de facturar</span>';
-  const pedClient = p => p.client.name || (p.client.mode === "sin" ? "Consumidor final" : p.client.ruc);
+  const pedClient = p => FE.receiverDisplayName(p.client);
   const pendingCount = () => inbox.filter(p => p.status === "pendiente").length;
   function companyLine() {
     document.getElementById("companyLine").textContent = company.name + " · RUC " + company.ruc + "-" + company.dv;
@@ -93,26 +93,7 @@
       <div class="section">
         <div class="section-title"><span class="num ${r.valid ? "done" : ""}">1</span>Cliente
           <button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button></div>
-        <div class="seg">
-          <button data-mode="con" class="${d.mode === "con" ? "on" : ""}">Con RUC</button>
-          <button data-mode="sin" class="${d.mode === "sin" ? "on" : ""}">Sin RUC</button>
-        </div>
-        ${d.mode === "con" ? `
-          <div class="grid2">
-            <div><label for="fRuc">RUC</label><input id="fRuc" placeholder="4567890-1" value="${esc(d.ruc)}"></div>
-            <div><label for="fName">Nombre o razón social</label><input id="fName" placeholder="${esc(r.name || "Se completa solo")}" value="${esc(d.name)}"></div>
-          </div>` : `
-          <label for="fDoc">Documento de identidad ${t.total >= FE.INNOMINATE_LIMIT ? "(obligatorio)" : "(opcional)"}</label>
-          <input id="fDoc" inputmode="numeric" placeholder="Número de documento" value="${esc(d.doc)}">
-          <label for="fName2">Nombre (opcional)</label>
-          <input id="fName2" placeholder="Consumidor final" value="${esc(d.name)}">`}
-        ${d.mode === "con" && d.ruc.trim() ? `
-          <div class="${r.valid ? "detect" : "notice bad"}">
-            ${r.valid ? `<div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div>
-              ${r.name ? `<div class="small" style="margin-top:2px">${esc(r.name)}</div>` : ""}
-              <div class="why">${esc(r.why)}</div>` : `<div>${esc(r.why)}</div>`}
-          </div>` : ""}
-        ${d.mode === "sin" ? `<div class="detect"><div class="kind">Consumidor final · Empresa a consumidor (B2C)</div><div class="why">${esc(r.why)}</div></div>` : ""}
+        ${FE.receiverBlock(d, r, t.total, { why: true })}
         <label for="fEmail">Correo para enviar la factura (opcional)</label>
         <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
       </div>
@@ -153,17 +134,17 @@
 
   // ----- KuDE: mismo diseño que el PDF de prueba -----
   const consultUrl = () => "https://ekuatia.set.gov.py/consultas" + (company.env === "test" ? "-test" : "") + "/";
-  // Contenido del QR de consulta (en prueba no lleva el hash del CSC real)
-  const qrText = inv => consultUrl() + "qr?nVersion=150&Id=" + String(inv.cdc || "").replace(/\s/g, "");
+  // Imagen del QR de consulta: usa la URL de la sección 13.8 calculada al aprobar (inv.qrUrl).
   const qrCache = {};
   function qrImg(inv) {
-    const key = qrText(inv);
+    const key = inv.qrUrl || "";
+    if (!key) return "";
     if (!(key in qrCache)) { const cv = FE.qrCanvas(key); qrCache[key] = cv ? cv.toDataURL("image/png") : ""; }
     return qrCache[key];
   }
   function kudeHTML(inv) {
     const T = inv.totals;
-    const cdcFmt = inv.cdc || "Pendiente de aprobación";
+    const cdcFmt = inv.cdc ? FE.formatCdc(inv.cdc) : "Pendiente de aprobación";
     const isUSD = inv.currency === "USD";
     const test = company.env === "test";
     return `
@@ -222,7 +203,7 @@
         </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fmt(T.iva5)}</span><span>(10%) ${fmt(T.iva10)}</span><span>TOTAL IVA ${fmt(T.iva)}</span></div>
       </div>
       <div class="box"><div class="foot">
-        ${inv.cdc && qrImg(inv) ? `<div class="qr has"><img src="${qrImg(inv)}" alt="QR de consulta"></div>` : `<div class="qr">QR al aprobarse</div>`}
+        ${qrImg(inv) ? `<div class="qr has"><img src="${qrImg(inv)}" alt="QR de consulta"></div>` : `<div class="qr">QR al aprobarse</div>`}
         <div>
           <div style="font-size:10px">Consulte la validez de esta factura electrónica con el número de CDC en:</div>
           <a class="link" href="#" onclick="return false">${esc(consultUrl())}</a>
@@ -236,12 +217,15 @@
   }
 
   function buildInvoice(d) {
-    const t = calcItems(d.items), r = classify(d, t.total), now = new Date(), isSin = d.mode === "sin";
+    const t = calcItems(d.items), r = classify(d, t.total), now = new Date();
+    const receiver = FE.receiverFromDraft(d, r);
     return {
       number: nextNumberStr(),
+      issuedAt: FE.localIso(now),
       dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8),
-      receiverId: isSin ? (d.doc || "") : ((parseRuc(d.ruc) || {}).full || d.ruc),
-      receiverName: isSin ? (d.name || "Consumidor final") : (d.name || r.name || ""),
+      receiver,
+      receiverId: FE.receiverIdText(receiver),
+      receiverName: receiver.name || (d.mode === "con" ? "" : "Consumidor final"),
       receiverEmail: d.email, receiverMode: d.mode,
       items: d.items.map(i => Object.assign({}, i)), currency: d.currency, exchange: d.exchange,
       condition: d.condition, installments: d.installments,
@@ -279,7 +263,7 @@
         <div class="small muted">${esc(r.number)} · ${esc(r.client)}</div>
         <div class="amount" style="font-size:22px;margin-top:6px">Gs ${fmt(r.total)}</div>
         ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? "marcado como facturado" : "sigue pendiente de facturar"}</div>` : ""}
-        ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small" style="font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;margin-top:2px">${esc(r.cdc)}</div>`
+        ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small cdc-text" style="margin-top:2px">${esc(FE.formatCdc(r.cdc))}</div>`
           : `<div class="notice bad" style="margin-top:12px"><b>Motivo</b>${esc(r.reason)}<br>Corregí el dato y volvé a emitir.</div>`}
       </div>
       ${ok ? `
@@ -308,6 +292,8 @@
       </div>`;
   }
 
+  const CANCEL_MS = 48 * 3600 * 1000;
+  const canCancel = i => i.status === "ok" && Date.now() - Date.parse(i.date) < CANCEL_MS;
   function screenDetail() {
     const i = invoices.find(x => x.id === state.detailId);
     if (!i) return screenHistory();
@@ -322,7 +308,7 @@
         <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(i.date)}</span></div>
         ${i.pedidoId ? `<div class="kv"><span class="muted">Pedido</span><span><button class="link" data-openped="${esc(i.pedidoId)}" style="min-height:0;padding:0">${esc(i.pedidoId)}</button></span></div>` : ""}
         <div class="kv"><span class="muted">Total</span><span class="amount">Gs ${fmt(i.total)}</span></div>
-        ${i.cdc ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">CDC</div><div class="small" style="font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;margin-top:4px">${esc(i.cdc)}</div></div>` : ""}
+        ${i.cdc ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">CDC</div><div class="small cdc-text" style="margin-top:4px">${esc(FE.formatCdc(i.cdc))}</div></div>` : ""}
         ${i.reason ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">Motivo</div><div style="margin-top:4px;color:var(--bad)">${esc(i.reason)}</div></div>` : ""}
       </div>
       ${i.kude ? `<div class="section"><div class="section-title">KuDE</div>${kudeHTML(i.kude)}</div>` : ""}
@@ -331,10 +317,13 @@
         <button class="btn soft" data-share="mail" ${i.status === "ok" ? "" : "disabled"}>Enviar por correo</button>
       </div>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn" data-cancel="${i.id}" ${i.status === "ok" ? "" : "disabled"}>Cancelar factura</button>
+        <button class="btn" data-cancel="${i.id}" ${canCancel(i) ? "" : "disabled"}>Cancelar factura</button>
         <button class="btn primary" data-go="new">Nueva factura</button>
       </div>
-      <div class="muted small" style="margin-top:12px">Podés cancelar hasta 48 horas después de la aprobación. Después, emití una nota de crédito.</div>`;
+      <div class="muted small" style="margin-top:12px">${i.status === "ok"
+        ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + CANCEL_MS).toISOString()) + " (48 horas desde la aprobación)."
+          : "Pasaron las 48 horas para cancelarla. Para corregirla, emití una nota de crédito.")
+        : "Podés cancelar hasta 48 horas después de la aprobación. Después, emití una nota de crédito."}</div>`;
   }
 
   // ----- Pedidos recibidos -----
@@ -379,7 +368,7 @@
       ${!r.valid ? `<div class="notice warn"><b>Revisá el cliente</b>${esc(r.why)}</div>` : ""}
       <div class="card">
         <div class="kv"><span class="muted">Cliente</span><span>${esc(pedClient(p))}</span></div>
-        <div class="kv"><span class="muted">${p.client.mode === "con" ? "RUC" : "Documento"}</span><span>${esc(p.client.mode === "con" ? p.client.ruc : (p.client.doc || "Sin identificar"))}</span></div>
+        <div class="kv"><span class="muted">${FE.receiverIdLabel(p.client)}</span><span>${esc(FE.receiverIdText(p.client))}</span></div>
         ${r.valid ? `<div class="kv"><span class="muted">Operación</span><span>${esc(opName[r.operation])} (${r.operation})</span></div>` : ""}
         ${p.client.email ? `<div class="kv"><span class="muted">Correo</span><span>${esc(p.client.email)}</span></div>` : ""}
         <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
@@ -470,10 +459,7 @@
 
   function syncFields() {
     const d = state.draft, g = id => document.getElementById(id);
-    if (g("fRuc")) d.ruc = g("fRuc").value;
-    if (g("fName")) d.name = g("fName").value;
-    if (g("fName2")) d.name = g("fName2").value;
-    if (g("fDoc")) d.doc = g("fDoc").value;
+    FE.syncReceiver(d);
     if (g("fEmail")) d.email = g("fEmail").value;
     if (g("fCuotas")) d.installments = Math.max(1, parseInt(g("fCuotas").value, 10) || 1);
     if (g("fCur")) d.currency = g("fCur").value;
@@ -535,43 +521,56 @@
   }
   function draftFromPedido(p) {
     return { pedidoId: p.id, mode: p.client.mode, ruc: p.client.ruc || "", name: p.client.name || "", doc: p.client.doc || "", email: p.client.email || "",
+      docType: p.client.docType || "", country: p.client.country || "",
       condition: p.condition, installments: p.installments || 1, currency: p.currency, exchange: p.exchange || "", items: p.items.map(i => Object.assign({}, i)) };
   }
   function useClient(c) {
     const d = state.draft;
     d.mode = c.mode; d.ruc = c.ruc || ""; d.doc = c.doc || ""; d.name = c.name || ""; d.email = c.email || "";
+    d.docType = c.docType || ""; d.country = c.country || "";
     render();
   }
 
-  function emit() {
-    const inv = state.preview; if (!inv) return;
+  let emitting = false;
+  async function emit() {
+    const inv = state.preview; if (!inv || emitting) return;
     if (inv.pedidoId) {
       const p = inbox.find(x => x.id === inv.pedidoId);
       if (p && p.status === "facturado") { toast("Ese pedido ya fue facturado (" + p.invoiceNumber + ")"); return; }
     }
-    const approved = Math.random() > 0.15; // simulación de SIFEN
-    const id = invoices.reduce((m, i) => Math.max(m, i.id), 0) + 1;
-    const date = new Date().toISOString();
-    const cdc = approved ? "0180 0123 4500 0100 1000 " + String(company.nextNumber).padStart(4, "0") + " 2202 6110 4141 7392 " + String(Math.floor(Math.random() * 9000) + 1000) : "";
-    const kude = Object.assign({}, inv, { cdc });
-    const result = {
-      id, number: inv.number, date, client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.total,
-      operation: inv.operation, status: approved ? "ok" : "bad", cdc,
-      reason: approved ? "" : "1103 Número de timbrado no vigente (simulación)", pedidoId: inv.pedidoId, kude
-    };
-    invoices.unshift(result);
-    if (approved) {
-      company.nextNumber += 1; company.leftToUse = Math.max(0, company.leftToUse - 1);
-      clients = upsertClient(clients, { mode: inv.receiverMode, ruc: inv.receiverMode === "con" ? inv.receiverId : "", doc: inv.receiverMode === "sin" ? inv.receiverId : "",
-        name: inv.receiverName === "Consumidor final" ? "" : inv.receiverName, email: inv.receiverEmail });
-      if (inv.pedidoId) {
-        const p = inbox.find(x => x.id === inv.pedidoId);
-        if (p) { p.status = "facturado"; p.invoiceNumber = inv.number; p.invoiceId = id; p.invoicedAt = date; }
+    emitting = true;
+    try {
+      const approved = Math.random() > 0.15; // simulación de la respuesta de SIFEN
+      const id = invoices.reduce((m, i) => Math.max(m, i.id), 0) + 1;
+      const now = new Date(), date = now.toISOString();
+      const issued = Object.assign({}, inv, { issuedAt: FE.localIso(now), dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8) });
+      let cdc = "", qrUrl = "";
+      if (approved) {
+        cdc = FE.buildCdc({ deType: "1", ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
+          number: company.nextNumber, taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
+        const digest = await FE.simulatedDigest({ cdc, items: issued.items, totals: issued.totals, receiver: issued.receiver });
+        qrUrl = await FE.buildQrUrl({ env: company.env, cdc, date: issued.issuedAt, receiver: issued.receiver,
+          total: issued.totals.total, iva: issued.totals.iva, items: issued.items.length, digest, csc: FE.CSC_TEST });
       }
-    }
-    save();
-    state.lastResult = result; state.draft = newDraft(); state.preview = null;
-    go("result");
+      const kude = Object.assign(issued, { cdc, qrUrl });
+      const result = {
+        id, number: inv.number, date, client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.total,
+        operation: inv.operation, status: approved ? "ok" : "bad", cdc,
+        reason: approved ? "" : "1103 Número de timbrado no vigente (simulación)", pedidoId: inv.pedidoId, kude
+      };
+      invoices.unshift(result);
+      if (approved) {
+        company.nextNumber += 1; company.leftToUse = Math.max(0, company.leftToUse - 1);
+        clients = upsertClient(clients, inv.receiver);
+        if (inv.pedidoId) {
+          const p = inbox.find(x => x.id === inv.pedidoId);
+          if (p) { p.status = "facturado"; p.invoiceNumber = inv.number; p.invoiceId = id; p.invoicedAt = date; }
+        }
+      }
+      save();
+      state.lastResult = result; state.draft = newDraft(); state.preview = null;
+      go("result");
+    } finally { emitting = false; }
   }
 
   const screenEl = document.getElementById("screen");
@@ -602,6 +601,7 @@
     if (ds.share) { toast(ds.share === "pdf" ? "PDF listo (demo)" : "Factura enviada por correo (demo)"); return; }
     if (ds.cancel) {
       const inv = invoices.find(x => x.id === +ds.cancel);
+      if (inv && !canCancel(inv)) { toast("Pasaron las 48 horas: emití una nota de crédito"); render(); return; }
       if (inv) { inv.status = "bad"; inv.reason = "Cancelada por el emisor (demo)"; save(); toast("Cancelación registrada (demo)"); }
       render(); return;
     }
@@ -635,7 +635,7 @@
     if (state.screen !== "new") return;
     syncFields();
     const id = e.target.id, pos = e.target.selectionStart;
-    if (id === "fRuc" || id === "fDoc") {
+    if (FE.receiverLiveIds(state.draft.mode).includes(id)) {
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
@@ -673,7 +673,7 @@
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.cdc ? qrText(inv) : "" });
+      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "" });
       toast("PDF descargado");
     } catch (err) {
       console.error(err);

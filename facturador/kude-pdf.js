@@ -82,7 +82,7 @@
       ["Fecha y hora de emisión", inv.dateLabel], ["RUC / Documento Nº", inv.receiverId || "Innominado"],
       ["Condición de venta", cond], ["Nombre o razón social", inv.receiverName || "-"],
       ["Moneda", isUSD ? "USD" + (inv.exchange ? " · Tipo de cambio " + inv.exchange : "") : "PYG - Guaraní"], ["Dirección / Correo", inv.receiverEmail || "-"],
-      ["Tipo de transacción", "Venta de mercadería"], ["Tipo de operación", (inv.operationLabel || "") + (inv.operation ? " (" + inv.operation + ")" : "")]
+      ["Tipo de transacción", "Venta de mercadería"]
     ];
     if (inv.pedidoId) pairs.push(["Pedido", inv.pedidoId]);
     const rTop = y, colW = (CW - 9) / 2;
@@ -166,7 +166,7 @@
     text("Consulte la validez de esta factura electrónica con el número de CDC en:", TX, fy, { size: 8 }); fy += lh(8) + 0.4;
     text(opts.consultUrl, TX, fy, { size: 8, color: BLUE }); doc.link(TX, fy - 3, doc.getTextWidth(clean(opts.consultUrl)), 4, { url: opts.consultUrl }); fy += 2.5;
     doc.setFillColor(201, 219, 239); doc.rect(TX, fy, TW, 6.5, "F");
-    text("CDC: " + (inv.cdc || "Pendiente de aprobación"), TX + TW / 2, fy + 4.4, { size: 8.5, bold: true, align: "center" }); fy += 10;
+    text("CDC: " + (inv.cdc ? global.FE.formatCdc(inv.cdc) : "Pendiente de aprobación"), TX + TW / 2, fy + 4.4, { size: 8.5, bold: true, align: "center" }); fy += 10;
     fy += lines(legal1, TX, fy, 7.5, true) + 1;
     lines(legal2, TX, fy, 7.5);
     box(M, fTop, CW, footH);

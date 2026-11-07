@@ -32,7 +32,8 @@ pedidos/                App del cargador (index.html, app.js, manifest, sw.js, i
 shared/core.js          Cálculo de IVA, RUC (módulo 11), clientes, QR, cámara, compartir, respaldo
 shared/styles.css       Estilos comunes (del facturador original)
 vendor/                 qrcode-generator, jsQR, lz-string, jsPDF (para funcionar sin internet)
-docs/                   Archivo original facturador-prueba-local.html
+docs/                   Informe técnico y archivo original facturador-prueba-local.html
+tests/run.js            Pruebas automáticas (node tests/run.js)
 ```
 
 ## Publicar e instalar
@@ -55,6 +56,23 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - El QR lleva los datos del pedido comprimidos, **no cifrados**.
 - Cada app guarda sus datos por separado. Usá **Ajustes → Descargar respaldo** de vez en cuando.
 - Los datos de empresa, timbrado y contribuyentes son **ficticios**; la aprobación de SIFEN es simulada.
+
+## Reglas de facturación (modo prueba)
+
+- **Cliente:** *Con RUC* (DV módulo 11), *Sin RUC* (cédula, pasaporte, cédula extranjera, carnet de residencia, tarjeta diplomática u otro; sin documento queda innominado) o *Extranjero*. La operación (B2B, B2C, B2G, B2F) se detecta sola.
+- **Innominado** solo por debajo de Gs 7.000.000 (NT 024).
+- **CDC** de 44 dígitos con la estructura del Manual Técnico v150, código de seguridad aleatorio y DV módulo 11, mostrado en grupos de 4.
+- **QR** con los parámetros de la sección 13.8 y `cHashQR` calculado con el CSC de prueba del manual. El `DigestValue` es simulado hasta que exista la firma del XML.
+- **Cancelación** solo dentro de las 48 horas desde la aprobación; después, nota de crédito.
+- La respuesta de SIFEN sigue siendo simulada. El detalle de qué falta está en [`docs/informe-tecnico.md`](docs/informe-tecnico.md).
+
+## Pruebas
+
+```
+node tests/run.js
+```
+
+Prueban el dígito verificador, la clasificación de clientes, el límite de innominado, los totales e IVA, el CDC, el QR y el pedido por QR. No hace falta instalar nada.
 
 ## KuDE y PDF
 

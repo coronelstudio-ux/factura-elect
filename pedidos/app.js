@@ -14,7 +14,7 @@
 
   const state = { screen: "new", detailId: null, filter: "all", draft: store.get("draft", null) || newDraft() };
   function newDraft() {
-    return { editId: null, mode: "con", ruc: "", name: "", doc: "", email: "", condition: "contado", installments: 1,
+    return { editId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
       currency: "PYG", exchange: "", note: "", items: [] };
   }
   const saveDraft = () => store.set("draft", state.draft);
@@ -30,25 +30,7 @@
       <div class="section">
         <div class="section-title"><span class="num ${r.valid ? "done" : ""}">1</span>Cliente
           <button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button></div>
-        <div class="seg">
-          <button data-mode="con" class="${d.mode === "con" ? "on" : ""}">Con RUC</button>
-          <button data-mode="sin" class="${d.mode === "sin" ? "on" : ""}">Sin RUC</button>
-        </div>
-        ${d.mode === "con" ? `
-          <div class="grid2">
-            <div><label for="fRuc">RUC</label><input id="fRuc" placeholder="4567890-1" value="${esc(d.ruc)}"></div>
-            <div><label for="fName">Nombre o razón social</label><input id="fName" placeholder="${esc(r.name || "Nombre")}" value="${esc(d.name)}"></div>
-          </div>` : `
-          <label for="fDoc">Documento de identidad ${t.total >= FE.INNOMINATE_LIMIT ? "(obligatorio)" : "(opcional)"}</label>
-          <input id="fDoc" inputmode="numeric" placeholder="Número de documento" value="${esc(d.doc)}">
-          <label for="fName2">Nombre (opcional)</label>
-          <input id="fName2" placeholder="Consumidor final" value="${esc(d.name)}">`}
-        ${d.mode === "con" && d.ruc.trim() ? `
-          <div class="${r.valid ? "detect" : "notice bad"}">
-            ${r.valid ? `<div class="kind">${esc(r.label)} · ${opName[r.operation]}</div>
-              ${r.name ? `<div class="small" style="margin-top:2px">${esc(r.name)}</div>` : ""}` : `<div>${esc(r.why)}</div>`}
-          </div>` : ""}
-        ${d.mode === "sin" && !r.valid ? `<div class="notice bad">${esc(r.why)}</div>` : ""}
+        ${FE.receiverBlock(d, r, t.total)}
         <label for="fEmail">Correo del cliente (opcional)</label>
         <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
       </div>
@@ -92,7 +74,7 @@
   }
 
   const pedidoTotal = p => calcItems(p.items).total;
-  const clientName = p => p.client.name || (p.client.mode === "sin" ? "Consumidor final" : p.client.ruc);
+  const clientName = p => FE.receiverDisplayName(p.client);
   const shareChip = p => p.sharedAt ? '<span class="chip ok">Compartido</span>' : '<span class="chip warn">Sin compartir</span>';
 
   function screenList() {
@@ -128,7 +110,7 @@
       <div class="section"><div class="section-title">Detalle</div>
         <div class="card">
           <div class="kv"><span class="muted">Cliente</span><span>${esc(clientName(p))}</span></div>
-          <div class="kv"><span class="muted">${p.client.mode === "con" ? "RUC" : "Documento"}</span><span>${esc(p.client.mode === "con" ? p.client.ruc : (p.client.doc || "Sin identificar"))}</span></div>
+          <div class="kv"><span class="muted">${FE.receiverIdLabel(p.client)}</span><span>${esc(FE.receiverIdText(p.client))}</span></div>
           <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
           <div class="kv"><span class="muted">Vendedor</span><span>${esc(p.seller)}</span></div>
           ${p.note ? `<div class="kv"><span class="muted">Nota</span><span>${esc(p.note)}</span></div>` : ""}
@@ -148,7 +130,7 @@
       <p class="lead">Se guardan solos al crear un pedido. También podés agregarlos aquí.</p>
       <div class="card">
         ${clients.length ? clients.map(c => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(c.name || "Sin nombre")}</div>
-          <div class="sub">${c.mode === "con" ? "RUC " + esc(c.ruc) : "Doc. " + esc(c.doc || "-")}${c.email ? " · " + esc(c.email) : ""}</div></div>
+          <div class="sub">${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}${c.email ? " · " + esc(c.email) : ""}</div></div>
           <span style="display:flex;gap:12px"><button class="link" data-useclient="${esc(c.id)}">Usar</button><button class="link" data-delclient="${esc(c.id)}" style="color:var(--bad)">Quitar</button></span></div>`).join("")
           : `<div class="muted small">Todavía no hay clientes guardados.</div>`}
         <button class="add" data-addclient>+ Agregar cliente</button>
@@ -207,10 +189,7 @@
 
   function syncFields() {
     const d = state.draft, g = id => document.getElementById(id);
-    if (g("fRuc")) d.ruc = g("fRuc").value;
-    if (g("fName")) d.name = g("fName").value;
-    if (g("fName2")) d.name = g("fName2").value;
-    if (g("fDoc")) d.doc = g("fDoc").value;
+    if (state.screen === "new") FE.syncReceiver(d);
     if (g("fEmail")) d.email = g("fEmail").value;
     if (g("fCuotas")) d.installments = Math.max(1, parseInt(g("fCuotas").value, 10) || 1);
     if (g("fCur")) d.currency = g("fCur").value;
@@ -245,8 +224,7 @@
     if (!d.items.length) { toast("Agregá al menos un producto"); return; }
     if (!settings.seller) { askSeller(savePedido); return; }
     const now = new Date().toISOString();
-    const client = { mode: d.mode, ruc: d.mode === "con" ? (parseRuc(d.ruc) || {}).full || d.ruc : "", doc: d.mode === "sin" ? d.doc : "",
-      name: d.name || (d.mode === "con" ? r.name || "" : ""), email: d.email };
+    const client = FE.receiverFromDraft(d, r);
     let p;
     if (d.editId && (p = pedidos.find(x => x.id === d.editId))) {
       Object.assign(p, { client, condition: d.condition, installments: d.installments, currency: d.currency, exchange: d.exchange,
@@ -266,29 +244,22 @@
   }
 
   function clientSheet() {
-    sheet(`<h3>Nuevo cliente</h3>
-      <div class="seg" style="margin-top:8px"><button data-m="con" class="on">Con RUC</button><button data-m="sin">Sin RUC</button></div>
-      <label for="nId" id="nIdLbl">RUC</label><input id="nId" placeholder="4567890-1">
-      <label for="nName">Nombre o razón social</label><input id="nName">
+    const c = { mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "" };
+    sheet(`<h3>Nuevo cliente</h3><div id="ncBody" style="margin-top:8px"></div>
       <label for="nMail">Correo (opcional)</label><input id="nMail" type="email">
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
-      let mode = "con";
-      el.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
-        mode = b.dataset.m; el.querySelectorAll("[data-m]").forEach(x => x.classList.toggle("on", x === b));
-        el.querySelector("#nIdLbl").textContent = mode === "con" ? "RUC" : "Documento (opcional)";
-        el.querySelector("#nId").placeholder = mode === "con" ? "4567890-1" : "Número de documento";
-      });
+      const body = el.querySelector("#ncBody");
+      const draw = () => { body.innerHTML = FE.receiverBlock(c, classify(c, 0), 0); };
+      draw();
+      body.addEventListener("click", e => { const b = e.target.closest("[data-mode]"); if (b) { FE.syncReceiver(c); c.mode = b.dataset.mode; draw(); } });
+      body.addEventListener("change", e => { if (e.target.tagName === "SELECT") { FE.syncReceiver(c); draw(); } });
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
-        const id = el.querySelector("#nId").value.trim(), name = el.querySelector("#nName").value.trim(), email = el.querySelector("#nMail").value.trim();
-        if (mode === "con") {
-          const r = classify({ mode: "con", ruc: id }, 0);
-          if (!r.valid) { toast(r.why); return; }
-          clients = upsertClient(clients, { mode, ruc: id, name: name || r.name || "", email });
-        } else {
-          if (!id && !name) { toast("Escribí al menos el nombre o el documento"); return; }
-          clients = upsertClient(clients, { mode, doc: id, name, email });
-        }
+        FE.syncReceiver(c); c.email = el.querySelector("#nMail").value.trim();
+        const r = classify(c, 0);
+        if (!r.valid) { toast(r.why); return; }
+        if (c.mode === "sin" && !c.doc.trim() && !c.name.trim()) { toast("Escribí al menos el nombre o el documento"); return; }
+        clients = upsertClient(clients, FE.receiverFromDraft(c, r));
         save(); close(); render(); toast("Cliente guardado");
       };
     });
@@ -296,6 +267,7 @@
   function useClient(c) {
     const d = state.draft;
     d.mode = c.mode; d.ruc = c.ruc || ""; d.doc = c.doc || ""; d.name = c.name || ""; d.email = c.email || "";
+    d.docType = c.docType || ""; d.country = c.country || "";
     saveDraft(); go("new");
   }
 
@@ -331,6 +303,7 @@
     if (ds.edit) {
       const p = pedidos.find(x => x.id === ds.edit); if (!p) return;
       state.draft = { editId: p.id, mode: p.client.mode, ruc: p.client.ruc, name: p.client.name, doc: p.client.doc, email: p.client.email,
+        docType: p.client.docType || "", country: p.client.country || "",
         condition: p.condition, installments: p.installments, currency: p.currency, exchange: p.exchange, note: p.note, items: p.items.map(i => Object.assign({}, i)) };
       saveDraft(); go("new"); return;
     }
@@ -355,7 +328,7 @@
     if (state.screen !== "new") return;
     syncFields();
     const id = e.target.id, pos = e.target.selectionStart;
-    if (id === "fRuc" || id === "fDoc") {
+    if (FE.receiverLiveIds(state.draft.mode).includes(id)) {
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }

@@ -39,16 +39,29 @@
     if (!m) return null;
     return { base: m[1], dv: Number(m[2]), full: m[1] + "-" + m[2] };
   }
-  // receiver: { mode: "con"|"sin", ruc, doc }. Devuelve { mode, operation, label, why, valid, name }
+  // Tipos de documento del receptor no contribuyente (NT 023 y 027). El 5 (innominado) se asigna solo, sin documento.
+  const DOC_TYPES = { "1": "Cédula paraguaya", "2": "Pasaporte", "3": "Cédula extranjera", "4": "Carnet de residencia", "6": "Tarjeta diplomática", "9": "Otro" };
+  const DOC_SHORT = { "1": "CI", "2": "Pasaporte", "3": "CI extranjera", "4": "Carnet de residencia", "5": "Innominado", "6": "Tarjeta diplomática", "9": "Documento" };
+  const EXT_DOC_TYPES = ["2", "3", "4", "6", "9"];
+  // receiver: { mode: "con"|"sin"|"ext", ruc, doc, docType, name }. Devuelve { mode, operation, label, why, valid, name, docType }
   function classify(receiver, total) {
     if (receiver.mode === "sin") {
+      const hasDoc = !!String(receiver.doc || "").trim();
       const needsDoc = total >= INNOMINATE_LIMIT;
       return {
-        mode: "sin", operation: "B2C", label: "Consumidor final", valid: !needsDoc || !!receiver.doc,
-        why: needsDoc
-          ? "Desde Gs 7.000.000 hay que identificar al comprador con su documento."
-          : "Sin RUC: se factura como venta a consumidor."
+        mode: "sin", operation: "B2C", docType: hasDoc ? (receiver.docType || "1") : "5",
+        label: hasDoc ? "No contribuyente · " + (DOC_SHORT[receiver.docType || "1"]) : "Consumidor final (innominado)",
+        valid: !needsDoc || hasDoc,
+        why: needsDoc && !hasDoc
+          ? "Desde Gs 7.000.000 no se permite innominado: identificá al comprador con su documento."
+          : hasDoc ? "Sin RUC: se factura como venta a consumidor, identificado por su documento." : "Sin RUC ni documento: se factura como venta a consumidor innominado."
       };
+    }
+    if (receiver.mode === "ext") {
+      const ok = !!String(receiver.name || "").trim() && !!String(receiver.doc || "").trim();
+      const dt = EXT_DOC_TYPES.includes(receiver.docType) ? receiver.docType : "2";
+      return { mode: "ext", operation: "B2F", label: "Extranjero · " + DOC_SHORT[dt], docType: dt, valid: ok,
+        why: ok ? "Cliente del exterior: se factura como venta a extranjero." : "Para un cliente extranjero escribí el nombre y el número de documento." };
     }
     const parsed = parseRuc(receiver.ruc);
     if (!parsed) return { mode: "con", valid: false, label: "", why: "Escribí el RUC con su dígito verificador, por ejemplo 4567890-1." };
@@ -66,6 +79,76 @@
       why: "Contribuyente con RUC: se factura como empresa a empresa. No tenés que elegirlo." };
   }
   const opName = { B2B: "Empresa a empresa", B2C: "Empresa a consumidor", B2G: "Empresa a Estado", B2F: "Empresa a extranjero" };
+
+  // Texto de identificación del receptor para pantallas y KuDE: "80098765-9", "CI 1234567", "Pasaporte X1 · Brasil", "Innominado"
+  function receiverIdText(c) {
+    c = c || {};
+    if (c.mode === "con") return (parseRuc(c.ruc) || { full: c.ruc || "" }).full;
+    const doc = String(c.doc || "").trim();
+    if (c.mode === "ext") return (DOC_SHORT[EXT_DOC_TYPES.includes(c.docType) ? c.docType : "2"]) + " " + doc + (c.country ? " · " + c.country : "");
+    return doc ? DOC_SHORT[c.docType || "1"] + " " + doc : "Innominado";
+  }
+  const receiverIdLabel = c => (c && c.mode === "con" ? "RUC" : "Documento");
+  const receiverDisplayName = c => (c && c.name) || (c && c.mode === "con" ? (parseRuc(c.ruc) || {}).full || c.ruc : "Consumidor final");
+
+  // Paso "Cliente" compartido por el Facturador y Pedidos. d: borrador; r: resultado de classify.
+  function receiverBlock(d, r, total, opts) {
+    opts = opts || {};
+    const docOpts = (types, sel) => types.map(k => `<option value="${k}" ${sel === k ? "selected" : ""}>${esc(DOC_TYPES[k])}</option>`).join("");
+    const seg = `<div class="seg">
+        <button data-mode="con" class="${d.mode === "con" ? "on" : ""}">Con RUC</button>
+        <button data-mode="sin" class="${d.mode === "sin" ? "on" : ""}">Sin RUC</button>
+        <button data-mode="ext" class="${d.mode === "ext" ? "on" : ""}">Extranjero</button>
+      </div>`;
+    let fields = "";
+    if (d.mode === "con") {
+      fields = `<div class="grid2">
+          <div><label for="fRuc">RUC</label><input id="fRuc" placeholder="4567890-1" value="${esc(d.ruc)}"></div>
+          <div><label for="fName">Nombre o razón social</label><input id="fName" placeholder="${esc(r.name || "Se completa solo")}" value="${esc(d.name)}"></div>
+        </div>`;
+    } else if (d.mode === "sin") {
+      fields = `<div class="grid2">
+          <div><label for="fDocType">Tipo de documento</label><select id="fDocType">${docOpts(["1", "2", "3", "4", "6", "9"], d.docType || "1")}</select></div>
+          <div><label for="fDoc">Número ${total >= INNOMINATE_LIMIT ? "(obligatorio)" : "(opcional)"}</label><input id="fDoc" placeholder="Nº de documento" value="${esc(d.doc)}"></div>
+        </div>
+        <label for="fName2">Nombre (opcional)</label><input id="fName2" placeholder="Consumidor final" value="${esc(d.name)}">`;
+    } else {
+      fields = `<label for="fName2">Nombre o razón social (obligatorio)</label><input id="fName2" placeholder="Nombre del cliente del exterior" value="${esc(d.name)}">
+        <div class="grid2">
+          <div><label for="fDocType">Tipo de documento</label><select id="fDocType">${docOpts(EXT_DOC_TYPES, EXT_DOC_TYPES.includes(d.docType) ? d.docType : "2")}</select></div>
+          <div><label for="fDoc">Número (obligatorio)</label><input id="fDoc" value="${esc(d.doc)}"></div>
+        </div>
+        <label for="fCountry">País</label><input id="fCountry" placeholder="Ej. Brasil" value="${esc(d.country || "")}">`;
+    }
+    let detect = "";
+    if (d.mode === "con" && String(d.ruc || "").trim()) {
+      detect = r.valid ? `<div class="detect"><div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div>
+          ${r.name ? `<div class="small" style="margin-top:2px">${esc(r.name)}</div>` : ""}${opts.why ? `<div class="why">${esc(r.why)}</div>` : ""}</div>`
+        : `<div class="notice bad">${esc(r.why)}</div>`;
+    } else if (d.mode !== "con") {
+      detect = `<div class="${r.valid ? "detect" : "notice bad"}"><div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div><div class="why">${esc(r.why)}</div></div>`;
+    }
+    return seg + fields + detect;
+  }
+  // Lee los campos del paso "Cliente" sin volver a dibujar.
+  function syncReceiver(d) {
+    const g = id => document.getElementById(id);
+    if (g("fRuc")) d.ruc = g("fRuc").value;
+    if (g("fName")) d.name = g("fName").value;
+    if (g("fName2")) d.name = g("fName2").value;
+    if (g("fDoc")) d.doc = g("fDoc").value;
+    if (g("fDocType")) d.docType = g("fDocType").value;
+    if (g("fCountry")) d.country = g("fCountry").value;
+  }
+  // Campos que cambian la validación del cliente y por eso redibujan mientras se escribe
+  const receiverLiveIds = mode => mode === "ext" ? ["fDoc", "fName2"] : ["fRuc", "fDoc"];
+  // Cliente normalizado para guardar (pedido, factura o cliente frecuente)
+  function receiverFromDraft(d, r) {
+    return { mode: d.mode, ruc: d.mode === "con" ? ((parseRuc(d.ruc) || {}).full || d.ruc) : "",
+      doc: d.mode === "con" ? "" : String(d.doc || "").trim(), docType: d.mode === "con" ? "" : (r && r.docType) || d.docType || "1",
+      country: d.mode === "ext" ? String(d.country || "").trim() : "",
+      name: d.name || (d.mode === "con" && r ? r.name || "" : ""), email: d.email || "" };
+  }
 
   // ================= Cálculos =================
   function calcItem(it) {
@@ -171,13 +254,18 @@
   }
 
   // ================= Clientes frecuentes =================
-  // client: { id, mode: "con"|"sin", ruc, doc, name, email }
-  function clientKey(c) { return c.mode === "con" ? "R:" + (parseRuc(c.ruc) || { full: c.ruc }).full : "D:" + (c.doc || c.name || "").trim().toLowerCase(); }
+  // client: { id, mode: "con"|"sin"|"ext", ruc, doc, docType, country, name, email }
+  function clientKey(c) {
+    if (c.mode === "con") return "R:" + (parseRuc(c.ruc) || { full: c.ruc }).full;
+    return (c.mode === "ext" ? "X:" : "D:") + (c.doc || c.name || "").trim().toLowerCase();
+  }
   function upsertClient(list, c) {
     if (c.mode === "con" && !parseRuc(c.ruc)) return list;
     if (c.mode === "sin" && !c.doc && !c.name) return list;
+    if (c.mode === "ext" && !(c.doc && c.name)) return list;
     const key = clientKey(c);
-    const clean = { mode: c.mode, ruc: c.mode === "con" ? (parseRuc(c.ruc) || {}).full || c.ruc : "", doc: c.mode === "sin" ? (c.doc || "") : "",
+    const clean = { mode: c.mode, ruc: c.mode === "con" ? (parseRuc(c.ruc) || {}).full || c.ruc : "", doc: c.mode === "con" ? "" : (c.doc || ""),
+      docType: c.mode === "con" ? "" : (c.docType || (c.mode === "ext" ? "2" : "1")), country: c.mode === "ext" ? (c.country || "") : "",
       name: c.name || "", email: c.email || "", used: Date.now() };
     const i = list.findIndex(x => clientKey(x) === key);
     if (i >= 0) list[i] = Object.assign({}, list[i], clean, { name: clean.name || list[i].name, email: clean.email || list[i].email });
@@ -190,7 +278,7 @@
       const s = q.trim().toLowerCase();
       const f = list.filter(c => !s || (c.name || "").toLowerCase().includes(s) || (c.ruc || "").includes(s) || (c.doc || "").includes(s));
       return f.length ? f.map(c => `<div class="row" data-pick="${esc(c.id)}"><div class="main"><div class="title">${esc(c.name || "Sin nombre")}</div>
-        <div class="sub">${c.mode === "con" ? "RUC " + esc(c.ruc) : "Doc. " + esc(c.doc || "-")}${c.email ? " · " + esc(c.email) : ""}</div></div><span class="link">Elegir</span></div>`).join("")
+        <div class="sub">${c.mode === "con" ? "RUC " : ""}${esc(receiverIdText(c))}${c.email ? " · " + esc(c.email) : ""}</div></div><span class="link">Elegir</span></div>`).join("")
         : `<div class="muted small" style="padding:8px 0">${list.length ? "Ningún cliente coincide." : "Todavía no hay clientes guardados. Se guardan solos al usarlos."}</div>`;
     };
     sheet(`<h3>Clientes frecuentes</h3>
@@ -214,7 +302,7 @@
   function pedidoToCompact(p) {
     const c = p.client || {};
     return { v: 1, i: p.id, r: p.rev || 1, s: p.seller, f: p.createdAt, u: p.updatedAt || p.createdAt,
-      c: [c.mode === "sin" ? 0 : 1, c.ruc || "", c.name || "", c.doc || "", c.email || ""],
+      c: [c.mode === "sin" ? 0 : c.mode === "ext" ? 2 : 1, c.ruc || "", c.name || "", c.doc || "", c.email || "", c.docType || "", c.country || ""],
       k: p.condition === "credito" ? 1 : 0, q: p.installments || 1, m: p.currency || "PYG", x: p.exchange || "",
       it: (p.items || []).map(it => [it.desc, it.qty, it.price, it.tax, it.discount || 0]), o: p.note || "" };
   }
@@ -222,7 +310,8 @@
     if (!o || o.v !== 1 || !o.i || !Array.isArray(o.it)) throw new Error("formato");
     const c = o.c || [];
     return { id: String(o.i), rev: Number(o.r) || 1, seller: String(o.s || ""), createdAt: o.f, updatedAt: o.u || o.f,
-      client: { mode: c[0] === 0 ? "sin" : "con", ruc: c[1] || "", name: c[2] || "", doc: c[3] || "", email: c[4] || "" },
+      client: { mode: c[0] === 0 ? "sin" : c[0] === 2 ? "ext" : "con", ruc: c[1] || "", name: c[2] || "", doc: c[3] || "", email: c[4] || "",
+        docType: String(c[5] || ""), country: String(c[6] || "") },
       condition: o.k === 1 ? "credito" : "contado", installments: Number(o.q) || 1, currency: o.m === "USD" ? "USD" : "PYG", exchange: o.x || "",
       items: o.it.map(a => ({ desc: String(a[0] || ""), qty: Number(a[1]) || 0, price: Number(a[2]) || 0, tax: ["10", "5", "E"].includes(a[3]) ? a[3] : "10", discount: Number(a[4]) || 0 })),
       note: String(o.o || "") };
@@ -241,6 +330,56 @@
       const json = global.LZString.decompressFromBase64(m[2]);
       return { ok: true, pedido: compactToPedido(JSON.parse(json)) };
     } catch (_) { return { ok: false, error: "No se pudo leer el contenido del pedido." }; }
+  }
+
+  // ================= CDC (Manual Técnico v150) =================
+  // o: { deType (1 = factura electrónica), ruc, dv, establishment, point, number, taxpayerType, date, emissionType, securityCode }
+  // 44 dígitos: tipo doc (2) · RUC emisor (8) · DV (1) · establecimiento (3) · punto (3) · número (7) ·
+  // tipo de contribuyente (1) · fecha AAAAMMDD (8) · tipo de emisión (1) · código de seguridad (9) · DV del CDC (1, módulo 11)
+  function randomDigits(n) {
+    const buf = new Uint8Array(n * 2); let s = "";
+    if (global.crypto && crypto.getRandomValues) crypto.getRandomValues(buf); else buf.forEach((_, i) => buf[i] = Math.random() * 256);
+    for (let i = 0; s.length < n && i < buf.length; i++) if (buf[i] < 250) s += String(buf[i] % 10);
+    while (s.length < n) s += String(Math.floor(Math.random() * 10));
+    return s;
+  }
+  const pad = (v, n) => String(v == null ? "" : v).replace(/\D/g, "").padStart(n, "0").slice(-n);
+  const ymd = d => d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+  function buildCdc(o) {
+    const sec = o.securityCode ? pad(o.securityCode, 9) : randomDigits(9);
+    const base = pad(o.deType || "1", 2) + pad(o.ruc, 8) + pad(o.dv, 1) + pad(o.establishment, 3) + pad(o.point, 3) + pad(o.number, 7) +
+      pad(o.taxpayerType || "2", 1) + ymd(o.date || new Date()) + pad(o.emissionType || "1", 1) + sec;
+    return base + dv11(base);
+  }
+  function isValidCdc(cdc) {
+    const d = String(cdc || "").replace(/\s/g, "");
+    return /^\d{44}$/.test(d) && dv11(d.slice(0, 43)) === Number(d[43]);
+  }
+  const formatCdc = cdc => String(cdc || "").replace(/\D/g, "").replace(/(\d{4})(?=\d)/g, "$1 ");
+
+  // ================= QR del KuDE (sección 13.8) =================
+  // CSC de prueba del manual (IdCSC 0001). En producción cada contribuyente usa el suyo.
+  const CSC_TEST = { id: "0001", value: "ABCD0000000000000000000000000000" };
+  const toHex = str => Array.from(new TextEncoder().encode(String(str)), b => b.toString(16).padStart(2, "0")).join("");
+  const hasSubtle = () => !!(global.crypto && crypto.subtle);
+  async function sha256Bytes(str) { return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)))); }
+  async function sha256Hex(str) { return Array.from(await sha256Bytes(str), b => b.toString(16).padStart(2, "0")).join(""); }
+  const bytesToB64 = bytes => { let s = ""; bytes.forEach(b => s += String.fromCharCode(b)); return btoa(s); };
+  // Sin XML firmado no hay DigestValue real: se simula con el SHA-256 (en base64) de los datos de la factura.
+  async function simulatedDigest(data) { return bytesToB64(await sha256Bytes(JSON.stringify(data))); }
+  const localIso = d => ymd(d).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") + "T" + d.toTimeString().slice(0, 8);
+  // o: { env, cdc, date, receiver, total, iva, items, digest, csc: {id, value} }
+  async function buildQrUrl(o) {
+    const base = "https://ekuatia.set.gov.py/consultas" + (o.env === "prod" ? "" : "-test") + "/qr?";
+    const rec = o.receiver || {};
+    const recParam = rec.mode === "con"
+      ? "dRucRec=" + ((parseRuc(rec.ruc) || { base: String(rec.ruc || "").split("-")[0] }).base)
+      : "dNumIDRec=" + (String(rec.doc || "").trim() || "0");
+    const params = "nVersion=150&Id=" + String(o.cdc).replace(/\s/g, "") + "&dFeEmiDE=" + toHex(typeof o.date === "string" ? o.date : localIso(o.date)) +
+      "&" + recParam + "&dTotGralOpe=" + o.total + "&dTotIVA=" + (o.iva || 0) + "&cItems=" + o.items +
+      "&DigestValue=" + toHex(o.digest || "") + "&IdCSC=" + o.csc.id;
+    if (!hasSubtle()) return base + params; // sin HTTPS no se puede calcular el hash
+    return base + params + "&cHashQR=" + await sha256Hex(params + o.csc.value);
   }
 
   // ================= Generar QR =================
@@ -426,7 +565,9 @@
   global.FE = {
     installHTML, promptInstall, onInstallChange, isStandalone,
     fmt, esc, fmtDate, todayKey, localDayKey, INNOMINATE_LIMIT, registry, dv11, parseRuc, classify, opName,
-    calcItem, calcItems, taxLabel, makeStore, randomId, toast, sheet, confirmSheet, itemSheet,
+    calcItem, calcItems, taxLabel, DOC_TYPES, DOC_SHORT, EXT_DOC_TYPES, receiverIdText, receiverIdLabel, receiverDisplayName,
+    receiverBlock, syncReceiver, receiverLiveIds, receiverFromDraft,
+    buildCdc, isValidCdc, formatCdc, CSC_TEST, toHex, sha256Hex, simulatedDigest, buildQrUrl, localIso, makeStore, randomId, toast, sheet, confirmSheet, itemSheet,
     upsertClient, clientPicker, encodePedido, decodePedido, qrCanvas, readQrFromFile, openScanner,
     shareCanvas, copyText, downloadBlob, exportBackup, importBackup, registerSW, fnv32
   };
