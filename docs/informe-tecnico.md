@@ -62,6 +62,7 @@ Dos apps web instalables (PWA), sin servidor. Todo se guarda en el dispositivo (
 | **QR del KuDE** con los parámetros de la sección 13.8 y `cHashQR` con el CSC de prueba | `shared/core.js` (`buildQrUrl`) | Funciona; el `DigestValue` es simulado |
 | KuDE en pantalla adaptable (sin desplazamiento lateral en celulares) | `facturador/app.js`, `shared/styles.css` | Funciona |
 | **PDF del KuDE** con texto real, multipágina, QR vectorial | `facturador/kude-pdf.js` (jsPDF) | Funciona |
+| Timbrados guardados con inicio y fin (o sin fin), uno solo activo, numeración propia; no se factura fuera de vigencia | `facturador/app.js` | Funciona |
 | Cancelación solo dentro de 48 h desde la aprobación | `facturador/app.js` | Funciona (simulada) |
 | Clientes frecuentes, respaldo, logo, instalación | ambas apps | Funciona |
 | Pruebas automáticas | `tests/run.js` | `node tests/run.js` |

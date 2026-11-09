@@ -63,6 +63,7 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - **Innominado** solo por debajo de Gs 7.000.000 (NT 024).
 - **CDC** de 44 dígitos con la estructura del Manual Técnico v150, código de seguridad aleatorio y DV módulo 11, mostrado en grupos de 4.
 - **QR** con los parámetros de la sección 13.8 y `cHashQR` calculado con el CSC de prueba del manual. El `DigestValue` es simulado hasta que exista la firma del XML.
+- **Timbrados** (Ajustes → Timbrados): cada timbrado cargado queda guardado con su fecha de inicio y de fin (o «sin fecha de fin») y su propia numeración. Solo uno está activo, y solo se factura con él mientras esté vigente. Cada factura guarda el timbrado con el que se emitió.
 - **Cancelación** solo dentro de las 48 horas desde la aprobación; después, nota de crédito.
 - La respuesta de SIFEN sigue siendo simulada. El detalle de qué falta está en [`docs/informe-tecnico.md`](docs/informe-tecnico.md).
 

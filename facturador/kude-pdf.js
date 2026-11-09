@@ -66,7 +66,7 @@
     emisor.forEach(l => { ly += lines(wrap(l, LW, 8), LX, ly, 8); });
     let ry = top + 6;
     text("RUC: " + company.ruc + "-" + company.dv, RX, ry, { size: 10.5, bold: true }); ry += 5.5;
-    ["Timbrado Nº: " + company.timbrado, "Inicio de vigencia: " + company.start, "Fin de vigencia: " + company.end].forEach(l => { text(l, RX, ry, { size: 8.5 }); ry += lh(8.5); });
+    (opts.timbradoLines || ["Timbrado Nº: " + company.timbrado, "Inicio de vigencia: " + company.start, "Fin de vigencia: " + company.end]).forEach(l => { text(l, RX, ry, { size: 8.5 }); ry += lh(8.5); });
     ry += 5;
     text("FACTURA ELECTRÓNICA", RX, ry, { size: 12.5, bold: true }); ry += 6;
     text(inv.number, RX, ry, { size: 11.5, bold: true }); ry += 2;

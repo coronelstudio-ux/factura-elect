@@ -25,7 +25,12 @@
   let invoices = store.get("invoices", null) || seedInvoices;
   let inbox = store.get("pedidos", []);      // pedidos recibidos por QR
   let clients = store.get("clients", []);
-  const save = () => { store.set("company", company); store.set("invoices", invoices); store.set("pedidos", inbox); store.set("clients", clients); };
+  // Timbrados cargados: todos quedan guardados; solo uno está activo y es el único que se usa para facturar.
+  // { id, number (8 dígitos), start "AAAA-MM-DD", end "AAAA-MM-DD" o "" (sin fecha de fin), nextNumber, active, createdAt }
+  const dmyToIso = v => { const m = String(v || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + "-" + m[2] + "-" + m[1] : ""; };
+  let timbrados = store.get("timbrados", null) || [{ id: FE.randomId(6), number: company.timbrado, start: dmyToIso(company.start), end: dmyToIso(company.end),
+    nextNumber: company.nextNumber || 1, active: true, createdAt: new Date().toISOString() }];
+  const save = () => { store.set("company", company); store.set("invoices", invoices); store.set("pedidos", inbox); store.set("clients", clients); store.set("timbrados", timbrados); };
   save();
 
   // ================= Estado =================
@@ -35,7 +40,26 @@
     return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
       currency: "PYG", exchange: "", items: [] };
   }
-  const nextNumberStr = () => company.establishment + "-" + company.point + "-" + String(company.nextNumber).padStart(7, "0");
+  const activeTimbrado = () => timbrados.find(t => t.active) || null;
+  const isoToDmy = v => v ? v.slice(8, 10) + "/" + v.slice(5, 7) + "/" + v.slice(0, 4) : "";
+  // Estado de un timbrado hoy: vigente, futuro (todavía no empieza) o vencido
+  function timbradoStatus(t) {
+    const today = FE.todayKey();
+    if (!t) return "none";
+    if (t.start && today < t.start) return "futuro";
+    if (t.end && today > t.end) return "vencido";
+    return "vigente";
+  }
+  const timbradoOk = () => timbradoStatus(activeTimbrado()) === "vigente";
+  const vigenciaText = t => t.end ? isoToDmy(t.start) + " al " + isoToDmy(t.end) : "Desde " + isoToDmy(t.start) + " · sin fecha de fin";
+  function timbradoProblem() {
+    const t = activeTimbrado(), st = timbradoStatus(t);
+    if (st === "none") return "No hay un timbrado activo. Cargalo o activalo en Ajustes → Timbrados.";
+    if (st === "futuro") return "El timbrado activo " + t.number + " empieza el " + isoToDmy(t.start) + ". Hasta esa fecha no se puede facturar con él.";
+    if (st === "vencido") return "El timbrado activo " + t.number + " venció el " + isoToDmy(t.end) + ". Cargá o activá uno vigente en Ajustes → Timbrados.";
+    return "";
+  }
+  const nextNumberStr = () => { const t = activeTimbrado(); return t ? company.establishment + "-" + company.point + "-" + String(t.nextNumber).padStart(7, "0") : "Sin timbrado activo"; };
 
   // ================= Utilidades de interfaz =================
   const statusChip = s => s === "ok" ? '<span class="chip ok">Aprobada</span>' : s === "bad" ? '<span class="chip bad">Rechazada</span>' : '<span class="chip warn">Pendiente</span>';
@@ -66,13 +90,20 @@
         <button class="btn primary" data-go="new">Nueva factura</button>
         <button class="btn soft" data-go="pedidos">Pedidos${pp ? " (" + pp + ")" : ""}</button>
       </div>
+      ${timbradoNotice()}
       ${pp ? `<div class="notice warn"><b>Tenés ${pp} pedido(s) pendiente(s) de facturar</b>Abrí Pedidos para revisarlos y decidir.</div>` : ""}
       ${rejected ? `<div class="notice bad"><b>Hay ${rejected} factura(s) rechazada(s)</b>Abrila en el historial para ver el motivo y corregirla.</div>` : ""}
-      <div class="notice ok"><b>Te quedan ${company.leftToUse} números</b>Todavía tenés numeración disponible en el timbrado ${esc(company.timbrado)}.</div>
       <div class="section">
         <div class="section-title">Últimos comprobantes</div>
         <div class="card">${invoices.slice(0, 4).map(rowInvoice).join("") || `<div class="muted small">Sin comprobantes.</div>`}</div>
       </div>`;
+  }
+  function timbradoNotice() {
+    const t = activeTimbrado(), problem = timbradoProblem();
+    if (problem) return `<div class="notice bad"><b>No se puede facturar</b>${esc(problem)}</div>`;
+    const days = t.end ? Math.round((Date.parse(t.end) - Date.parse(FE.todayKey())) / 86400000) : null;
+    if (days !== null && days <= 30) return `<div class="notice warn"><b>El timbrado ${esc(t.number)} vence en ${days} día(s)</b>Vigente hasta el ${isoToDmy(t.end)}. Cargá el nuevo en Ajustes → Timbrados.</div>`;
+    return `<div class="notice ok"><b>Timbrado activo ${esc(t.number)}</b>${esc(vigenciaText(t))} · próxima factura ${esc(nextNumberStr())}</div>`;
   }
   function rowInvoice(i) {
     return `<div class="row" data-open="${i.id}" role="button" tabindex="0">
@@ -84,11 +115,13 @@
   function screenNew() {
     const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
     const hasItems = d.items.length > 0;
-    const canPreview = r.valid && hasItems;
+    const canPreview = r.valid && hasItems && timbradoOk();
     const ped = d.pedidoId ? inbox.find(p => p.id === d.pedidoId) : null;
     return `
       ${ped ? `<div class="notice ok" style="margin-top:0"><b>Facturando el pedido ${esc(ped.id)}</b>Cargado por ${esc(ped.seller)}. Revisá los datos y emití.
         <button class="link" data-unlinkped style="display:block;padding:4px 0 0;min-height:0">Quitar vínculo con el pedido</button></div>` : ""}
+      ${timbradoOk() ? "" : `<div class="notice bad" style="margin-top:0"><b>No se puede facturar</b>${esc(timbradoProblem())}
+        <button class="link" data-go="settings" style="display:block;padding:4px 0 0;min-height:0">Ir a Timbrados</button></div>`}
       <div class="lead">Elegí el tipo de cliente. El tipo de operación se detecta solo.</div>
       <div class="section">
         <div class="section-title"><span class="num ${r.valid ? "done" : ""}">1</span>Cliente
@@ -159,7 +192,7 @@
         </div>
         <div>
           <div style="font-weight:700;font-size:12px">RUC: ${esc(company.ruc)}-${esc(company.dv)}</div>
-          <div style="margin-top:4px">Timbrado Nº: ${esc(company.timbrado)}<br>Inicio de vigencia: ${esc(company.start)}<br>Fin de vigencia: ${esc(company.end)}</div>
+          <div style="margin-top:4px">${timbradoLines(inv).map(esc).join("<br>")}</div>
           <div class="fact" style="margin-top:12px">FACTURA ELECTRÓNICA</div>
           <div style="font-weight:700;font-size:11px">${esc(inv.number)}</div>
         </div>
@@ -216,11 +249,23 @@
     </div>`;
   }
 
+  // Datos del timbrado para el KuDE (los de la factura; las facturas viejas usan los de la empresa)
+  function timbradoOf(inv) {
+    if (inv && inv.timbrado) return inv.timbrado;
+    return { number: company.timbrado, start: dmyToIso(company.start), end: dmyToIso(company.end) };
+  }
+  function timbradoLines(inv) {
+    const t = timbradoOf(inv);
+    const out = ["Timbrado Nº: " + t.number, "Inicio de vigencia: " + isoToDmy(t.start)];
+    if (t.end) out.push("Fin de vigencia: " + isoToDmy(t.end));
+    return out;
+  }
   function buildInvoice(d) {
     const t = calcItems(d.items), r = classify(d, t.total), now = new Date();
     const receiver = FE.receiverFromDraft(d, r);
     return {
       number: nextNumberStr(),
+      timbrado: (t => ({ id: t.id, number: t.number, start: t.start, end: t.end }))(activeTimbrado()),
       issuedAt: FE.localIso(now),
       dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8),
       receiver,
@@ -407,10 +452,25 @@
           <div class="kv"><span class="muted">Próxima factura</span><span>${esc(nextNumberStr())}</span></div>
           <div class="kv"><span class="muted">Logo</span><span style="display:flex;gap:10px;align-items:center">${company.logo ? `<img src="${company.logo}" alt="" style="height:28px;max-width:90px;object-fit:contain">` : `<span class="small muted">Sin logo</span>`}<label class="link" style="cursor:pointer">Cargar<input type="file" id="logoFile" accept="image/*" hidden></label>${company.logo ? `<button class="link" data-remove-logo="1">Quitar</button>` : ""}</span></div>
         </div></div>
-      <div class="section"><div class="section-title">Timbrado y certificado</div>
+      <div class="section"><div class="section-title">Timbrados</div>
         <div class="card">
-          <div class="kv"><span class="muted">Timbrado Nº</span><span>${esc(company.timbrado)}</span></div>
-          <div class="kv"><span class="muted">Números disponibles</span><span>${company.leftToUse}</span></div>
+          ${timbrados.slice().sort((a, b) => (b.active - a.active) || String(b.start).localeCompare(String(a.start))).map(t => {
+            const st = timbradoStatus(t);
+            const chip = t.active ? (st === "vigente" ? '<span class="chip ok">Activo</span>' : '<span class="chip bad">Activo · ' + st + '</span>')
+              : st === "vencido" ? '<span class="chip neutral">Vencido</span>' : st === "futuro" ? '<span class="chip warn">Todavía no vigente</span>' : '<span class="chip neutral">Inactivo</span>';
+            return `<div class="row" style="cursor:default;align-items:flex-start"><div class="main">
+              <div class="title">Nº ${esc(t.number)}</div>
+              <div class="sub">${esc(vigenciaText(t))}</div>
+              <div class="sub">Próximo número: ${String(t.nextNumber).padStart(7, "0")}</div>
+              <div style="margin-top:6px">${chip}</div></div>
+              <span style="display:flex;flex-direction:column;align-items:flex-end">
+                ${t.active ? "" : `<button class="link" data-timact="${esc(t.id)}" ${st === "vencido" ? "disabled" : ""}>Activar</button>`}
+                <button class="link" data-timedit="${esc(t.id)}">Editar</button></span></div>`; }).join("")}
+          <button class="add" data-timadd>+ Cargar timbrado</button>
+          <div class="muted small" style="margin-top:8px">Todos los timbrados quedan guardados. Solo se factura con el activo, y solo mientras esté vigente.</div>
+        </div></div>
+      <div class="section"><div class="section-title">Certificado</div>
+        <div class="card">
           <div class="kv"><span class="muted">Certificado vence</span><span>${esc(company.certExpires)}</span></div>
           <div class="kv"><span class="muted">Código de seguridad</span><span>Activo · ID ${esc(company.csc)}</span></div>
         </div></div>
@@ -470,7 +530,57 @@
     const bar = document.querySelector(".sticky-total"); if (!bar) return;
     const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
     bar.querySelector(".big").textContent = (d.currency === "USD" ? "USD " : "Gs ") + fmt(t.total);
-    bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0);
+    bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0 && timbradoOk());
+  }
+
+  // ----- Cargar / editar timbrado -----
+  function timbradoSheet(t) {
+    const editing = !!t, used = editing && (t.used || invoices.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === t.id));
+    const v = t || { number: "", start: FE.todayKey(), end: "", nextNumber: 1 };
+    sheet(`<h3>${editing ? "Editar timbrado" : "Cargar timbrado"}</h3>
+      ${used ? `<p class="muted small">Ya se emitieron facturas con este timbrado: el número y la fecha de inicio no se pueden cambiar.</p>` : ""}
+      <label for="tNum">Número de timbrado (8 dígitos)</label>
+      <input id="tNum" inputmode="numeric" maxlength="8" placeholder="12345678" value="${esc(v.number)}" ${used ? "disabled" : ""}>
+      <div class="grid2">
+        <div><label for="tStart">Fecha de inicio</label><input id="tStart" type="date" value="${esc(v.start)}" ${used ? "disabled" : ""}></div>
+        <div><label for="tEnd">Fecha de fin</label><input id="tEnd" type="date" value="${esc(v.end)}" ${v.end ? "" : "disabled"}></div>
+      </div>
+      <label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
+        <input type="checkbox" id="tNoEnd" ${v.end ? "" : "checked"} style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> Sin fecha de fin</label>
+      <label for="tNext">${used ? "Próximo número de factura" : "Número de la primera factura"}</label>
+      <input id="tNext" inputmode="numeric" value="${esc(v.nextNumber)}">
+      ${editing ? "" : `<label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
+        <input type="checkbox" id="tAct" checked style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> Activarlo ahora (el actual queda inactivo)</label>`}
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
+      const noEnd = el.querySelector("#tNoEnd"), endEl = el.querySelector("#tEnd");
+      noEnd.onchange = () => { endEl.disabled = noEnd.checked; if (noEnd.checked) endEl.value = ""; };
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const number = el.querySelector("#tNum").value.replace(/\D/g, ""), start = el.querySelector("#tStart").value;
+        const end = noEnd.checked ? "" : endEl.value, next = parseInt(el.querySelector("#tNext").value.replace(/\D/g, ""), 10);
+        if (!/^\d{8}$/.test(number)) { toast("El timbrado tiene que tener 8 dígitos"); return; }
+        if (!start) { toast("Elegí la fecha de inicio"); return; }
+        if (!noEnd.checked && !end) { toast("Elegí la fecha de fin o marcá «Sin fecha de fin»"); return; }
+        if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return; }
+        if (!(next >= 1 && next <= 9999999)) { toast("El número de factura tiene que estar entre 1 y 9.999.999"); return; }
+        if (timbrados.some(x => x.number === number && x !== t)) { toast("Ese timbrado ya está cargado"); return; }
+        if (editing) {
+          if (used && next < t.nextNumber) { toast("El próximo número no puede ser menor a " + t.nextNumber + ": ya se usaron los anteriores"); return; }
+          Object.assign(t, used ? { end, nextNumber: next } : { number, start, end, nextNumber: next });
+          if (t.active && timbradoStatus(t) === "vencido") toast("Atención: con esa fecha de fin el timbrado activo queda vencido");
+          else toast("Timbrado guardado");
+        } else {
+          const nt = { id: FE.randomId(6), number, start, end, nextNumber: next, active: false, createdAt: new Date().toISOString() };
+          const activate = el.querySelector("#tAct").checked;
+          if (activate && timbradoStatus(nt) === "vencido") { toast("Ese timbrado ya está vencido: no se puede activar"); return; }
+          if (activate) timbrados.forEach(x => x.active = false);
+          nt.active = activate;
+          timbrados.push(nt);
+          toast(activate ? "Timbrado " + number + " cargado y activo" : "Timbrado " + number + " guardado");
+        }
+        save(); close(); render();
+      };
+    });
   }
 
   // ----- Recepción de pedidos por QR -----
@@ -539,6 +649,10 @@
       const p = inbox.find(x => x.id === inv.pedidoId);
       if (p && p.status === "facturado") { toast("Ese pedido ya fue facturado (" + p.invoiceNumber + ")"); return; }
     }
+    const tim = activeTimbrado();
+    if (!timbradoOk() || !tim || (inv.timbrado && inv.timbrado.id !== tim.id)) {
+      toast(timbradoProblem() || "Cambió el timbrado activo. Volvé a abrir la vista previa."); return;
+    }
     emitting = true;
     try {
       const approved = Math.random() > 0.15; // simulación de la respuesta de SIFEN
@@ -548,7 +662,7 @@
       let cdc = "", qrUrl = "";
       if (approved) {
         cdc = FE.buildCdc({ deType: "1", ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
-          number: company.nextNumber, taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
+          number: tim.nextNumber, taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
         const digest = await FE.simulatedDigest({ cdc, items: issued.items, totals: issued.totals, receiver: issued.receiver });
         qrUrl = await FE.buildQrUrl({ env: company.env, cdc, date: issued.issuedAt, receiver: issued.receiver,
           total: issued.totals.total, iva: issued.totals.iva, items: issued.items.length, digest, csc: FE.CSC_TEST });
@@ -561,7 +675,7 @@
       };
       invoices.unshift(result);
       if (approved) {
-        company.nextNumber += 1; company.leftToUse = Math.max(0, company.leftToUse - 1);
+        tim.nextNumber += 1; tim.used = true;
         clients = upsertClient(clients, inv.receiver);
         if (inv.pedidoId) {
           const p = inbox.find(x => x.id === inv.pedidoId);
@@ -591,6 +705,7 @@
       syncFields();
       const r = classify(state.draft, calcItems(state.draft.items).total);
       if (!r.valid) { toast(r.why); return; }
+      if (!timbradoOk()) { toast(timbradoProblem()); return; }
       state.preview = buildInvoice(state.draft); go("preview"); return;
     }
     if (ds.back) { go(ds.back); return; }
@@ -625,6 +740,16 @@
       state.draft = draftFromPedido(p); state.preview = null; go("new"); return;
     }
     // Ajustes
+    if (ds.timadd !== undefined) { timbradoSheet(null); return; }
+    if (ds.timedit) { timbradoSheet(timbrados.find(t => t.id === ds.timedit)); return; }
+    if (ds.timact) {
+      const t = timbrados.find(x => x.id === ds.timact); if (!t) return;
+      if (timbradoStatus(t) === "vencido") { toast("Ese timbrado está vencido"); return; }
+      confirmSheet("¿Activar el timbrado " + t.number + "?", "Desde ahora las facturas se emiten con este timbrado. El que estaba activo queda guardado como inactivo.", "Activar", () => {
+        timbrados.forEach(x => x.active = x.id === t.id); save(); render(); toast("Timbrado " + t.number + " activo");
+      });
+      return;
+    }
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
     if (ds.changepin !== undefined) { Lock.change(); return; }
     if (ds.lock !== undefined) { Lock.lockNow(); return; }
@@ -675,7 +800,7 @@
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "" });
+      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv) });
       toast("PDF descargado");
     } catch (err) {
       console.error(err);
