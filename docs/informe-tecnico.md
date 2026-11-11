@@ -65,6 +65,8 @@ Dos apps web instalables (PWA), sin servidor. Todo se guarda en el dispositivo (
 | Timbrados guardados con inicio y fin (o sin fin), uno solo activo, numeración propia; no se factura fuera de vigencia | `facturador/app.js` | Funciona |
 | Cancelación solo dentro de 48 h desde la aprobación | `facturador/app.js` | Funciona (simulada) |
 | Clientes frecuentes, respaldo, logo, instalación | ambas apps | Funciona |
+| App **Admin** multiempresa: alta guiada, certificados (solo datos), timbrados, CSC, ambiente, usuarios y roles, alertas, cola de envíos, auditoría | `admin/`, `shared/tenant.js` | Funciona en el dispositivo; ver `docs/arquitectura-multiempresa.md` |
+| Punto de conexión de la firma (`Firmador.firmar`) | `shared/tenant.js` | Simulado; ver `docs/firma-electronica.md` |
 | Pruebas automáticas | `tests/run.js` | `node tests/run.js` |
 
 Lo que **sigue siendo simulación** y debe reemplazarse cuando exista el backend:

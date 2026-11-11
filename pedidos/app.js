@@ -10,7 +10,9 @@
   store.set("settings", settings);
   let pedidos = store.get("pedidos", []);
   let clients = store.get("clients", []);
-  const save = () => { store.set("pedidos", pedidos); store.set("clients", clients); store.set("settings", settings); };
+  // Catálogo de productos que comparte el facturador (por QR o código)
+  let catalog = store.get("catalog", { empresa: "", products: [], loadedAt: "" });
+  const save = () => { store.set("pedidos", pedidos); store.set("clients", clients); store.set("settings", settings); store.set("catalog", catalog); };
 
   const state = { screen: "new", detailId: null, filter: "all", draft: store.get("draft", null) || newDraft() };
   function newDraft() {
@@ -141,6 +143,17 @@
     return `
       <h2>Ajustes</h2>
       <div class="section"><div class="section-title">Apariencia</div>${FE.themeHTML()}</div>
+      <div class="section"><div class="section-title">Productos</div>
+        <div class="card">
+          ${catalog.products.length ? `<div class="kv"><span class="muted">Catálogo</span><span>${esc(catalog.empresa || "Sin nombre")} · ${catalog.products.length} producto(s)</span></div>
+            <div class="kv"><span class="muted">Cargado</span><span>${fmtDate(catalog.loadedAt)}</span></div>`
+            : `<p class="small muted" style="margin-top:0">Cargá el catálogo que te comparte el facturador (Facturador → Ajustes → Productos frecuentes → Compartir). Después elegís los productos de una lista.</p>`}
+          <div class="btn-row" style="margin-top:10px">
+            <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar desde imagen<input type="file" id="catFile" accept="image/*" hidden></label>
+            <button class="btn" data-catpaste>Pegar código</button>
+          </div>
+          ${catalog.products.length ? `<button class="link" data-catclear style="color:var(--bad)">Quitar catálogo</button>` : ""}
+        </div></div>
       <div class="section"><div class="section-title">Vendedor</div>
         <div class="card">
           <label for="sSeller" style="margin-top:0">Tu nombre (aparece en cada pedido)</label>
@@ -244,6 +257,20 @@
     toast("Pedido guardado");
   }
 
+  function importCatalog(text) {
+    const r = FE.T.decodeCatalog(text);
+    if (!r.ok) { toast(r.error); return; }
+    catalog = { empresa: r.empresa, products: r.products, loadedAt: new Date().toISOString() };
+    save(); render(); toast("Catálogo cargado: " + r.products.length + " producto(s)");
+  }
+  function catalogPasteSheet() {
+    sheet(`<h3>Pegar código del catálogo</h3><textarea id="catCode" placeholder="FEC1.…"></textarea>
+      <div class="btn-row" style="margin-top:14px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Cargar</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => { const v = el.querySelector("#catCode").value; close(); importCatalog(v); };
+      setTimeout(() => el.querySelector("#catCode").focus(), 60);
+    });
+  }
   function clientSheet() {
     const c = { mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "" };
     sheet(`<h3>Nuevo cliente</h3><div id="ncBody" style="margin-top:8px"></div>
@@ -280,8 +307,10 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; saveDraft(); render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; saveDraft(); render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); saveDraft(); render(); }); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; saveDraft(); render(); }, state.draft.items[i]); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); saveDraft(); render(); }, null, catalog.products); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; saveDraft(); render(); }, state.draft.items[i], catalog.products); return; }
+    if (ds.catpaste !== undefined) { catalogPasteSheet(); return; }
+    if (ds.catclear !== undefined) { confirmSheet("¿Quitar el catálogo?", "Los pedidos ya cargados no cambian.", "Quitar", () => { catalog = { empresa: "", products: [], loadedAt: "" }; save(); render(); toast("Catálogo quitado"); }, true); return; }
     if (ds.del !== undefined) { syncFields(); state.draft.items.splice(+ds.del, 1); saveDraft(); render(); return; }
     if (ds.pickclient !== undefined) { syncFields(); clientPicker(clients, useClient); return; }
     if (ds.clear !== undefined) { state.draft = newDraft(); saveDraft(); render(); return; }
@@ -337,6 +366,13 @@
     } else refreshTotal();
   });
   screenEl.addEventListener("change", e => {
+    if (e.target.id === "catFile") {
+      const f = e.target.files && e.target.files[0]; e.target.value = "";
+      if (!f) return;
+      toast("Leyendo el QR…");
+      FE.readQrFromFile(f).then(importCatalog).catch(err => toast(err.message));
+      return;
+    }
     if (e.target.id === "restoreFile") {
       const f = e.target.files && e.target.files[0];
       if (f) FE.importBackup(store, "pedidos", f, () => location.reload());

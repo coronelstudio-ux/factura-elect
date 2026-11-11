@@ -6,10 +6,15 @@ const assert = require("assert");
 
 global.window = global;
 global.addEventListener = () => {};
-global.localStorage = { getItem: () => null, setItem() {}, removeItem() {}, key: () => null, length: 0 };
 global.LZString = require(path.join(__dirname, "..", "vendor", "lz-string.min.js"));
+// localStorage en memoria, para probar el núcleo multiempresa
+const mem = new Map();
+global.localStorage = { getItem: k => mem.has(k) ? mem.get(k) : null, setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k),
+  key: i => Array.from(mem.keys())[i] || null, get length() { return mem.size; } };
 require(path.join(__dirname, "..", "shared", "core.js"));
+require(path.join(__dirname, "..", "shared", "tenant.js"));
 const FE = global.FE;
+const T = FE.T;
 
 let passed = 0, failed = 0;
 const pending = [];
@@ -111,6 +116,82 @@ test("Pedido: ida y vuelta por el código QR, incluido extranjero", () => {
 test("Pedido: código alterado se rechaza", () => {
   const code = FE.encodePedido({ id: "X-1", seller: "A", client: { mode: "sin" }, items: [{ desc: "a", qty: 1, price: 1, tax: "10" }] });
   assert.strictEqual(FE.decodePedido(code.slice(0, -4) + "AAAA").ok, false);
+});
+
+// ---------- Multiempresa: roles y permisos ----------
+test("Sin usuario (un solo dispositivo) se permite todo", () => assert.ok(T.can(null, "empresa.certificado")));
+test("Facturador no edita timbrados ni ve certificados", () => { const u = { role: "facturador" }; assert.ok(T.can(u, "facturar")); assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); });
+test("Operador edita timbrados pero no certificados ni usuarios del estudio", () => { const u = { role: "operador" }; assert.ok(T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); assert.ok(!T.can(u, "usuarios.estudio")); });
+test("Admin del cliente configura su empresa pero no el ambiente", () => { const u = { role: "admincliente" }; assert.ok(T.can(u, "cliente.config")); assert.ok(!T.can(u, "empresa.ambiente")); });
+test("Cargador no factura", () => assert.ok(!T.can({ role: "cargador" }, "facturar")));
+
+// ---------- Multiempresa: empresas, datos separados y acceso ----------
+test("Primer uso: crea la empresa de ejemplo y migra los datos viejos", () => {
+  localStorage.setItem("fac_invoices", JSON.stringify([{ id: 1, number: "001-001-0000001", status: "ok" }]));
+  const e = T.ensureEmpresas();
+  assert.strictEqual(e.ruc, "80012345"); assert.ok(e.demo);
+  assert.strictEqual(T.storeFor(e.id).get("invoices", []).length, 1);
+  assert.strictEqual(T.storeFor(e.id).get("timbrados", []).filter(t => t.active).length, 1);
+});
+test("Cada empresa guarda sus datos aparte", () => {
+  const e2 = T.saveEmpresa(T.newEmpresa({ name: "Otra", ruc: "4567890", dv: "1" }));
+  assert.strictEqual(T.storeFor(e2.id).get("invoices", []).length, 0);
+  assert.strictEqual(T.listEmpresas().length, 2);
+});
+test("Usuarios: el maestro accede a todas, el resto solo a las asignadas", () => {
+  const [a, b] = T.listEmpresas();
+  T.saveUsers([{ id: "m", name: "M", role: "maestro", empresas: [] }, { id: "f", name: "F", role: "facturador", empresas: [b.id] }]);
+  assert.strictEqual(T.empresasOf(T.getUser("m")).length, 2);
+  assert.deepStrictEqual(T.empresasOf(T.getUser("f")).map(e => e.id), [b.id]);
+  assert.deepStrictEqual(T.usersFor(a.id).map(u => u.id), ["m"]);
+});
+test("PIN: se guarda con hash y se verifica", async () => {
+  const u = { id: "x1" }; u.pin = await T.hashPin("4321", u.id);
+  assert.ok(u.pin.startsWith("s256:")); assert.ok(!u.pin.includes("4321"));
+  assert.ok(await T.verifyPin(u, "4321")); assert.ok(!(await T.verifyPin(u, "1234")));
+});
+
+// ---------- Timbrados, certificado y alertas ----------
+const plusDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return FE.localDayKey(d.toISOString()); };
+test("Timbrado: vigente, futuro y vencido", () => {
+  assert.strictEqual(T.timbradoStatus({ start: plusDays(-10), end: "" }), "vigente");
+  assert.strictEqual(T.timbradoStatus({ start: plusDays(5), end: "" }), "futuro");
+  assert.strictEqual(T.timbradoStatus({ start: plusDays(-30), end: plusDays(-1) }), "vencido");
+});
+test("Activar un timbrado deja uno solo activo y no activa vencidos", () => {
+  const l = [{ id: "a", start: plusDays(-5), end: "", active: true }, { id: "b", start: plusDays(-5), end: "", active: false }, { id: "c", start: plusDays(-9), end: plusDays(-2), active: false }];
+  assert.ok(T.activateTimbrado(l, "b")); assert.deepStrictEqual(l.filter(t => t.active).map(t => t.id), ["b"]);
+  assert.strictEqual(T.activateTimbrado(l, "c"), null);
+});
+test("Certificado: sin cargar, por vencer y vencido", () => {
+  assert.strictEqual(T.certStatus(null).state, "none");
+  assert.strictEqual(T.certStatus({ vence: plusDays(10) }).state, "warn");
+  assert.strictEqual(T.certStatus({ vence: plusDays(-1) }).state, "expired");
+  assert.strictEqual(T.certStatus({ vence: plusDays(200) }).state, "ok");
+});
+test("Alertas: timbrado, certificado, rechazadas y envío fuera de plazo", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Alertas", ruc: "3210987", dv: "3", cert: { vence: plusDays(5) } }));
+  const st = T.storeFor(e.id);
+  st.set("invoices", [{ id: 1, status: "bad" }, { id: 2, status: "bad", cancelled: true }, { id: 3, status: "warn", date: new Date(Date.now() - 80 * 3600000).toISOString() }]);
+  const kinds = T.alertsFor(e).map(a => a.kind + ":" + a.level);
+  assert.ok(kinds.includes("timbrado:bad")); assert.ok(kinds.includes("certificado:warn")); assert.ok(kinds.includes("rechazadas:bad")); assert.ok(kinds.includes("envio:bad"));
+  assert.match(T.alertsFor(e).find(a => a.kind === "rechazadas").text, /^1 /);
+});
+
+// ---------- Catálogo y firma ----------
+test("Catálogo de productos: ida y vuelta por código y rechazo si está alterado", () => {
+  const code = T.encodeCatalog([{ code: "RES-A4", desc: "Resma A4", price: 45000, tax: "10" }, { desc: "Cuaderno", price: 12000, tax: "5" }], "Empresa");
+  const r = T.decodeCatalog("Catálogo\n" + code);
+  assert.ok(r.ok); assert.strictEqual(r.products.length, 2); assert.strictEqual(r.products[0].code, "RES-A4"); assert.strictEqual(r.products[1].tax, "5");
+  assert.strictEqual(T.decodeCatalog(code.slice(0, -4) + "AAAA").ok, false);
+});
+test("Firmador (simulado) devuelve un DigestValue en base64", async () => {
+  const f = await T.Firmador.firmar({ empresa: { cert: { titular: "X", vence: "2027-01-01" } }, cdc: "1", payload: { a: 1 } });
+  assert.ok(f.ok && f.simulated); assert.match(f.digestValue, /^[A-Za-z0-9+/]+=*$/); assert.strictEqual(Buffer.from(f.digestValue, "base64").length, 32);
+});
+test("Pedido: el código de producto viaja en el QR", () => {
+  const p = { id: "X-2", seller: "A", client: { mode: "sin" }, items: [{ desc: "Resma", qty: 1, price: 1, tax: "10", code: "RES-A4" }] };
+  assert.strictEqual(FE.decodePedido(FE.encodePedido(p)).pedido.items[0].code, "RES-A4");
 });
 
 Promise.all(pending).then(() => {

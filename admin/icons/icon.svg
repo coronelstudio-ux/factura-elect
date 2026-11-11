@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#5B3FB5"/>
+  <g fill="#FFFFFF">
+    <rect x="112" y="150" width="128" height="248" rx="14"/>
+    <rect x="272" y="214" width="128" height="184" rx="14"/>
+  </g>
+  <g fill="#5B3FB5">
+    <rect x="140" y="180" width="28" height="28" rx="4"/><rect x="184" y="180" width="28" height="28" rx="4"/>
+    <rect x="140" y="230" width="28" height="28" rx="4"/><rect x="184" y="230" width="28" height="28" rx="4"/>
+    <rect x="140" y="280" width="28" height="28" rx="4"/><rect x="184" y="280" width="28" height="28" rx="4"/>
+    <rect x="300" y="244" width="28" height="28" rx="4"/><rect x="344" y="244" width="28" height="28" rx="4"/>
+    <rect x="300" y="294" width="28" height="28" rx="4"/><rect x="344" y="294" width="28" height="28" rx="4"/>
+    <rect x="160" y="340" width="32" height="58"/><rect x="320" y="340" width="32" height="58"/>
+  </g>
+  <circle cx="380" cy="150" r="54" fill="#FFD54F"/>
+  <path d="M380 122l8 18 19 2-14 13 4 19-17-10-17 10 4-19-14-13 19-2z" fill="#5B3FB5"/>
+</svg>

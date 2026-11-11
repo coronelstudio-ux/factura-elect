@@ -122,7 +122,7 @@
       const h = Math.max(1, dl.length) * lh(8) + 2.6;
       ensure(h);
       const by = y + 3.6;
-      cell(0, "INF" + String(i + 1).padStart(3, "0"), by, { size: 8 });
+      cell(0, (it.code || "INF" + String(i + 1).padStart(3, "0")).slice(0, 9), by, { size: 8 });
       lines(dl, colX[1] + 1.2, by, 8);
       cell(2, "UNI", by, { size: 8 });
       cell(3, String(it.qty).replace(".", ","), by, { size: 8 });
@@ -171,6 +171,12 @@
     lines(legal2, TX, fy, 7.5);
     box(M, fTop, CW, footH);
     y = fTop + footH + 4;
+    // Texto fijo del emisor (cuentas, condiciones, etc.), cargado en Ajustes
+    if (opts.footerText) {
+      const fl = wrap(opts.footerText, CW, 8);
+      ensure(fl.length * lh(8) + 6);
+      y += lines(fl, M, y, 8) + 2;
+    }
     if (test) text("Prueba: IdCSC " + company.csc + " con CSC de prueba del manual · Datos ficticios, no es un documento tributario.", M, y, { size: 7, color: GREY });
 
     // ---------- Numeración de páginas ----------
@@ -185,11 +191,77 @@
     return doc;
   }
 
-  async function save(inv, company, opts) {
-    const doc = await build(inv, company, opts || {});
-    doc.save("KuDE_" + String(inv.number || "prueba").replace(/[^0-9A-Za-z-]/g, "_") + ".pdf");
+  // ---------- Formato ticket (80 mm de ancho, alto según el contenido) ----------
+  // Se dibuja dos veces: la primera mide el alto y la segunda arma la página con ese alto.
+  function drawTicket(doc, inv, company, opts, logo) {
+    const TWD = 80, TM = 4, TCW = TWD - TM * 2, T = inv.totals, isUSD = inv.currency === "USD", test = company.env === "test";
+    let y = TM + 2;
+    const font = (size, bold, color) => { doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); doc.setTextColor.apply(doc, color || BLACK); };
+    const wrap = (s, w, size, bold) => { font(size, bold); return doc.splitTextToSize(clean(s), w); };
+    const center = (s, size, bold, color) => { wrap(s, TCW, size, bold).forEach(l => { font(size, bold, color); doc.text(l, TWD / 2, y, { align: "center" }); y += lh(size); }); };
+    const left = (s, size, bold) => { wrap(s, TCW, size, bold).forEach(l => { font(size, bold); doc.text(l, TM, y); y += lh(size); }); };
+    const pair = (a, b, size, bold) => { font(size, bold); doc.text(clean(a), TM, y); doc.text(clean(b), TWD - TM, y, { align: "right" }); y += lh(size) + 0.3; };
+    const sep = () => { doc.setDrawColor(120, 120, 120); doc.setLineDashPattern([0.8, 0.8], 0); doc.setLineWidth(0.15); doc.line(TM, y - 1, TWD - TM, y - 1); doc.setLineDashPattern([], 0); y += 2; };
+    if (test) { center("AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA", 7, true, RED); y += 2; }
+    if (logo) { const k = Math.min(36 / logo.w, 14 / logo.h); doc.addImage(logo.data, "PNG", (TWD - logo.w * k) / 2, y - 2, logo.w * k, logo.h * k); y += logo.h * k + 1; }
+    center(company.name, 9.5, true);
+    if (company.fantasy) center(company.fantasy, 7.5);
+    center("RUC: " + company.ruc + "-" + company.dv, 8, true);
+    center(company.address + " · " + company.city, 7);
+    if (company.phone) center("Tel. " + company.phone, 7);
+    (opts.timbradoLines || []).forEach(l => center(l, 7));
+    y += 1; center("FACTURA ELECTRÓNICA", 9, true); center(inv.number, 9, true); y += 1; sep();
+    pair("Fecha", inv.dateLabel, 7.5);
+    pair("Condición", inv.condition === "credito" ? "Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "Contado", 7.5);
+    pair("Moneda", isUSD ? "USD" + (inv.exchange ? " · TC " + inv.exchange : "") : "PYG", 7.5);
+    left("Cliente: " + (inv.receiverName || "-"), 7.5);
+    left("RUC / Documento: " + (inv.receiverId || "Innominado"), 7.5);
+    if (inv.receiverEmail) left("Correo: " + inv.receiverEmail, 7.5);
+    sep();
+    inv.items.forEach((it, i) => {
+      const gross = Math.round(it.qty * it.price), total = gross - Math.round(gross * (it.discount || 0) / 100);
+      left((it.code ? it.code + " " : "") + it.desc, 7.5, true);
+      pair(String(it.qty).replace(".", ",") + " x " + fmt(it.price) + (it.discount ? " - " + it.discount + "%" : "") + "  " + (it.tax === "E" ? "Exenta" : "IVA " + it.tax + "%"), fmt(total), 7.5);
+    });
+    sep();
+    pair("Subtotal exentas", fmt(T.exe), 7.5); pair("Subtotal 5%", fmt(T.b5), 7.5); pair("Subtotal 10%", fmt(T.b10), 7.5);
+    pair("TOTAL" + (isUSD ? " (USD)" : ""), fmt(T.total), 9.5, true);
+    if (isUSD) pair("Total en guaraníes", fmt(T.totalPyg), 7.5, true);
+    pair("Liquidación IVA 5%", fmt(T.iva5), 7.5); pair("Liquidación IVA 10%", fmt(T.iva10), 7.5); pair("Total IVA", fmt(T.iva), 7.5, true);
+    sep();
+    const QS = 34;
+    if (opts.qrText && global.qrcode) {
+      const qr = global.qrcode(0, "M"); qr.addData(opts.qrText, "Byte"); qr.make();
+      const n = qr.getModuleCount(), cs = QS / n, x0 = (TWD - QS) / 2; doc.setFillColor(0, 0, 0);
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) doc.rect(x0 + c * cs, y + r * cs, cs + 0.02, cs + 0.02, "F");
+      y += QS + 3;
+    } else { center("QR al aprobarse", 7.5, false, GREY); y += 1; }
+    center("Consulte la validez con el CDC en:", 7); center(opts.consultUrl || "", 7, false, BLUE);
+    center("CDC: " + (inv.cdc ? global.FE.formatCdc(inv.cdc) : "Pendiente de aprobación"), 7.5, true);
+    y += 1; center("ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA DE UN DOCUMENTO ELECTRÓNICO (XML)", 6.5, true);
+    center("Si su documento electrónico presenta algún error, podrá solicitar la modificación dentro de las 72 horas siguientes a la emisión de este comprobante.", 6.5);
+    if (opts.footerText) { y += 1; center(opts.footerText, 7); }
+    if (test) { y += 1; center("Datos ficticios · CSC de prueba · sin validez tributaria", 6.5, false, GREY); }
+    return y + TM;
+  }
+  async function buildTicket(inv, company, opts) {
+    const { jsPDF } = global.jspdf;
+    const logo = await prepareLogo(company.logo);
+    const probe = new jsPDF({ unit: "mm", format: [80, 2000], orientation: "portrait" });
+    const height = Math.max(100, Math.ceil(drawTicket(probe, inv, company, opts, logo)));
+    const doc = new jsPDF({ unit: "mm", format: [80, height], orientation: "portrait", compress: true });
+    drawTicket(doc, inv, company, opts, logo);
+    doc.setProperties({ title: "KuDE " + inv.number + " (ticket)", author: company.name, creator: "Factura Elect" });
     return doc;
   }
 
-  global.KudePdf = { build, save };
+  async function save(inv, company, opts) {
+    opts = opts || {};
+    const ticket = opts.format === "ticket";
+    const doc = ticket ? await buildTicket(inv, company, opts) : await build(inv, company, opts);
+    doc.save("KuDE_" + String(inv.number || "prueba").replace(/[^0-9A-Za-z-]/g, "_") + (ticket ? "_ticket" : "") + ".pdf");
+    return doc;
+  }
+
+  global.KudePdf = { build, buildTicket, save };
 })(window);

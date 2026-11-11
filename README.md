@@ -1,12 +1,16 @@
 # Factura Elect (prueba)
 
-Facturador electrónico de prueba (SIFEN simulado) con un módulo de **pedidos**.
-Son dos apps web instalables (PWA), cada una con su ícono. Todo se guarda **en el dispositivo** (`localStorage`); no hay servidor ni base de datos todavía.
+Facturador electrónico de prueba (SIFEN simulado) para un **estudio que atiende varias empresas**, con un módulo de **pedidos**.
+Son tres apps web instalables (PWA), cada una con su ícono. Todo se guarda **en el dispositivo** (`localStorage`); no hay servidor ni base de datos todavía.
 
 | App | Carpeta | Quién la usa | Qué puede hacer |
 |---|---|---|---|
-| **Facturador** (verde) | `facturador/` | Principal | Inicio, Nueva factura, **Pedidos** (bandeja), Historial, Ajustes. Lee los QR de pedidos, factura o rechaza con motivo. Protegida con PIN. |
-| **Pedidos** (azul) | `pedidos/` | Cargador / vendedor | Nuevo pedido, Mis pedidos, Clientes frecuentes, Ajustes. Crea, edita y elimina pedidos y los comparte como QR. **No ve ni genera facturas.** |
+| **Admin** (violeta) | `admin/` | Estudio: admin maestro y operadores | Panel con alertas (certificados, timbrados, rechazadas, envíos fuera de plazo) y cola de envíos; **alta guiada** de empresas en 6 pasos; certificado, timbrados, CSC y ambiente; usuarios y roles; auditoría. |
+| **Facturador** (verde) | `facturador/` | Empresa cliente: admin del cliente y facturadores | Inicio, Nueva factura, **Pedidos** (bandeja), Historial, Ajustes. Lee los QR de pedidos, factura o rechaza con motivo. Cada usuario entra con su PIN (o PIN del dispositivo si no hay usuarios). Productos frecuentes, valores por defecto, pie del KuDE, A4 o ticket, correo automático. |
+| **Pedidos** (azul) | `pedidos/` | Cargador / vendedor | Nuevo pedido, Mis pedidos, Clientes frecuentes, Ajustes. Crea, edita y elimina pedidos y los comparte como QR; carga el catálogo de productos del facturador. **No ve ni genera facturas.** |
+
+Roles, permisos, datos y el modelo para la base de datos: [`docs/arquitectura-multiempresa.md`](docs/arquitectura-multiempresa.md).
+Firma electrónica y servicio Firmador: [`docs/firma-electronica.md`](docs/firma-electronica.md).
 
 ## Flujo del pedido (sin cargar dos veces)
 
@@ -27,9 +31,11 @@ Son dos apps web instalables (PWA), cada una con su ícono. Todo se guarda **en 
 
 ```
 index.html              Página de entrada con los enlaces para instalar cada app
+admin/                  App del estudio (index.html, app.js, manifest, sw.js, icons/)
 facturador/             App del principal (index.html, app.js, kude-pdf.js, manifest, sw.js, icons/)
 pedidos/                App del cargador (index.html, app.js, manifest, sw.js, icons/)
-shared/core.js          Cálculo de IVA, RUC (módulo 11), clientes, QR, cámara, compartir, respaldo
+shared/core.js          Cálculo de IVA, RUC (módulo 11), receptor, CDC, QR, cámara, compartir, respaldo
+shared/tenant.js        Multiempresa: empresas, usuarios y roles, auditoría, timbrados, alertas, catálogo, firma
 shared/styles.css       Estilos comunes (del facturador original)
 vendor/                 qrcode-generator, jsQR, lz-string, jsPDF (para funcionar sin internet)
 docs/                   Informe técnico y archivo original facturador-prueba-local.html
@@ -73,7 +79,7 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 node tests/run.js
 ```
 
-Prueban el dígito verificador, la clasificación de clientes, el límite de innominado, los totales e IVA, el CDC, el QR y el pedido por QR. No hace falta instalar nada.
+Prueban el dígito verificador, la clasificación de clientes, el límite de innominado, los totales e IVA, el CDC, el QR, el pedido por QR y el núcleo multiempresa (permisos por rol, datos separados por empresa, PIN, timbrados, certificado, alertas, catálogo y firma simulada). No hace falta instalar nada.
 
 ## KuDE y PDF
 

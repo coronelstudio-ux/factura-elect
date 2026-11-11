@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#5B3FB5">
+<title>Admin</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Admin">
+<script>try{var t=localStorage.getItem("fe_theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  /* Admin usa violeta para distinguirla del Facturador (verde) y de Pedidos (azul) */
+  :root { --accent: #5B3FB5; --accent-strong: #4A3296; --accent-soft: #EEE9FA; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #B9A6F5; --accent-strong: #CBBDF8; --accent-soft: #2A2240; --accent-text: #0F1712; } }
+  :root[data-theme="dark"] { --accent: #B9A6F5; --accent-strong: #CBBDF8; --accent-soft: #2A2240; --accent-text: #0F1712; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="row1">
+      <h1 id="title">Panel</h1>
+      <span class="env">Admin</span>
+    </div>
+    <div class="company" id="companyLine"></div>
+  </header>
+  <main class="screen" id="screen"></main>
+  <nav class="tabbar" aria-label="Navegación principal" style="--tabs:5">
+    <button class="tab" data-go="panel"><span class="ico">&#9636;</span>Panel</button>
+    <button class="tab" data-go="empresas"><span class="ico">&#127970;</span>Empresas</button>
+    <button class="tab" data-go="usuarios"><span class="ico">&#128101;</span>Usuarios</button>
+    <button class="tab" data-go="auditoria"><span class="ico">&#128221;</span>Auditoría</button>
+    <button class="tab" data-go="ajustes"><span class="ico">&#9881;</span>Ajustes</button>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+<script src="../vendor/lz-string.min.js"></script>
+<script src="../vendor/qrcode.js"></script>
+<script src="../shared/core.js"></script>
+<script src="../shared/tenant.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -218,11 +218,16 @@
   }
 
   // Hoja para agregar un producto (misma que el facturador original)
-  function itemSheet(onSave, initial) {
-    const it = initial || { desc: "", qty: 1, price: "", tax: "10", discount: 0 };
+  // products (opcional): productos frecuentes para elegir y completar los campos
+  function itemSheet(onSave, initial, products) {
+    const it = initial || { desc: "", qty: 1, price: "", tax: "10", discount: 0, code: "" };
+    const prods = products || [];
     sheet(`
       <h3>${initial ? "Editar producto" : "Nuevo producto"}</h3>
+      ${prods.length ? `<label for="iProd">Producto frecuente</label><select id="iProd"><option value="">Elegí uno o escribilo abajo</option>
+        ${prods.map((p, i) => `<option value="${i}">${esc((p.code ? p.code + " · " : "") + p.desc)} · Gs ${fmt(p.price)}</option>`).join("")}</select>` : ""}
       <label for="iDesc">Descripción</label><input id="iDesc" placeholder="Ej. Resma A4 500 hojas" value="${esc(it.desc)}">
+      <input type="hidden" id="iCode" value="${esc(it.code || "")}">
       <div class="grid2">
         <div><label for="iQty">Cantidad</label><input id="iQty" inputmode="decimal" value="${esc(it.qty)}"></div>
         <div><label for="iPrice">Precio unitario</label><input id="iPrice" inputmode="numeric" placeholder="0" value="${esc(it.price === "" ? "" : fmt(it.price))}"></div>
@@ -239,6 +244,14 @@
         <button class="btn primary" id="iSave">${initial ? "Guardar" : "Agregar"}</button>
       </div>`, (el, close) => {
       el.querySelector("#iCancel").onclick = close;
+      const pick = el.querySelector("#iProd");
+      if (pick) pick.onchange = () => {
+        const p = prods[+pick.value]; if (!p) return;
+        el.querySelector("#iDesc").value = p.desc; el.querySelector("#iPrice").value = fmt(p.price);
+        el.querySelector("#iTax").value = p.tax; el.querySelector("#iCode").value = p.code || "";
+        el.querySelector("#iQty").focus(); el.querySelector("#iQty").select();
+      };
+      el.querySelector("#iDesc").oninput = () => { el.querySelector("#iCode").value = ""; };
       el.querySelector("#iSave").onclick = () => {
         const desc = el.querySelector("#iDesc").value.trim();
         const qty = parseFloat(el.querySelector("#iQty").value.replace(",", ".")) || 0;
@@ -247,9 +260,10 @@
         const tax = el.querySelector("#iTax").value;
         if (!desc) { toast("Escribí el nombre del producto"); return; }
         if (qty <= 0 || price <= 0) { toast("La cantidad y el precio tienen que ser mayores a cero"); return; }
-        close(); onSave({ desc, qty, price, tax, discount });
+        const code = el.querySelector("#iCode").value;
+        close(); onSave(code ? { desc, qty, price, tax, discount, code } : { desc, qty, price, tax, discount });
       };
-      setTimeout(() => el.querySelector("#iDesc").focus(), 60);
+      setTimeout(() => (pick && !initial ? pick : el.querySelector("#iDesc")).focus(), 60);
     });
   }
 
@@ -304,7 +318,7 @@
     return { v: 1, i: p.id, r: p.rev || 1, s: p.seller, f: p.createdAt, u: p.updatedAt || p.createdAt,
       c: [c.mode === "sin" ? 0 : c.mode === "ext" ? 2 : 1, c.ruc || "", c.name || "", c.doc || "", c.email || "", c.docType || "", c.country || ""],
       k: p.condition === "credito" ? 1 : 0, q: p.installments || 1, m: p.currency || "PYG", x: p.exchange || "",
-      it: (p.items || []).map(it => [it.desc, it.qty, it.price, it.tax, it.discount || 0]), o: p.note || "" };
+      it: (p.items || []).map(it => it.code ? [it.desc, it.qty, it.price, it.tax, it.discount || 0, it.code] : [it.desc, it.qty, it.price, it.tax, it.discount || 0]), o: p.note || "" };
   }
   function compactToPedido(o) {
     if (!o || o.v !== 1 || !o.i || !Array.isArray(o.it)) throw new Error("formato");
@@ -313,7 +327,8 @@
       client: { mode: c[0] === 0 ? "sin" : c[0] === 2 ? "ext" : "con", ruc: c[1] || "", name: c[2] || "", doc: c[3] || "", email: c[4] || "",
         docType: String(c[5] || ""), country: String(c[6] || "") },
       condition: o.k === 1 ? "credito" : "contado", installments: Number(o.q) || 1, currency: o.m === "USD" ? "USD" : "PYG", exchange: o.x || "",
-      items: o.it.map(a => ({ desc: String(a[0] || ""), qty: Number(a[1]) || 0, price: Number(a[2]) || 0, tax: ["10", "5", "E"].includes(a[3]) ? a[3] : "10", discount: Number(a[4]) || 0 })),
+      items: o.it.map(a => Object.assign({ desc: String(a[0] || ""), qty: Number(a[1]) || 0, price: Number(a[2]) || 0, tax: ["10", "5", "E"].includes(a[3]) ? a[3] : "10", discount: Number(a[4]) || 0 },
+        a[5] ? { code: String(a[5]) } : {})),
       note: String(o.o || "") };
   }
   function encodePedido(p) {

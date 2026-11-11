@@ -4,59 +4,53 @@
   "use strict";
   const { fmt, esc, fmtDate, classify, opName, calcItem, calcItems, taxLabel, toast, sheet, confirmSheet, itemSheet,
     upsertClient, clientPicker, decodePedido, readQrFromFile, openScanner, parseRuc } = FE;
-  const store = FE.makeStore("fac_");
+  const T = FE.T;
+  // Empresa activa (multiempresa). La primera vez se crea la empresa de ejemplo con los datos que ya había.
+  const company = T.ensureEmpresas();
+  const store = T.storeFor(company.id);          // datos de esta empresa
+  const deviceStore = FE.makeStore("fac_");     // PIN del dispositivo (modo sin usuarios)
 
-  // ================= Datos de ejemplo (ficticios) la primera vez =================
-  const defaultCompany = {
-    name: "Comercial Ejemplo S.A.", fantasy: "Ejemplo Store", ruc: "80012345", dv: "0",
-    activity: "Venta al por menor de artículos de librería", address: "Av. Principal Nº 1234",
-    city: "Asunción", phone: "021 000 000", mail: "facturacion@ejemplo.com.py",
-    timbrado: "00000000", start: "01/11/2026", end: "31/10/2027",
-    establishment: "001", point: "001", leftToUse: 320, env: "test", certExpires: "15/03/2027", csc: "0001", logo: null,
-    nextNumber: 13, taxpayerType: "2" // 1 persona física, 2 persona jurídica (posición 25 del CDC)
-  };
+  // ================= Facturas de ejemplo (ficticias), solo para la empresa de ejemplo =================
   const seedInvoices = [
     { id: 1, number: "001-001-0000012", date: "2026-11-04T16:22:48", client: "Juan Pérez", ruc: "4567890-1", total: 129000, status: "ok", cdc: "0180 0123 4500 0100 1000 0012 2202 6110 4141 7392 8510", operation: "B2B" },
     { id: 2, number: "001-001-0000011", date: "2026-11-03T09:05:00", client: "Consumidor final", ruc: "", total: 42000, status: "warn", cdc: "", operation: "B2C" },
     { id: 3, number: "001-001-0000010", date: "2026-11-02T16:40:00", client: "Librería Central S.A.", ruc: "80098765-9", total: 1250000, status: "bad", cdc: "", operation: "B2B", reason: "1103 Número de timbrado no vigente" },
     { id: 4, number: "001-001-0000009", date: "2026-11-02T11:12:00", client: "María Gómez", ruc: "3210987-3", total: 96800, status: "ok", cdc: "", operation: "B2B" }
   ];
-  const company = Object.assign({}, defaultCompany, store.get("company", {}));
-  let invoices = store.get("invoices", null) || seedInvoices;
+  let invoices = store.get("invoices", null) || (company.demo ? seedInvoices : []);
   let inbox = store.get("pedidos", []);      // pedidos recibidos por QR
   let clients = store.get("clients", []);
-  // Timbrados cargados: todos quedan guardados; solo uno está activo y es el único que se usa para facturar.
-  // { id, number (8 dígitos), start "AAAA-MM-DD", end "AAAA-MM-DD" o "" (sin fecha de fin), nextNumber, active, createdAt }
-  const dmyToIso = v => { const m = String(v || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + "-" + m[2] + "-" + m[1] : ""; };
-  let timbrados = store.get("timbrados", null) || [{ id: FE.randomId(6), number: company.timbrado, start: dmyToIso(company.start), end: dmyToIso(company.end),
-    nextNumber: company.nextNumber || 1, active: true, createdAt: new Date().toISOString() }];
-  const save = () => { store.set("company", company); store.set("invoices", invoices); store.set("pedidos", inbox); store.set("clients", clients); store.set("timbrados", timbrados); };
+  // Timbrados: todos quedan guardados; solo uno está activo y es el único que se usa para facturar (ver shared/tenant.js)
+  let timbrados = store.get("timbrados", []);
+  let products = store.get("products", []);   // productos frecuentes
+  // Preferencias del cliente: valores por defecto, pie del KuDE, formato de impresión, correo automático
+  const prefs = Object.assign({ condition: "contado", currency: "PYG", exchange: "", exchangeDate: "", footerText: "", printFormat: "a4", autoEmail: false }, store.get("prefs", {}));
+  const save = () => {
+    T.saveEmpresa(company); store.set("invoices", invoices); store.set("pedidos", inbox); store.set("clients", clients);
+    store.set("timbrados", timbrados); store.set("products", products); store.set("prefs", prefs);
+  };
   save();
+  const dmyToIso = T.dmyToIso, isoToDmy = T.isoToDmy, timbradoStatus = T.timbradoStatus, vigenciaText = T.vigenciaText;
+  // Usuario con sesión (null = modo de un solo dispositivo sin usuarios: se permite todo)
+  let user = null;
+  const can = perm => T.can(user, perm);
+  const log = (action, detail) => T.audit(action, detail, company.id, user);
 
   // ================= Estado =================
   const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: newDraft(), preview: null,
     pedFilter: "pendiente", pedSeller: "", pedidoId: null };
   function newDraft() {
-    return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
-      currency: "PYG", exchange: "", items: [] };
+    return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: prefs.condition, installments: 1,
+      currency: prefs.currency, exchange: prefs.exchangeDate === FE.todayKey() ? prefs.exchange : "", items: [] };
   }
   const activeTimbrado = () => timbrados.find(t => t.active) || null;
-  const isoToDmy = v => v ? v.slice(8, 10) + "/" + v.slice(5, 7) + "/" + v.slice(0, 4) : "";
-  // Estado de un timbrado hoy: vigente, futuro (todavía no empieza) o vencido
-  function timbradoStatus(t) {
-    const today = FE.todayKey();
-    if (!t) return "none";
-    if (t.start && today < t.start) return "futuro";
-    if (t.end && today > t.end) return "vencido";
-    return "vigente";
-  }
   const timbradoOk = () => timbradoStatus(activeTimbrado()) === "vigente";
-  const vigenciaText = t => t.end ? isoToDmy(t.start) + " al " + isoToDmy(t.end) : "Desde " + isoToDmy(t.start) + " · sin fecha de fin";
   function timbradoProblem() {
     const t = activeTimbrado(), st = timbradoStatus(t);
-    if (st === "none") return "No hay un timbrado activo. Cargalo o activalo en Ajustes → Timbrados.";
+    const where = can("timbrados.editar") ? "Cargalo o activalo en Ajustes → Timbrados." : "Pedile al estudio que lo cargue.";
+    if (st === "none") return "No hay un timbrado activo. " + where;
     if (st === "futuro") return "El timbrado activo " + t.number + " empieza el " + isoToDmy(t.start) + ". Hasta esa fecha no se puede facturar con él.";
-    if (st === "vencido") return "El timbrado activo " + t.number + " venció el " + isoToDmy(t.end) + ". Cargá o activá uno vigente en Ajustes → Timbrados.";
+    if (st === "vencido") return "El timbrado activo " + t.number + " venció el " + isoToDmy(t.end) + ". " + where;
     return "";
   }
   const nextNumberStr = () => { const t = activeTimbrado(); return t ? company.establishment + "-" + company.point + "-" + String(t.nextNumber).padStart(7, "0") : "Sin timbrado activo"; };
@@ -67,7 +61,9 @@
   const pedClient = p => FE.receiverDisplayName(p.client);
   const pendingCount = () => inbox.filter(p => p.status === "pendiente").length;
   function companyLine() {
-    document.getElementById("companyLine").textContent = company.name + " · RUC " + company.ruc + "-" + company.dv;
+    const line = document.getElementById("companyLine"), multi = T.empresasOf(user).length > 1;
+    line.textContent = company.name + " · RUC " + company.ruc + "-" + company.dv + (multi ? "  ▾ cambiar" : "") + (user ? " · " + user.name : "");
+    line.style.cursor = multi ? "pointer" : "";
     document.getElementById("envChip").textContent = company.env === "test" ? "Prueba" : "Producción";
     const b = document.getElementById("pedBadge"), n = pendingCount();
     b.textContent = n; b.classList.toggle("hidden", !n);
@@ -213,7 +209,7 @@
           <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th><th class="n">Precio</th><th class="n">Desc.</th><th class="n">Exentas</th><th class="n">5%</th><th class="n">10%</th></tr></thead>
           <tbody>
             ${inv.items.map((it, i) => { const c = calcItem(it); return `<tr>
-              <td>INF${String(i + 1).padStart(3, "0")}</td><td>${esc(it.desc)}</td><td>UNI</td>
+              <td>${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</td><td>${esc(it.desc)}</td><td>UNI</td>
               <td class="n">${it.qty}</td><td class="n">${fmt(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
               <td class="n">${it.tax === "E" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fmt(c.total) : "0"}</td></tr>`; }).join("")}
             <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fmt(T.exe)}</td><td class="n">${fmt(T.b5)}</td><td class="n">${fmt(T.b10)}</td></tr>
@@ -223,7 +219,7 @@
         </table>
         <div class="klist">
           ${inv.items.map((it, i) => { const c = calcItem(it); return `<div class="ki">
-            <div class="ki-top"><span class="ki-cod">INF${String(i + 1).padStart(3, "0")}</span><b>${esc(it.desc)}</b></div>
+            <div class="ki-top"><span class="ki-cod">${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</span><b>${esc(it.desc)}</b></div>
             <div class="ki-row"><span>${it.qty} UNI × ${fmt(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
             <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fmt(c.total)}</b></div>
           </div>`; }).join("")}
@@ -245,6 +241,7 @@
           <div class="legal"><b>Información de interés del facturador electrónico emisor.</b><br>Si su documento electrónico presenta algún error, podrá solicitar la modificación dentro de las 72 horas siguientes a la emisión de este comprobante.</div>
         </div>
       </div></div>
+      ${prefs.footerText ? `<div class="legal" style="white-space:pre-line;margin:2px 0 6px">${esc(prefs.footerText)}</div>` : ""}
       ${test ? `<div class="note">Prueba: IdCSC ${esc(company.csc)} con CSC de prueba del manual · Datos ficticios, no es un documento tributario.</div>` : ""}
     </div>`;
   }
@@ -293,6 +290,7 @@
         <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar logo<input type="file" id="logoFile" accept="image/*" hidden></label>
         <button class="btn" data-pdf="1">Descargar PDF</button>
       </div>
+      <button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>
       <button class="btn primary" data-emit="1" style="margin-top:10px">Emitir factura</button>
       <div class="muted small" style="margin-top:10px;text-align:center">${company.env === "test" ? "Se usa el ambiente de prueba. " : ""}La aprobación de SIFEN es simulada.</div>`;
   }
@@ -307,6 +305,7 @@
         <h2 style="margin-top:10px">${ok ? "Factura emitida" : "No se pudo aprobar"}</h2>
         <div class="small muted">${esc(r.number)} · ${esc(r.client)}</div>
         <div class="amount" style="font-size:22px;margin-top:6px">Gs ${fmt(r.total)}</div>
+        ${r.emailedTo ? `<div class="small" style="margin-top:6px">Enviada por correo a ${esc(r.emailedTo)} (simulado)</div>` : ""}
         ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? "marcado como facturado" : "sigue pendiente de facturar"}</div>` : ""}
         ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small cdc-text" style="margin-top:2px">${esc(FE.formatCdc(r.cdc))}</div>`
           : `<div class="notice bad" style="margin-top:12px"><b>Motivo</b>${esc(r.reason)}<br>Corregí el dato y volvé a emitir.</div>`}
@@ -358,13 +357,15 @@
       </div>
       ${i.kude ? `<div class="section"><div class="section-title">KuDE</div>${kudeHTML(i.kude)}</div>` : ""}
       <div class="btn-row" style="margin-top:16px">
-        <button class="btn soft" ${i.kude ? `data-pdf="${esc(i.number)}"` : `data-share="pdf"`} ${i.status === "ok" ? "" : "disabled"}>Descargar PDF</button>
+        <button class="btn soft" ${i.kude ? `data-pdf="${esc(i.number)}"` : `data-share="pdf"`} ${i.status === "ok" ? "" : "disabled"}>Descargar PDF${i.kude ? (prefs.printFormat === "ticket" ? " (ticket)" : " (A4)") : ""}</button>
         <button class="btn soft" data-share="mail" ${i.status === "ok" ? "" : "disabled"}>Enviar por correo</button>
       </div>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn" data-cancel="${i.id}" ${canCancel(i) ? "" : "disabled"}>Cancelar factura</button>
         <button class="btn primary" data-go="new">Nueva factura</button>
       </div>
+      ${i.kude && i.status === "ok" ? `<button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}
+      ${i.emailedTo ? `<div class="muted small" style="margin-top:8px">Enviada por correo a ${esc(i.emailedTo)} (simulado).</div>` : ""}
       <div class="muted small" style="margin-top:12px">${i.status === "ok"
         ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + CANCEL_MS).toISOString()) + " (48 horas desde la aprobación)."
           : "Pasaron las 48 horas para cancelarla. Para corregirla, emití una nota de crédito.")
@@ -441,63 +442,113 @@
   }
 
   function screenSettings() {
+    const cs = T.certStatus(company.cert), editCfg = can("cliente.config");
+    const empUsers = T.usersFor(company.id).filter(u => !T.ROLES[u.role].estudio);
+    const section = (title, body) => `<div class="section"><div class="section-title">${title}</div>${body}</div>`;
     return `
       <h2>Ajustes</h2>
-      <div class="section"><div class="section-title">Apariencia</div>${FE.themeHTML()}</div>
-      <div class="section"><div class="section-title">Empresa</div>
-        <div class="card">
+      ${section("Sesión", `<div class="card">
+          <div class="kv"><span class="muted">Usuario</span><span>${user ? esc(user.name) + " · " + esc(T.ROLES[user.role].label) : "Este dispositivo (sin usuarios)"}</span></div>
+          ${T.empresasOf(user).length > 1 ? `<div class="kv"><span class="muted">Empresa</span><span><button class="link" data-switchemp style="min-height:0;padding:0">${esc(company.name)} ▾</button></span></div>` : ""}
+          <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-changepin>Cambiar ${user ? "mi " : ""}PIN</button><button class="btn" data-lock>${user ? "Cerrar sesión" : "Bloquear ahora"}</button></div>
+          ${can("admin.app") ? `<a class="btn" href="../admin/" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none">Abrir la app Admin</a>` : ""}
+        </div>`)}
+      ${section("Apariencia", FE.themeHTML())}
+      ${section("Empresa", `<div class="card">
           <div class="kv"><span class="muted">Razón social</span><span>${esc(company.name)}</span></div>
           <div class="kv"><span class="muted">RUC</span><span>${esc(company.ruc)}-${esc(company.dv)}</span></div>
           <div class="kv"><span class="muted">Establecimiento y punto</span><span>${esc(company.establishment)}-${esc(company.point)}</span></div>
           <div class="kv"><span class="muted">Próxima factura</span><span>${esc(nextNumberStr())}</span></div>
-          <div class="kv"><span class="muted">Logo</span><span style="display:flex;gap:10px;align-items:center">${company.logo ? `<img src="${company.logo}" alt="" style="height:28px;max-width:90px;object-fit:contain">` : `<span class="small muted">Sin logo</span>`}<label class="link" style="cursor:pointer">Cargar<input type="file" id="logoFile" accept="image/*" hidden></label>${company.logo ? `<button class="link" data-remove-logo="1">Quitar</button>` : ""}</span></div>
-        </div></div>
-      <div class="section"><div class="section-title">Timbrados</div>
-        <div class="card">
-          ${timbrados.slice().sort((a, b) => (b.active - a.active) || String(b.start).localeCompare(String(a.start))).map(t => {
-            const st = timbradoStatus(t);
-            const chip = t.active ? (st === "vigente" ? '<span class="chip ok">Activo</span>' : '<span class="chip bad">Activo · ' + st + '</span>')
-              : st === "vencido" ? '<span class="chip neutral">Vencido</span>' : st === "futuro" ? '<span class="chip warn">Todavía no vigente</span>' : '<span class="chip neutral">Inactivo</span>';
-            return `<div class="row" style="cursor:default;align-items:flex-start"><div class="main">
-              <div class="title">Nº ${esc(t.number)}</div>
-              <div class="sub">${esc(vigenciaText(t))}</div>
-              <div class="sub">Próximo número: ${String(t.nextNumber).padStart(7, "0")}</div>
-              <div style="margin-top:6px">${chip}</div></div>
-              <span style="display:flex;flex-direction:column;align-items:flex-end">
-                ${t.active ? "" : `<button class="link" data-timact="${esc(t.id)}" ${st === "vencido" ? "disabled" : ""}>Activar</button>`}
-                <button class="link" data-timedit="${esc(t.id)}">Editar</button></span></div>`; }).join("")}
-          <button class="add" data-timadd>+ Cargar timbrado</button>
-          <div class="muted small" style="margin-top:8px">Todos los timbrados quedan guardados. Solo se factura con el activo, y solo mientras esté vigente.</div>
-        </div></div>
-      <div class="section"><div class="section-title">Certificado</div>
-        <div class="card">
-          <div class="kv"><span class="muted">Certificado vence</span><span>${esc(company.certExpires)}</span></div>
-          <div class="kv"><span class="muted">Código de seguridad</span><span>Activo · ID ${esc(company.csc)}</span></div>
-        </div></div>
-      <div class="section"><div class="section-title">Clientes frecuentes</div>
-        <div class="card">
+          <div class="kv"><span class="muted">Logo</span><span style="display:flex;gap:10px;align-items:center">${company.logo ? `<img src="${company.logo}" alt="" style="height:28px;max-width:90px;object-fit:contain">` : `<span class="small muted">Sin logo</span>`}
+            ${editCfg ? `<label class="link" style="cursor:pointer">Cargar<input type="file" id="logoFile" accept="image/*" hidden></label>${company.logo ? `<button class="link" data-remove-logo="1">Quitar</button>` : ""}` : ""}</span></div>
+          <div class="muted small" style="margin-top:6px">Los datos de la empresa, el certificado y el ambiente los configura el estudio en la app Admin.</div>
+        </div>`)}
+      ${section("Timbrados", `<div class="card">${T.timbradoListHTML(timbrados, { editable: can("timbrados.editar") })}</div>`)}
+      ${section("Productos frecuentes", `<div class="card">
+          ${products.length ? products.map(p => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(p.desc)}</div>
+            <div class="sub">${p.code ? esc(p.code) + " · " : ""}Gs ${fmt(p.price)} · ${taxLabel(p.tax)}</div></div>
+            ${editCfg ? `<span style="display:flex;gap:12px"><button class="link" data-prodedit="${esc(p.id)}">Editar</button><button class="link" data-proddel="${esc(p.id)}" style="color:var(--bad)">Quitar</button></span>` : ""}</div>`).join("")
+            : `<div class="muted small">Cargá los productos que más vendés: al facturar los elegís de una lista.</div>`}
+          ${editCfg ? `<button class="add" data-prodadd>+ Agregar producto</button>` : ""}
+          ${products.length ? `<button class="btn soft" data-catshare style="margin-top:10px">Compartir catálogo con la app Pedidos</button>` : ""}
+        </div>`)}
+      ${editCfg ? section("Preferencias", `<div class="card">
+          <label style="margin-top:0">Condición de venta por defecto</label>
+          <div class="seg"><button data-prefcond="contado" class="${prefs.condition === "contado" ? "on" : ""}">Contado</button><button data-prefcond="credito" class="${prefs.condition === "credito" ? "on" : ""}">Crédito</button></div>
+          <div class="grid2">
+            <div><label for="prCur">Moneda por defecto</label><select id="prCur"><option value="PYG" ${prefs.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${prefs.currency === "USD" ? "selected" : ""}>Dólares</option></select></div>
+            <div><label for="prExch">Tipo de cambio de hoy</label><input id="prExch" inputmode="numeric" placeholder="Ej. 7.800" value="${prefs.exchangeDate === FE.todayKey() ? esc(prefs.exchange) : ""}"></div>
+          </div>
+          <label for="prFooter">Texto fijo al pie del KuDE (cuentas, condiciones…)</label>
+          <textarea id="prFooter" placeholder="Ej. Transferencias: Banco Ejemplo, cuenta 123456">${esc(prefs.footerText)}</textarea>
+          <label>Formato de impresión</label>
+          <div class="seg"><button data-prefformat="a4" class="${prefs.printFormat === "a4" ? "on" : ""}">Hoja A4</button><button data-prefformat="ticket" class="${prefs.printFormat === "ticket" ? "on" : ""}">Ticket 80 mm</button></div>
+          ${T.checkbox("prAutoEmail", prefs.autoEmail, "Enviar la factura por correo al cliente al aprobarse")}
+          <div class="muted small" style="margin-top:4px">El envío real del correo lo hará el servidor; por ahora se simula.</div>
+          <button class="btn soft" data-saveprefs style="margin-top:12px">Guardar preferencias</button>
+        </div>`) : ""}
+      ${can("usuarios.empresa") ? section("Usuarios de la empresa", `<div class="card">
+          ${empUsers.length ? empUsers.map(u => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(u.name)}${u.active === false ? " (inactivo)" : ""}</div>
+            <div class="sub">${esc(T.ROLES[u.role].label)}</div></div><button class="link" data-useredit="${esc(u.id)}">Editar</button></div>`).join("")
+            : `<div class="muted small">Sin usuarios. Si agregás uno, cada persona entra con su propio PIN.</div>`}
+          <button class="add" data-useradd>+ Agregar usuario</button>
+        </div>`) : ""}
+      ${section("Certificado y ambiente", `<div class="card">
+          <div class="kv"><span class="muted">Certificado</span><span>${esc(cs.text)}</span></div>
+          ${company.cert ? `<div class="kv"><span class="muted">Prestador</span><span>${esc(company.cert.prestador || "-")}</span></div>` : ""}
+          <div class="kv"><span class="muted">Código de seguridad</span><span>ID ${esc(company.csc)}</span></div>
+          <div class="kv"><span class="muted">Ambiente</span><span>${company.env === "prod" ? "Producción" : "Prueba"}</span></div>
+          ${can("empresa.ambiente") ? `<div class="seg" style="margin-top:8px"><button data-env="test" class="${company.env === "test" ? "on" : ""}">Prueba</button><button data-env="prod" class="${company.env === "prod" ? "on" : ""}">Producción</button></div>` : ""}
+        </div>`)}
+      ${section("Clientes frecuentes", `<div class="card">
           ${clients.length ? clients.slice(0, 50).map(c => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(c.name || "Sin nombre")}</div>
-            <div class="sub">${c.mode === "con" ? "RUC " + esc(c.ruc) : "Doc. " + esc(c.doc || "-")}</div></div>
+            <div class="sub">${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}</div></div>
             <button class="link" data-delclient="${esc(c.id)}" style="color:var(--bad)">Quitar</button></div>`).join("")
             : `<div class="muted small">Se guardan solos al emitir facturas aprobadas.</div>`}
-        </div></div>
-      <div class="section"><div class="section-title">Instalar en este dispositivo</div>
-        <div class="card">${FE.installHTML("Facturador")}</div></div>
-      <div class="section"><div class="section-title">Seguridad</div>
-        <div class="btn-row"><button class="btn soft" data-changepin>Cambiar PIN</button><button class="btn" data-lock>Bloquear ahora</button></div>
-      </div>
-      <div class="section"><div class="section-title">Respaldo</div>
-        <div class="card">
-          <p class="small muted" style="margin-top:0">Facturas, pedidos y clientes se guardan solo en este dispositivo.</p>
+        </div>`)}
+      ${section("Instalar en este dispositivo", `<div class="card">${FE.installHTML("Facturador")}</div>`)}
+      ${section("Respaldo", `<div class="card">
+          <p class="small muted" style="margin-top:0">Facturas, pedidos, clientes, productos y timbrados de esta empresa se guardan en este dispositivo.</p>
           <div class="btn-row">
             <button class="btn soft" data-backup>Descargar respaldo</button>
             <label class="btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Restaurar<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
           </div>
-        </div></div>
-      <div class="section"><div class="section-title">Ambiente</div>
-        <div class="seg"><button data-env="test" class="${company.env === "test" ? "on" : ""}">Prueba</button><button data-env="prod" class="${company.env === "prod" ? "on" : ""}">Producción</button></div>
-        <div class="muted small" style="margin-top:8px">Usá prueba hasta completar las pruebas de la DNIT.</div>
-      </div>`;
+        </div>`)}`;
+  }
+
+  // Lee el formulario de preferencias (sin guardar), para no perder lo escrito al tocar un botón
+  function readPrefsForm() {
+    const g = id => document.getElementById(id);
+    if (!g("prCur")) return;
+    prefs.currency = g("prCur").value;
+    const ex = g("prExch").value.trim();
+    prefs.exchange = ex; prefs.exchangeDate = ex ? FE.todayKey() : "";
+    prefs.footerText = g("prFooter").value.trim().slice(0, 400);
+    prefs.autoEmail = g("prAutoEmail").checked;
+  }
+  // Si el formulario de factura está vacío, toma los valores por defecto nuevos
+  function refreshEmptyDraft() {
+    const d = state.draft;
+    if (!d.items.length && !d.ruc && !d.doc && !d.name && !d.pedidoId) state.draft = newDraft();
+  }
+  function savePrefs() {
+    readPrefsForm(); save(); refreshEmptyDraft();
+    log("Preferencias guardadas", ""); toast("Preferencias guardadas"); render();
+  }
+  // Catálogo de productos como QR / código, para cargarlo en la app Pedidos
+  function shareCatalog() {
+    const code = T.encodeCatalog(products, company.name);
+    const cv = FE.qrCanvas(code, ["Catálogo de productos", company.name, products.length + " producto(s)"]);
+    sheet(`<h3>Compartir catálogo</h3>
+      <p class="muted small">En la app Pedidos: Ajustes → Productos → «Cargar catálogo», con esta imagen o el código.</p>
+      <div class="qrbox" id="catQr">${cv ? "" : `<div class="notice bad" style="margin:0"><b>Demasiados productos para un QR</b>Usá «Copiar código».</div>`}</div>
+      <div class="btn-row" style="margin-top:12px"><button class="btn primary" data-catimg ${cv ? "" : "disabled"}>Compartir imagen</button><button class="btn soft" data-catcopy>Copiar código</button></div>
+      <button class="btn" data-x style="margin-top:10px">Cerrar</button>`, (el, close) => {
+      if (cv) el.querySelector("#catQr").appendChild(cv);
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-catimg]").onclick = () => cv && FE.shareCanvas(cv, "catalogo-" + company.ruc + ".png", "Catálogo de " + company.name);
+      el.querySelector("[data-catcopy]").onclick = () => FE.copyText("Catálogo " + company.name + "\n" + code);
+    });
   }
 
   // ================= Render y eventos =================
@@ -533,54 +584,13 @@
     bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0 && timbradoOk());
   }
 
-  // ----- Cargar / editar timbrado -----
+  // ----- Cargar / editar timbrado (hoja compartida en shared/tenant.js) -----
   function timbradoSheet(t) {
-    const editing = !!t, used = editing && (t.used || invoices.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === t.id));
-    const v = t || { number: "", start: FE.todayKey(), end: "", nextNumber: 1 };
-    sheet(`<h3>${editing ? "Editar timbrado" : "Cargar timbrado"}</h3>
-      ${used ? `<p class="muted small">Ya se emitieron facturas con este timbrado: el número y la fecha de inicio no se pueden cambiar.</p>` : ""}
-      <label for="tNum">Número de timbrado (8 dígitos)</label>
-      <input id="tNum" inputmode="numeric" maxlength="8" placeholder="12345678" value="${esc(v.number)}" ${used ? "disabled" : ""}>
-      <div class="grid2">
-        <div><label for="tStart">Fecha de inicio</label><input id="tStart" type="date" value="${esc(v.start)}" ${used ? "disabled" : ""}></div>
-        <div><label for="tEnd">Fecha de fin</label><input id="tEnd" type="date" value="${esc(v.end)}" ${v.end ? "" : "disabled"}></div>
-      </div>
-      <label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
-        <input type="checkbox" id="tNoEnd" ${v.end ? "" : "checked"} style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> Sin fecha de fin</label>
-      <label for="tNext">${used ? "Próximo número de factura" : "Número de la primera factura"}</label>
-      <input id="tNext" inputmode="numeric" value="${esc(v.nextNumber)}">
-      ${editing ? "" : `<label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
-        <input type="checkbox" id="tAct" checked style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> Activarlo ahora (el actual queda inactivo)</label>`}
-      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
-      const noEnd = el.querySelector("#tNoEnd"), endEl = el.querySelector("#tEnd");
-      noEnd.onchange = () => { endEl.disabled = noEnd.checked; if (noEnd.checked) endEl.value = ""; };
-      el.querySelector("[data-x]").onclick = close;
-      el.querySelector("[data-ok]").onclick = () => {
-        const number = el.querySelector("#tNum").value.replace(/\D/g, ""), start = el.querySelector("#tStart").value;
-        const end = noEnd.checked ? "" : endEl.value, next = parseInt(el.querySelector("#tNext").value.replace(/\D/g, ""), 10);
-        if (!/^\d{8}$/.test(number)) { toast("El timbrado tiene que tener 8 dígitos"); return; }
-        if (!start) { toast("Elegí la fecha de inicio"); return; }
-        if (!noEnd.checked && !end) { toast("Elegí la fecha de fin o marcá «Sin fecha de fin»"); return; }
-        if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return; }
-        if (!(next >= 1 && next <= 9999999)) { toast("El número de factura tiene que estar entre 1 y 9.999.999"); return; }
-        if (timbrados.some(x => x.number === number && x !== t)) { toast("Ese timbrado ya está cargado"); return; }
-        if (editing) {
-          if (used && next < t.nextNumber) { toast("El próximo número no puede ser menor a " + t.nextNumber + ": ya se usaron los anteriores"); return; }
-          Object.assign(t, used ? { end, nextNumber: next } : { number, start, end, nextNumber: next });
-          if (t.active && timbradoStatus(t) === "vencido") toast("Atención: con esa fecha de fin el timbrado activo queda vencido");
-          else toast("Timbrado guardado");
-        } else {
-          const nt = { id: FE.randomId(6), number, start, end, nextNumber: next, active: false, createdAt: new Date().toISOString() };
-          const activate = el.querySelector("#tAct").checked;
-          if (activate && timbradoStatus(nt) === "vencido") { toast("Ese timbrado ya está vencido: no se puede activar"); return; }
-          if (activate) timbrados.forEach(x => x.active = false);
-          nt.active = activate;
-          timbrados.push(nt);
-          toast(activate ? "Timbrado " + number + " cargado y activo" : "Timbrado " + number + " guardado");
-        }
-        save(); close(); render();
-      };
-    });
+    if (!can("timbrados.editar")) { toast("Los timbrados los administra el estudio"); return; }
+    const used = !!t && (t.used || invoices.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === t.id));
+    T.timbradoSheet({ list: timbrados, t, used, onSave: (list, msg) => {
+      timbrados = list; save(); log(t ? "Timbrado editado" : "Timbrado cargado", msg); toast(msg); render();
+    } });
   }
 
   // ----- Recepción de pedidos por QR -----
@@ -591,7 +601,7 @@
     const existing = inbox.find(x => x.id === p.id);
     if (!existing) {
       inbox.push(Object.assign(p, { status: "pendiente", receivedAt: now }));
-      save(); state.pedidoId = p.id; go("pedido"); toast("Pedido cargado: pendiente de facturar");
+      save(); log("Pedido recibido", p.id + " · " + p.seller); state.pedidoId = p.id; go("pedido"); toast("Pedido cargado: pendiente de facturar");
       return;
     }
     if (p.rev > (existing.rev || 1)) {
@@ -624,7 +634,7 @@
         const why = el.querySelector("#rWhy").value.trim();
         if (!why) { toast("Escribí el motivo del rechazo"); return; }
         const p = inbox.find(x => x.id === id);
-        if (p) { p.status = "rechazado"; p.reason = why; p.rejectedAt = new Date().toISOString(); save(); }
+        if (p) { p.status = "rechazado"; p.reason = why; p.rejectedAt = new Date().toISOString(); save(); log("Pedido rechazado", id + " · " + why); }
         close(); render(); toast("Pedido rechazado");
       };
       setTimeout(() => el.querySelector("#rWhy").focus(), 60);
@@ -663,7 +673,8 @@
       if (approved) {
         cdc = FE.buildCdc({ deType: "1", ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
           number: tim.nextNumber, taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
-        const digest = await FE.simulatedDigest({ cdc, items: issued.items, totals: issued.totals, receiver: issued.receiver });
+        const firma = await T.Firmador.firmar({ empresa: company, cdc, payload: { items: issued.items, totals: issued.totals, receiver: issued.receiver } });
+        const digest = firma.digestValue;
         qrUrl = await FE.buildQrUrl({ env: company.env, cdc, date: issued.issuedAt, receiver: issued.receiver,
           total: issued.totals.total, iva: issued.totals.iva, items: issued.items.length, digest, csc: FE.CSC_TEST });
       }
@@ -676,6 +687,7 @@
       invoices.unshift(result);
       if (approved) {
         tim.nextNumber += 1; tim.used = true;
+        if (prefs.autoEmail && inv.receiverEmail) result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
         clients = upsertClient(clients, inv.receiver);
         if (inv.pedidoId) {
           const p = inbox.find(x => x.id === inv.pedidoId);
@@ -683,6 +695,8 @@
         }
       }
       save();
+      log(approved ? "Factura emitida" : "Factura rechazada (simulación)", inv.number + " · " + (inv.receiverName || "") + " · Gs " + fmt(inv.totals.total));
+      if (result.emailedTo) toast("Factura enviada por correo a " + result.emailedTo + " (simulado)");
       state.lastResult = result; state.draft = newDraft(); state.preview = null;
       go("result");
     } finally { emitting = false; }
@@ -696,8 +710,8 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i]); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products); return; }
     if (ds.del !== undefined) { syncFields(); state.draft.items.splice(+ds.del, 1); render(); return; }
     if (ds.pickclient !== undefined) { syncFields(); clientPicker(clients, useClient); return; }
     if (ds.unlinkped !== undefined) { syncFields(); state.draft.pedidoId = null; render(); return; }
@@ -709,7 +723,8 @@
       state.preview = buildInvoice(state.draft); go("preview"); return;
     }
     if (ds.back) { go(ds.back); return; }
-    if (ds.pdf !== undefined) { downloadKudePdf(); return; }
+    if (ds.pdf !== undefined) { downloadKudePdf(prefs.printFormat); return; }
+    if (ds.pdfalt !== undefined) { downloadKudePdf(prefs.printFormat === "ticket" ? "a4" : "ticket"); return; }
     if (ds.removeLogo !== undefined) { company.logo = null; save(); toast("Logo quitado"); render(); return; }
     if (ds.emit) { emit(); return; }
     if (ds.open) { state.detailId = +ds.open; go("detail"); return; }
@@ -718,10 +733,13 @@
     if (ds.cancel) {
       const inv = invoices.find(x => x.id === +ds.cancel);
       if (inv && !canCancel(inv)) { toast("Pasaron las 48 horas: emití una nota de crédito"); render(); return; }
-      if (inv) { inv.status = "bad"; inv.reason = "Cancelada por el emisor (demo)"; save(); toast("Cancelación registrada (demo)"); }
+      if (inv) { inv.status = "bad"; inv.cancelled = true; inv.reason = "Cancelada por el emisor (demo)"; save(); log("Factura cancelada", inv.number); toast("Cancelación registrada (demo)"); }
       render(); return;
     }
-    if (ds.env) { company.env = ds.env; save(); toast("Ambiente: " + (company.env === "test" ? "prueba" : "producción")); render(); return; }
+    if (ds.env) {
+      if (!can("empresa.ambiente")) { toast("El ambiente lo cambia el admin maestro"); return; }
+      company.env = ds.env; save(); log("Ambiente cambiado", company.env === "test" ? "Prueba" : "Producción"); toast("Ambiente: " + (company.env === "test" ? "prueba" : "producción")); render(); return;
+    }
     // Pedidos
     if (ds.scan !== undefined) { openScanner(importPedidoText); return; }
     if (ds.paste !== undefined) { pasteSheet(); return; }
@@ -745,14 +763,32 @@
     if (ds.timact) {
       const t = timbrados.find(x => x.id === ds.timact); if (!t) return;
       if (timbradoStatus(t) === "vencido") { toast("Ese timbrado está vencido"); return; }
+      if (!can("timbrados.editar")) { toast("Los timbrados los administra el estudio"); return; }
       confirmSheet("¿Activar el timbrado " + t.number + "?", "Desde ahora las facturas se emiten con este timbrado. El que estaba activo queda guardado como inactivo.", "Activar", () => {
-        timbrados.forEach(x => x.active = x.id === t.id); save(); render(); toast("Timbrado " + t.number + " activo");
+        T.activateTimbrado(timbrados, t.id); save(); log("Timbrado activado", t.number); render(); toast("Timbrado " + t.number + " activo");
       });
       return;
     }
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
-    if (ds.changepin !== undefined) { Lock.change(); return; }
-    if (ds.lock !== undefined) { Lock.lockNow(); return; }
+    if (ds.changepin !== undefined) { user ? T.changeOwnPin(user) : Lock.change(); return; }
+    if (ds.lock !== undefined) { Access.lockNow(); return; }
+    if (ds.switchemp !== undefined) { switchEmpresa(); return; }
+    // Productos frecuentes
+    if (ds.prodadd !== undefined) { T.productSheet(null, p => { products.push(p); save(); log("Producto agregado", p.desc); render(); }); return; }
+    if (ds.prodedit) { const p = products.find(x => x.id === ds.prodedit); if (p) T.productSheet(p, np => { Object.assign(p, np); save(); render(); }); return; }
+    if (ds.proddel) { products = products.filter(x => x.id !== ds.proddel); save(); render(); return; }
+    if (ds.catshare !== undefined) { shareCatalog(); return; }
+    // Preferencias
+    if (ds.prefcond) { readPrefsForm(); prefs.condition = ds.prefcond; save(); refreshEmptyDraft(); render(); return; }
+    if (ds.prefformat) { readPrefsForm(); prefs.printFormat = ds.prefformat; save(); render(); return; }
+    if (ds.saveprefs !== undefined) { savePrefs(); return; }
+    // Usuarios de la empresa
+    if (ds.useradd !== undefined || ds.useredit) {
+      const u = ds.useredit ? T.getUser(ds.useredit) : null;
+      T.userSheet({ user: u, roles: ["facturador", "cargador", "admincliente"], fixedEmpresa: company.id, empresas: [],
+        onSave: (list, saved) => { log(u ? "Usuario editado" : "Usuario creado", saved.name + " · " + T.ROLES[saved.role].label); render(); } });
+      return;
+    }
     if (ds.themeSet) { FE.setTheme(ds.themeSet); render(); return; }
     if (ds.install !== undefined) { FE.promptInstall(); return; }
     if (ds.backup !== undefined) { FE.exportBackup(store, "facturador"); return; }
@@ -770,7 +806,7 @@
   });
   screenEl.addEventListener("change", e => {
     const id = e.target.id;
-    if (id === "logoFile") { loadLogo(e.target.files && e.target.files[0]); return; }
+    if (id === "logoFile") { if (!can("cliente.config")) return; loadLogo(e.target.files && e.target.files[0]); return; }
     if (id === "qrFile") {
       const f = e.target.files && e.target.files[0]; e.target.value = "";
       if (!f) return;
@@ -780,6 +816,7 @@
     }
     if (id === "restoreFile") { const f = e.target.files && e.target.files[0]; if (f) FE.importBackup(store, "facturador", f, () => location.reload()); return; }
     if (id === "pSeller") { state.pedSeller = e.target.value; render(); return; }
+    if (id === "prAutoEmail") { prefs.autoEmail = e.target.checked; save(); return; }
     if (state.screen === "new") { syncFields(); if (e.target.tagName === "SELECT") render(); }
   });
 
@@ -788,19 +825,20 @@
     if (!/^image\/(png|jpeg|jpg|svg\+xml|webp)$/.test(file.type)) { toast("Elegí una imagen PNG, JPG o SVG"); return; }
     if (file.size > 2 * 1024 * 1024) { toast("La imagen supera 2 MB. Usá una más liviana"); return; }
     const reader = new FileReader();
-    reader.onload = () => { company.logo = reader.result; save(); toast("Logo cargado"); render(); };
+    reader.onload = () => { company.logo = reader.result; save(); log("Logo cargado", ""); toast("Logo cargado"); render(); };
     reader.onerror = () => toast("No se pudo leer la imagen");
     reader.readAsDataURL(file);
   }
 
   // PDF del KuDE con texto real (seleccionable y buscable), dibujado con jsPDF a partir de los datos.
-  async function downloadKudePdf() {
+  async function downloadKudePdf(format) {
     const inv = state.screen === "preview" ? state.preview : ((invoices.find(x => x.id === state.detailId) || {}).kude);
     if (!inv) { toast("No hay datos para generar el PDF"); return; }
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv) });
+      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv),
+        footerText: prefs.footerText, format: format || prefs.printFormat });
       toast("PDF descargado");
     } catch (err) {
       console.error(err);
@@ -816,7 +854,6 @@
 
   // ================= PIN de acceso =================
   const Lock = (function () {
-    const LOCK_AFTER_MS = 5 * 60 * 1000;
     async function hash(pin) {
       const text = "factura-elect:" + pin;
       if (window.crypto && crypto.subtle && window.isSecureContext) {
@@ -826,7 +863,7 @@
       return "fnv:" + FE.fnv32(text) + FE.fnv32(text.split("").reverse().join(""));
     }
     async function check(pin) {
-      const saved = store.get("pin", null); if (!saved) return false;
+      const saved = deviceStore.get("pin", null); if (!saved) return false;
       const alg = saved.split(":")[0];
       if (alg === "s256" && !(window.crypto && crypto.subtle && window.isSecureContext)) return false;
       return (await hash(pin)) === saved;
@@ -854,7 +891,7 @@
         if (!/^\d{4,6}$/.test(a)) { toast("El PIN tiene que tener de 4 a 6 números"); return; }
         if (create) {
           if (a !== p2.value.trim()) { toast("Los PIN no coinciden"); return; }
-          store.set("pin", await hash(a)); setUnlocked(true); el.remove(); toast("PIN guardado");
+          deviceStore.set("pin", await hash(a)); setUnlocked(true); el.remove(); toast("PIN guardado");
         } else if (await check(a)) { setUnlocked(true); el.remove(); }
         else { p1.value = ""; toast("PIN incorrecto"); }
       };
@@ -863,17 +900,12 @@
       const forgot = el.querySelector("#pinForgot");
       if (forgot) forgot.onclick = () => confirmSheet("¿Olvidaste el PIN?",
         "Para crear uno nuevo hay que borrar los datos del Facturador en este dispositivo (facturas, pedidos y clientes). Si tenés un respaldo, lo podés restaurar después.",
-        "Borrar y empezar de nuevo", () => { store.keys().forEach(k => store.remove(k)); setUnlocked(false); location.reload(); }, true);
+        "Borrar y empezar de nuevo", () => { store.keys().forEach(k => store.remove(k)); deviceStore.remove("pin"); setUnlocked(false); location.reload(); }, true);
       setTimeout(() => p1.focus(), 60);
     }
     function init() {
-      if (!store.get("pin", null)) { overlay(true); return; }
+      if (!deviceStore.get("pin", null)) { overlay(true); return; }
       if (!unlocked()) overlay(false);
-      let hiddenAt = 0;
-      document.addEventListener("visibilitychange", () => {
-        if (document.hidden) hiddenAt = Date.now();
-        else if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) lockNow();
-      });
     }
     function lockNow() { setUnlocked(false); document.querySelectorAll(".sheet-back, .scanner").forEach(n => n.remove()); overlay(false); }
     function change() {
@@ -888,15 +920,54 @@
           if (!(await check(o))) { toast("El PIN actual no es correcto"); return; }
           if (!/^\d{4,6}$/.test(n)) { toast("El PIN nuevo tiene que tener de 4 a 6 números"); return; }
           if (n !== n2) { toast("Los PIN nuevos no coinciden"); return; }
-          store.set("pin", await hash(n)); close(); toast("PIN cambiado");
+          deviceStore.set("pin", await hash(n)); close(); toast("PIN cambiado");
         };
       });
     }
     return { init, lockNow, change };
   })();
 
+  // ================= Acceso: usuarios con PIN o PIN del dispositivo =================
+  // Si hay usuarios con acceso a esta empresa, cada uno entra con su PIN y sus permisos.
+  // Si no hay ninguno, se usa el PIN del dispositivo como antes (todo permitido).
+  const LOGIN_ROLES = ["maestro", "operador", "admincliente", "facturador"];
+  const Access = {
+    usersMode: () => T.usersFor(company.id, LOGIN_ROLES).length > 0,
+    init() {
+      if (!this.usersMode()) { Lock.init(); }
+      else {
+        const u = T.sessionUser("fac");
+        if (u && u.active !== false && LOGIN_ROLES.includes(u.role) && T.accessTo(u, company.id)) user = u;
+        else this.login();
+      }
+      let hiddenAt = 0;
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) hiddenAt = Date.now();
+        else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) this.lockNow();
+      });
+    },
+    login() {
+      T.loginOverlay({ title: "Facturador · " + company.name, users: T.usersFor(company.id, LOGIN_ROLES), onSuccess: u => {
+        user = u; T.setSession("fac", u); log("Ingreso al Facturador", ""); toast("Hola, " + u.name); render();
+      } });
+    },
+    lockNow() {
+      document.querySelectorAll(".sheet-back, .scanner").forEach(n => n.remove());
+      if (!this.usersMode()) { Lock.lockNow(); return; }
+      if (user) log("Sesión cerrada", "");
+      user = null; T.setSession("fac", null); render(); this.login();
+    }
+  };
+  function switchEmpresa() {
+    const list = T.empresasOf(user);
+    if (list.length < 2) return;
+    T.empresaPicker(list, company.id, id => { if (id !== company.id) { T.setActive(id); log("Cambio de empresa", T.getEmpresa(id).name); location.reload(); } });
+  }
+  document.getElementById("companyLine").addEventListener("click", switchEmpresa);
+
   render();
   FE.onInstallChange(() => { if (state.screen === "settings") render(); });
-  Lock.init();
+  Access.init();
+  render();
   FE.registerSW();
 })();
