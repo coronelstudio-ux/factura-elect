@@ -4,7 +4,35 @@
   "use strict";
 
   // ================= Formato y escape =================
-  const fmt = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  // Guaraníes sin decimales; dólares con 2 decimales (coma decimal y punto de miles, como en Paraguay)
+  const decimalsFor = cur => cur === "USD" || cur === 2 ? 2 : 0;
+  const roundTo = (n, dec) => dec ? Math.round((Number(n) || 0) * 100) / 100 : Math.round(Number(n) || 0);
+  function fmt(n, cur) {
+    const dec = decimalsFor(cur), v = roundTo(n, dec), neg = v < 0, a = Math.abs(v);
+    const int = String(Math.trunc(a)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return (neg ? "-" : "") + (dec ? int + "," + String(Math.round((a - Math.trunc(a)) * 100)).padStart(2, "0") : int);
+  }
+  const money = (n, cur) => (cur === "USD" ? "USD " : "Gs ") + fmt(n, cur);
+  const fmtQty = q => String(q).replace(".", ",");
+  // Lee un monto escrito por el usuario. Guaraníes: solo dígitos ("45.000" = 45000).
+  // Dólares: acepta "12,50", "12.50", "1.250,50" y "1,250.50".
+  function parseAmount(v, cur) {
+    let s = String(v == null ? "" : v).trim().replace(/\s/g, "");
+    if (!s) return 0;
+    if (!decimalsFor(cur)) return parseInt(s.replace(/\D/g, ""), 10) || 0;
+    const lc = s.lastIndexOf(","), ld = s.lastIndexOf(".");
+    if (lc >= 0 && ld >= 0) { const dsep = lc > ld ? "," : "."; s = s.split(dsep === "," ? "." : ",").join("").replace(dsep, "."); }
+    else if (lc >= 0) { const i = s.lastIndexOf(","); s = s.slice(0, i).replace(/,/g, "") + "." + s.slice(i + 1); }
+    else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+    const n = parseFloat(s.replace(/[^\d.]/g, ""));
+    return isNaN(n) ? 0 : Math.round(n * 100) / 100;
+  }
+  // Total en guaraníes (para el límite de innominado y el total del KuDE). null si falta el tipo de cambio.
+  function pygTotal(total, cur, exchange) {
+    if (cur !== "USD") return total;
+    const rate = parseAmount(exchange, "USD");
+    return rate > 0 ? Math.round(total * rate) : null;
+  }
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmtDate = iso => {
     const d = new Date(iso);
@@ -102,7 +130,7 @@
       </div>`;
     let fields = "";
     if (d.mode === "con") {
-      fields = `<div class="grid2">
+      fields = `<div class="grid2 stack-sm">
           <div><label for="fRuc">RUC</label><input id="fRuc" placeholder="4567890-1" value="${esc(d.ruc)}"></div>
           <div><label for="fName">Nombre o razón social</label><input id="fName" placeholder="${esc(r.name || "Se completa solo")}" value="${esc(d.name)}"></div>
         </div>`;
@@ -151,18 +179,24 @@
   }
 
   // ================= Cálculos =================
-  function calcItem(it) {
-    const gross = Math.round(it.qty * it.price);
-    const disc = Math.round(gross * (it.discount || 0) / 100);
-    const total = gross - disc;
-    const iva10 = it.tax === "10" ? Math.floor(total / 11) : 0;
-    const iva5 = it.tax === "5" ? Math.floor(total / 21) : 0;
-    return { total, iva10, iva5, iva: iva10 + iva5, exe: it.tax === "E" ? total : 0, b5: it.tax === "5" ? total : 0, b10: it.tax === "10" ? total : 0 };
+  // cur: moneda ("PYG" por defecto, sin decimales; "USD" con 2 decimales)
+  function calcItem(it, cur) {
+    const dec = decimalsFor(cur), r = n => roundTo(n, dec);
+    const gross = r(it.qty * it.price);
+    const disc = r(gross * (it.discount || 0) / 100);
+    const total = r(gross - disc);
+    // IVA incluido en el precio: 10 % = total/11, 5 % = total/21 (en guaraníes se trunca, como hasta ahora)
+    const ivaOf = div => dec ? r(total / div) : Math.floor(total / div);
+    const iva10 = it.tax === "10" ? ivaOf(11) : 0;
+    const iva5 = it.tax === "5" ? ivaOf(21) : 0;
+    return { total, iva10, iva5, iva: r(iva10 + iva5), exe: it.tax === "E" ? total : 0, b5: it.tax === "5" ? total : 0, b10: it.tax === "10" ? total : 0 };
   }
-  function calcItems(items) {
+  function calcItems(items, cur) {
+    const dec = decimalsFor(cur), r = n => roundTo(n, dec);
     const t = { exe: 0, b5: 0, b10: 0, iva5: 0, iva10: 0, iva: 0, total: 0, count: items.length };
-    items.forEach(it => { const c = calcItem(it); t.total += c.total; t.exe += c.exe; t.b5 += c.b5; t.b10 += c.b10; t.iva5 += c.iva5; t.iva10 += c.iva10; });
-    t.iva = t.iva5 + t.iva10; return t;
+    items.forEach(it => { const c = calcItem(it, cur); t.total += c.total; t.exe += c.exe; t.b5 += c.b5; t.b10 += c.b10; t.iva5 += c.iva5; t.iva10 += c.iva10; });
+    ["total", "exe", "b5", "b10", "iva5", "iva10"].forEach(k => t[k] = r(t[k]));
+    t.iva = r(t.iva5 + t.iva10); return t;
   }
   const taxLabel = t => t === "10" ? "IVA 10%" : t === "5" ? "IVA 5%" : "Exento";
 
@@ -199,6 +233,113 @@
     t.textContent = msg; t.classList.add("show");
     clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600);
   }
+  // ================= Teclados y comportamiento de los campos =================
+  // Cada campo abre el teclado que corresponde: numérico donde solo van números, completo donde va texto.
+  // Se asigna por id (o por data-kb en el HTML) y se aplica solo, también a hojas y pantallas nuevas.
+  const KB_BY_ID = {
+    digits: ["tNum", "tNext", "fCuotas", "eEst", "ePoint", "sTest", "sProd", "aEst", "aPoint", "aCsc", "aCscProd", "tNum4", "tNext4"],
+    ruc: ["fRuc", "aRuc", "cRuc"],
+    money: ["iPrice", "pPrice"],
+    money2: ["fTc", "prExch"],
+    decimal: ["iQty", "iDisc"],
+    pin: ["pin1", "lgPin", "cOld"],
+    newpin: ["pin2", "cNew", "cNew2", "uPin", "fmPin", "fmPin2"],
+    email: ["fEmail", "nMail", "eMail", "aMail"],
+    tel: ["ePhone", "aPhone"],
+    name: ["fName2", "uName", "sSeller", "aSeller", "fmName", "cTit"],
+    org: ["fName", "eName", "aName", "eFan", "aFantasy"],
+    sentence: ["iDesc", "pDesc", "eAct", "aActivity", "fNote", "prFooter", "rWhy"],
+    address: ["eAdr", "aAddress"],
+    city: ["eCity", "aCity"],
+    country: ["fCountry"],
+    code: ["pCode", "cSerie", "catCode"],
+    search: ["cSearch", "hSearch"],
+    doc: ["fDoc"]
+  };
+  const KB_ID = {};
+  Object.keys(KB_BY_ID).forEach(k => KB_BY_ID[k].forEach(id => KB_ID[id] = k));
+  const KB_ATTRS = {
+    digits: { inputmode: "numeric", pattern: "[0-9]*", autocomplete: "off" },
+    ruc: { inputmode: "numeric", autocomplete: "off", spellcheck: "false" },
+    money: { inputmode: "numeric", pattern: "[0-9.]*", autocomplete: "off" },
+    money2: { inputmode: "decimal", autocomplete: "off" },
+    decimal: { inputmode: "decimal", autocomplete: "off" },
+    pin: { type: "password", inputmode: "numeric", pattern: "[0-9]*", autocomplete: "current-password", maxlength: "6" },
+    newpin: { type: "password", inputmode: "numeric", pattern: "[0-9]*", autocomplete: "new-password", maxlength: "6" },
+    email: { type: "email", inputmode: "email", autocomplete: "email", autocapitalize: "off", spellcheck: "false" },
+    tel: { type: "tel", inputmode: "tel", autocomplete: "tel" },
+    name: { autocapitalize: "words", autocomplete: "name", spellcheck: "false" },
+    org: { autocapitalize: "words", autocomplete: "organization", spellcheck: "false" },
+    sentence: { autocapitalize: "sentences" },
+    address: { autocapitalize: "sentences", autocomplete: "street-address" },
+    city: { autocapitalize: "words", autocomplete: "address-level2" },
+    country: { autocapitalize: "words", autocomplete: "country-name" },
+    code: { autocapitalize: "characters", autocomplete: "off", autocorrect: "off", spellcheck: "false" },
+    search: { type: "search", autocomplete: "off", enterkeyhint: "search" },
+    docnum: { inputmode: "numeric", pattern: "[0-9]*", autocomplete: "off" },
+    doctext: { inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false" }
+  };
+  // Caracteres permitidos por tipo (lo demás se descarta al escribir o pegar)
+  const KB_FILTER = { digits: /[^0-9]/g, docnum: /[^0-9]/g, pin: /[^0-9]/g, newpin: /[^0-9]/g, ruc: /[^0-9-]/g, money: /[^0-9]/g, money2: /[^0-9.,]/g, decimal: /[^0-9.,]/g };
+  const FIELD_SEL = "input:not([type=hidden]):not([type=checkbox]):not([type=file]):not([type=radio]), select, textarea";
+  const visibleField = el => !el.disabled && el.offsetParent !== null && el.type !== "hidden";
+  function kindOf(el) {
+    let k = el.dataset.kb || KB_ID[el.id];
+    if (k === "doc") {
+      const box = el.closest(".sheet, .lock, #screen") || document, dt = box.querySelector("#fDocType");
+      k = !dt || dt.value === "1" ? "docnum" : "doctext"; // cédula paraguaya: solo números
+    }
+    return k;
+  }
+  function enhance(root) {
+    (root || document).querySelectorAll(FIELD_SEL).forEach(el => {
+      const k = kindOf(el);
+      if (k && KB_ATTRS[k]) Object.entries(KB_ATTRS[k]).forEach(([a, v]) => { if (a !== "type" || el.tagName === "INPUT") el.setAttribute(a, v); });
+      if (k) el.dataset.kind = k;
+      if (el.tagName !== "TEXTAREA" && !el.hasAttribute("enterkeyhint")) {
+        const box = el.closest(".sheet, .lock, #screen");
+        const fields = box ? Array.from(box.querySelectorAll(FIELD_SEL)).filter(visibleField) : [];
+        const last = fields.indexOf(el) === fields.length - 1;
+        el.setAttribute("enterkeyhint", last ? (box && box.classList.contains("lock") ? "go" : "done") : "next");
+      }
+    });
+  }
+  // Filtra caracteres, da formato de miles a los montos en guaraníes y respeta el cursor
+  if (global.document) document.addEventListener("input", e => {
+    const el = e.target, k = el.dataset && el.dataset.kind;
+    if (!k || !KB_FILTER[k] && k !== "money") return;
+    const before = el.value, caretFromEnd = before.length - (el.selectionEnd == null ? before.length : el.selectionEnd);
+    let v = before.replace(KB_FILTER[k] || /$^/, "");
+    if (k === "ruc") v = v.replace(/-(?=.*-)/g, ""); // un solo guion
+    if (k === "money") v = v ? fmt(parseInt(v, 10) || 0) : "";
+    if (v !== before) {
+      el.value = v;
+      const pos = Math.max(0, v.length - caretFromEnd);
+      try { el.setSelectionRange(pos, pos); } catch (_) {}
+    }
+  }, true);
+  // Enter: pasa al campo siguiente; en el último, confirma la hoja (o cierra el teclado)
+  if (global.document) document.addEventListener("keydown", e => {
+    const el = e.target;
+    if (e.key !== "Enter" || e.isComposing || !el.matches || !el.matches("input, select") || el.type === "checkbox") return;
+    const box = el.closest(".sheet, .lock, #screen"); if (!box) return;
+    const fields = Array.from(box.querySelectorAll(FIELD_SEL)).filter(visibleField);
+    const next = fields[fields.indexOf(el) + 1];
+    if (el.type === "search") { e.preventDefault(); el.blur(); return; }
+    if (next) { e.preventDefault(); e.stopPropagation(); next.focus(); if (next.select && next.tagName === "INPUT") try { next.select(); } catch (_) {} return; }
+    if (box.classList.contains("sheet")) {
+      const ok = box.querySelector("[data-ok]:not([disabled])");
+      if (ok) { e.preventDefault(); ok.click(); }
+      return;
+    }
+    if (!box.classList.contains("lock")) { e.preventDefault(); el.blur(); }
+  }, true);
+  if (global.MutationObserver && global.document && document.body) {
+    new MutationObserver(muts => { if (muts.some(m => m.addedNodes.length)) enhance(document.body); }).observe(document.body, { childList: true, subtree: true });
+  }
+  // Pequeña vibración de confirmación (si el celular lo permite)
+  const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms || 30); } catch (_) {} };
+
   // Hoja inferior. build(el, close) recibe el contenedor para enlazar eventos.
   function sheet(html, build) {
     const back = document.createElement("div");
@@ -207,6 +348,7 @@
     document.body.appendChild(back);
     const close = () => back.remove();
     back.addEventListener("click", e => { if (e.target === back) close(); });
+    enhance(back);
     if (build) build(back.querySelector(".sheet"), close);
     return close;
   }
@@ -219,51 +361,69 @@
 
   // Hoja para agregar un producto (misma que el facturador original)
   // products (opcional): productos frecuentes para elegir y completar los campos
-  function itemSheet(onSave, initial, products) {
+  // cur: moneda del documento. En dólares, los productos frecuentes (en guaraníes) no completan el precio.
+  function itemSheet(onSave, initial, products, cur) {
     const it = initial || { desc: "", qty: 1, price: "", tax: "10", discount: 0, code: "" };
-    const prods = products || [];
+    const prods = products || [], usd = cur === "USD", sym = usd ? "USD" : "Gs";
     sheet(`
       <h3>${initial ? "Editar producto" : "Nuevo producto"}</h3>
       ${prods.length ? `<label for="iProd">Producto frecuente</label><select id="iProd"><option value="">Elegí uno o escribilo abajo</option>
-        ${prods.map((p, i) => `<option value="${i}">${esc((p.code ? p.code + " · " : "") + p.desc)} · Gs ${fmt(p.price)}</option>`).join("")}</select>` : ""}
-      <label for="iDesc">Descripción</label><input id="iDesc" placeholder="Ej. Resma A4 500 hojas" value="${esc(it.desc)}">
+        ${prods.map((p, i) => `<option value="${i}">${esc((p.code ? p.code + " · " : "") + p.desc)} · Gs ${fmt(p.price)}</option>`).join("")}</select>
+        ${usd ? `<div class="muted small" style="margin-top:4px">Factura en dólares: el producto completa la descripción y el IVA; el precio escribilo en USD.</div>` : ""}` : ""}
+      <label for="iDesc">Descripción</label><input id="iDesc" data-kb="sentence" placeholder="Ej. Resma A4 500 hojas" value="${esc(it.desc)}">
       <input type="hidden" id="iCode" value="${esc(it.code || "")}">
       <div class="grid2">
-        <div><label for="iQty">Cantidad</label><input id="iQty" inputmode="decimal" value="${esc(it.qty)}"></div>
-        <div><label for="iPrice">Precio unitario</label><input id="iPrice" inputmode="numeric" placeholder="0" value="${esc(it.price === "" ? "" : fmt(it.price))}"></div>
+        <div><label for="iQty">Cantidad</label><input id="iQty" data-kb="decimal" value="${esc(fmtQty(it.qty))}"></div>
+        <div><label for="iPrice">Precio unitario (${sym})</label><input id="iPrice" data-kb="${usd ? "money2" : "money"}" placeholder="0" value="${esc(it.price === "" ? "" : fmt(it.price, cur))}"></div>
       </div>
       <div class="grid2">
         <div><label for="iTax">Impuesto</label><select id="iTax">
           <option value="10" ${it.tax === "10" ? "selected" : ""}>IVA 10%</option>
           <option value="5" ${it.tax === "5" ? "selected" : ""}>IVA 5%</option>
           <option value="E" ${it.tax === "E" ? "selected" : ""}>Exento</option></select></div>
-        <div><label for="iDisc">Descuento (%)</label><input id="iDisc" inputmode="numeric" value="${esc(it.discount || 0)}"></div>
+        <div><label for="iDisc">Descuento (%)</label><input id="iDisc" data-kb="decimal" value="${esc(fmtQty(it.discount || 0))}"></div>
       </div>
-      <div class="btn-row" style="margin-top:18px">
-        <button class="btn" id="iCancel">Cancelar</button>
-        <button class="btn primary" id="iSave">${initial ? "Guardar" : "Agregar"}</button>
+      <div class="item-preview" id="iPreview"></div>
+      <div class="btn-row ${initial ? "" : "three"}" style="margin-top:14px">
+        <button class="btn" id="iCancel">${initial ? "Cancelar" : "Listo"}</button>
+        ${initial ? "" : `<button class="btn soft" id="iMore">Agregar y otro</button>`}
+        <button class="btn primary" id="iSave" data-ok>${initial ? "Guardar" : "Agregar"}</button>
       </div>`, (el, close) => {
-      el.querySelector("#iCancel").onclick = close;
-      const pick = el.querySelector("#iProd");
+      const q = id => el.querySelector(id), pick = q("#iProd");
+      const read = () => ({
+        desc: q("#iDesc").value.trim(), qty: parseFloat(q("#iQty").value.replace(/\./g, "").replace(",", ".")) || 0,
+        price: parseAmount(q("#iPrice").value, cur), tax: q("#iTax").value,
+        discount: Math.min(100, Math.max(0, parseFloat(q("#iDisc").value.replace(",", ".")) || 0)), code: q("#iCode").value
+      });
+      // Total de la línea mientras se escribe
+      const preview = () => { const v = read(); q("#iPreview").textContent = v.qty > 0 && v.price > 0 ? "Total de la línea: " + money(calcItem(v, cur).total, cur) : ""; };
+      el.addEventListener("input", preview); el.addEventListener("change", preview); preview();
+      q("#iCancel").onclick = close;
       if (pick) pick.onchange = () => {
         const p = prods[+pick.value]; if (!p) return;
-        el.querySelector("#iDesc").value = p.desc; el.querySelector("#iPrice").value = fmt(p.price);
-        el.querySelector("#iTax").value = p.tax; el.querySelector("#iCode").value = p.code || "";
-        el.querySelector("#iQty").focus(); el.querySelector("#iQty").select();
+        q("#iDesc").value = p.desc; if (!usd) q("#iPrice").value = fmt(p.price);
+        q("#iTax").value = p.tax; q("#iCode").value = p.code || "";
+        const next = usd ? q("#iPrice") : q("#iQty"); next.focus(); next.select(); preview();
       };
-      el.querySelector("#iDesc").oninput = () => { el.querySelector("#iCode").value = ""; };
-      el.querySelector("#iSave").onclick = () => {
-        const desc = el.querySelector("#iDesc").value.trim();
-        const qty = parseFloat(el.querySelector("#iQty").value.replace(",", ".")) || 0;
-        const price = Math.round(parseFloat(el.querySelector("#iPrice").value.replace(/\./g, "").replace(",", ".")) || 0);
-        const discount = Math.min(100, Math.max(0, parseFloat(el.querySelector("#iDisc").value) || 0));
-        const tax = el.querySelector("#iTax").value;
-        if (!desc) { toast("Escribí el nombre del producto"); return; }
-        if (qty <= 0 || price <= 0) { toast("La cantidad y el precio tienen que ser mayores a cero"); return; }
-        const code = el.querySelector("#iCode").value;
-        close(); onSave(code ? { desc, qty, price, tax, discount, code } : { desc, qty, price, tax, discount });
+      q("#iDesc").addEventListener("input", () => { q("#iCode").value = ""; });
+      const submit = more => {
+        const v = read();
+        if (!v.desc) { toast("Escribí el nombre del producto"); q("#iDesc").focus(); return; }
+        if (v.qty <= 0) { toast("La cantidad tiene que ser mayor a cero"); q("#iQty").focus(); return; }
+        if (v.price <= 0) { toast("El precio tiene que ser mayor a cero"); q("#iPrice").focus(); return; }
+        const item = { desc: v.desc, qty: v.qty, price: v.price, tax: v.tax, discount: v.discount };
+        if (v.code) item.code = v.code;
+        onSave(item);
+        if (!more) { close(); return; }
+        // Deja el formulario listo para el siguiente producto
+        toast("Agregado: " + v.desc);
+        q("#iDesc").value = ""; q("#iCode").value = ""; q("#iQty").value = "1"; q("#iPrice").value = ""; q("#iDisc").value = "0"; q("#iTax").value = "10";
+        if (pick) pick.value = "";
+        preview(); (pick || q("#iDesc")).focus();
       };
-      setTimeout(() => (pick && !initial ? pick : el.querySelector("#iDesc")).focus(), 60);
+      q("#iSave").onclick = () => submit(false);
+      if (q("#iMore")) q("#iMore").onclick = () => submit(true);
+      setTimeout(() => (pick && !initial ? pick : q("#iDesc")).focus(), 60);
     });
   }
 
@@ -287,6 +447,26 @@
     list.sort((a, b) => (b.used || 0) - (a.used || 0));
     return list;
   }
+  // Cliente frecuente que coincide con el RUC o el documento escrito
+  function matchClient(list, d) {
+    if (d.mode === "con") { const p = parseRuc(d.ruc); return p ? list.find(c => c.mode === "con" && c.ruc === p.full) || null : null; }
+    const doc = String(d.doc || "").trim().toLowerCase();
+    return doc.length >= 3 ? list.find(c => c.mode === d.mode && String(c.doc || "").trim().toLowerCase() === doc) || null : null;
+  }
+  // Completa nombre, correo y país desde el cliente frecuente si todavía están vacíos. Devuelve el cliente si completó algo.
+  function autofillClient(list, d) {
+    const c = matchClient(list, d); if (!c) return null;
+    let changed = false;
+    if (!d.name && c.name) { d.name = c.name; changed = true; }
+    if (!d.email && c.email) { d.email = c.email; changed = true; }
+    if (d.mode === "ext" && !d.country && c.country) { d.country = c.country; changed = true; }
+    return changed ? c : null;
+  }
+  // Búsqueda sin distinguir mayúsculas ni tildes
+  const norm = v => String(v == null ? "" : v).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const matches = (q, ...fields) => { const n = norm(q).trim(); return !n || fields.some(f => norm(f).includes(n)); };
+  const searchBox = (value, placeholder) => `<input id="hSearch" type="search" placeholder="${esc(placeholder)}" value="${esc(value || "")}" style="margin-top:12px">`;
+
   function clientPicker(list, onPick) {
     const rows = q => {
       const s = q.trim().toLowerCase();
@@ -596,6 +776,7 @@
   global.FE = {
     getTheme, setTheme, themeHTML,
     installHTML, promptInstall, onInstallChange, isStandalone,
+    decimalsFor, money, fmtQty, parseAmount, pygTotal, enhance, buzz, matchClient, autofillClient, matches, searchBox,
     fmt, esc, fmtDate, todayKey, localDayKey, INNOMINATE_LIMIT, registry, dv11, parseRuc, classify, opName,
     calcItem, calcItems, taxLabel, DOC_TYPES, DOC_SHORT, EXT_DOC_TYPES, receiverIdText, receiverIdLabel, receiverDisplayName,
     receiverBlock, syncReceiver, receiverLiveIds, receiverFromDraft,

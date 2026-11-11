@@ -282,7 +282,7 @@
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
         const desc = el.querySelector("#pDesc").value.trim();
-        const price = Math.round(parseFloat(el.querySelector("#pPrice").value.replace(/\./g, "").replace(",", ".")) || 0);
+        const price = FE.parseAmount(el.querySelector("#pPrice").value);
         if (!desc) { toast("Escribí la descripción"); return; }
         if (price <= 0) { toast("El precio tiene que ser mayor a cero"); return; }
         close();

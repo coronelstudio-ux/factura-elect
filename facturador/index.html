@@ -26,11 +26,11 @@
   </header>
   <main class="screen" id="screen"></main>
   <nav class="tabbar" aria-label="Navegación principal" style="--tabs:5">
-    <button class="tab" data-go="home"><span class="ico">&#8962;</span>Inicio</button>
-    <button class="tab" data-go="new"><span class="ico">&#43;</span>Nueva</button>
-    <button class="tab" data-go="pedidos"><span class="ico">&#128230;</span>Pedidos<span class="badge hidden" id="pedBadge"></span></button>
-    <button class="tab" data-go="history"><span class="ico">&#9776;</span>Historial</button>
-    <button class="tab" data-go="settings"><span class="ico">&#9881;</span>Ajustes</button>
+    <button class="tab" data-go="home"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></span>Inicio</button>
+    <button class="tab" data-go="new"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg></span>Nueva</button>
+    <button class="tab" data-go="pedidos"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg></span>Pedidos<span class="badge hidden" id="pedBadge"></span></button>
+    <button class="tab" data-go="history"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>Historial</button>
+    <button class="tab" data-go="settings"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></span>Ajustes</button>
   </nav>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>

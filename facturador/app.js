@@ -37,7 +37,7 @@
   const log = (action, detail) => T.audit(action, detail, company.id, user);
 
   // ================= Estado =================
-  const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: newDraft(), preview: null,
+  const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: store.get("draft", null) || newDraft(), preview: null, q: "",
     pedFilter: "pendiente", pedSeller: "", pedidoId: null };
   function newDraft() {
     return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: prefs.condition, installments: 1,
@@ -45,6 +45,8 @@
   }
   const activeTimbrado = () => timbrados.find(t => t.active) || null;
   const timbradoOk = () => timbradoStatus(activeTimbrado()) === "vigente";
+  // Total en guaraníes del borrador (en dólares, con el tipo de cambio; 0 si todavía no lo cargó)
+  const pygOf = (d, t) => { const v = FE.pygTotal(t.total, d.currency, d.exchange); return v == null ? 0 : v; };
   function timbradoProblem() {
     const t = activeTimbrado(), st = timbradoStatus(t);
     const where = can("timbrados.editar") ? "Cargalo o activalo en Ajustes → Timbrados." : "Pedile al estudio que lo cargue.";
@@ -109,7 +111,7 @@
   }
 
   function screenNew() {
-    const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
+    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
     const hasItems = d.items.length > 0;
     const canPreview = r.valid && hasItems && timbradoOk();
     const ped = d.pedidoId ? inbox.find(p => p.id === d.pedidoId) : null;
@@ -131,11 +133,14 @@
         <div class="section-title"><span class="num ${hasItems ? "done" : ""}">2</span>Productos</div>
         <div class="card">
           ${!hasItems ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos o servicios.</div>` :
-            d.items.map((it, idx) => { const c = calcItem(it); return `<div class="item">
-              <div class="desc">${esc(it.desc)}</div><div class="amount">Gs ${fmt(c.total)}</div>
-              <div class="calc">${it.qty} × Gs ${fmt(it.price)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
-                · <button class="link" data-edititem="${idx}" style="min-height:0;padding:0;font-size:13px">Editar</button></div>
-              <button class="del" data-del="${idx}">Quitar</button></div>`; }).join("")}
+            d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
+              <div class="desc">${esc(it.desc)}</div><div class="amount">${FE.money(c.total, d.currency)}</div>
+              <div class="calc">${FE.fmtQty(it.qty)} × ${FE.money(it.price, d.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
+</div>
+              <div class="item-actions">
+                <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
+                <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
+              </div></div>`; }).join("")}
           <button class="add" data-add="1">+ Agregar producto o servicio</button>
         </div>
       </div>
@@ -156,7 +161,7 @@
 
       <div class="sticky-total">
         <div class="line"><span class="muted">${t.count ? t.count + (t.count === 1 ? " producto" : " productos") : "Total"}</span>
-          <span class="big">${d.currency === "USD" ? "USD " : "Gs "}${fmt(t.total)}</span></div>
+          <span class="big">${FE.money(t.total, d.currency)}</span></div>
         <button class="btn primary" data-preview="1" ${canPreview ? "" : "disabled"}>Ver factura</button>
       </div>`;
   }
@@ -172,7 +177,7 @@
     return qrCache[key];
   }
   function kudeHTML(inv) {
-    const T = inv.totals;
+    const T = inv.totals, fm = n => fmt(n, inv.currency);
     const cdcFmt = inv.cdc ? FE.formatCdc(inv.cdc) : "Pendiente de aprobación";
     const isUSD = inv.currency === "USD";
     const test = company.env === "test";
@@ -208,28 +213,28 @@
           <colgroup><col class="c-cod"><col class="c-desc"><col class="c-un"><col class="c-qty"><col class="c-pu"><col class="c-dc"><col class="c-ex"><col class="c-5"><col class="c-10"></colgroup>
           <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th><th class="n">Precio</th><th class="n">Desc.</th><th class="n">Exentas</th><th class="n">5%</th><th class="n">10%</th></tr></thead>
           <tbody>
-            ${inv.items.map((it, i) => { const c = calcItem(it); return `<tr>
+            ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<tr>
               <td>${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</td><td>${esc(it.desc)}</td><td>UNI</td>
-              <td class="n">${it.qty}</td><td class="n">${fmt(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
-              <td class="n">${it.tax === "E" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fmt(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fmt(c.total) : "0"}</td></tr>`; }).join("")}
-            <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fmt(T.exe)}</td><td class="n">${fmt(T.b5)}</td><td class="n">${fmt(T.b10)}</td></tr>
-            <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fmt(T.total)}</td></tr>
+              <td class="n">${FE.fmtQty(it.qty)}</td><td class="n">${fm(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
+              <td class="n">${it.tax === "E" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fm(c.total) : "0"}</td></tr>`; }).join("")}
+            <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fm(T.exe)}</td><td class="n">${fm(T.b5)}</td><td class="n">${fm(T.b10)}</td></tr>
+            <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fm(T.total)}</td></tr>
             <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T.totalPyg : T.total)}</td></tr>
           </tbody>
         </table>
         <div class="klist">
-          ${inv.items.map((it, i) => { const c = calcItem(it); return `<div class="ki">
+          ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<div class="ki">
             <div class="ki-top"><span class="ki-cod">${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</span><b>${esc(it.desc)}</b></div>
-            <div class="ki-row"><span>${it.qty} UNI × ${fmt(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
-            <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fmt(c.total)}</b></div>
+            <div class="ki-row"><span>${FE.fmtQty(it.qty)} UNI × ${fm(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
+            <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fm(c.total)}</b></div>
           </div>`; }).join("")}
-          <div class="kt"><span>Subtotal exentas</span><span>${fmt(T.exe)}</span></div>
-          <div class="kt"><span>Subtotal 5%</span><span>${fmt(T.b5)}</span></div>
-          <div class="kt"><span>Subtotal 10%</span><span>${fmt(T.b10)}</span></div>
-          <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fmt(T.total)}</span></div>
+          <div class="kt"><span>Subtotal exentas</span><span>${fm(T.exe)}</span></div>
+          <div class="kt"><span>Subtotal 5%</span><span>${fm(T.b5)}</span></div>
+          <div class="kt"><span>Subtotal 10%</span><span>${fm(T.b10)}</span></div>
+          <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T.total)}</span></div>
           <div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(isUSD ? T.totalPyg : T.total)}</span></div>
         </div>
-        </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fmt(T.iva5)}</span><span>(10%) ${fmt(T.iva10)}</span><span>TOTAL IVA ${fmt(T.iva)}</span></div>
+        </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fm(T.iva5)}</span><span>(10%) ${fm(T.iva10)}</span><span>TOTAL IVA ${fm(T.iva)}</span></div>
       </div>
       <div class="box"><div class="foot">
         ${qrImg(inv) ? `<div class="qr has"><img src="${qrImg(inv)}" alt="QR de consulta"></div>` : `<div class="qr">QR al aprobarse</div>`}
@@ -258,7 +263,7 @@
     return out;
   }
   function buildInvoice(d) {
-    const t = calcItems(d.items), r = classify(d, t.total), now = new Date();
+    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t)), now = new Date();
     const receiver = FE.receiverFromDraft(d, r);
     return {
       number: nextNumberStr(),
@@ -273,7 +278,7 @@
       condition: d.condition, installments: d.installments,
       operation: r.operation, operationLabel: opName[r.operation] || "", pedidoId: d.pedidoId || null,
       totals: { exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total,
-        totalPyg: d.currency === "USD" && d.exchange ? Math.round(t.total * (parseFloat(String(d.exchange).replace(/\./g, "").replace(",", ".")) || 0)) : t.total },
+        totalPyg: FE.pygTotal(t.total, d.currency, d.exchange) || 0 },
       cdc: ""
     };
   }
@@ -304,7 +309,7 @@
         <div>${ok ? '<span class="chip ok">Aprobada</span>' : '<span class="chip bad">Rechazada</span>'}</div>
         <h2 style="margin-top:10px">${ok ? "Factura emitida" : "No se pudo aprobar"}</h2>
         <div class="small muted">${esc(r.number)} · ${esc(r.client)}</div>
-        <div class="amount" style="font-size:22px;margin-top:6px">Gs ${fmt(r.total)}</div>
+        <div class="amount" style="font-size:22px;margin-top:6px">${r.currency === "USD" ? FE.money(r.totalOp, "USD") + " · " : ""}Gs ${fmt(r.total)}</div>
         ${r.emailedTo ? `<div class="small" style="margin-top:6px">Enviada por correo a ${esc(r.emailedTo)} (simulado)</div>` : ""}
         ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? "marcado como facturado" : "sigue pendiente de facturar"}</div>` : ""}
         ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small cdc-text" style="margin-top:2px">${esc(FE.formatCdc(r.cdc))}</div>`
@@ -325,14 +330,15 @@
   }
 
   function screenHistory() {
-    const list = invoices.filter(i => state.filter === "all" || i.status === state.filter);
+    const list = invoices.filter(i => (state.filter === "all" || i.status === state.filter) && FE.matches(state.q, i.client, i.number, i.ruc, i.pedidoId));
     const count = k => k === "all" ? invoices.length : invoices.filter(i => i.status === k).length;
     const seg = (k, label) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${label} · ${count(k)}</button>`;
     return `
       <h2>Historial</h2>
-      <div class="seg">${seg("all", "Todas")}${seg("ok", "Aprobadas")}${seg("warn", "Pendientes")}${seg("bad", "Rechazadas")}</div>
+      <div class="seg four">${seg("all", "Todas")}${seg("ok", "Aprobadas")}${seg("warn", "Pendientes")}${seg("bad", "Rechazadas")}</div>
+      ${FE.searchBox(state.q, "Buscar por cliente, número o RUC")}
       <div class="card" style="margin-top:12px">
-        ${list.length ? list.map(rowInvoice).join("") : `<div class="muted small">No hay comprobantes en este filtro.</div>`}
+        ${list.length ? list.map(rowInvoice).join("") : `<div class="muted small">${state.q ? "Ninguna factura coincide con la búsqueda." : "No hay comprobantes en este filtro."}</div>`}
       </div>`;
   }
 
@@ -351,7 +357,8 @@
         <div class="kv"><span class="muted">Operación</span><span>${esc(opName[i.operation] || "")} (${esc(i.operation)})</span></div>
         <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(i.date)}</span></div>
         ${i.pedidoId ? `<div class="kv"><span class="muted">Pedido</span><span><button class="link" data-openped="${esc(i.pedidoId)}" style="min-height:0;padding:0">${esc(i.pedidoId)}</button></span></div>` : ""}
-        <div class="kv"><span class="muted">Total</span><span class="amount">Gs ${fmt(i.total)}</span></div>
+        ${i.currency === "USD" ? `<div class="kv"><span class="muted">Total en dólares</span><span class="amount">${FE.money(i.totalOp, "USD")}</span></div>` : ""}
+        <div class="kv"><span class="muted">Total${i.currency === "USD" ? " en guaraníes" : ""}</span><span class="amount">Gs ${fmt(i.total)}</span></div>
         ${i.cdc ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">CDC</div><div class="small cdc-text" style="margin-top:4px">${esc(FE.formatCdc(i.cdc))}</div></div>` : ""}
         ${i.reason ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">Motivo</div><div style="margin-top:4px;color:var(--bad)">${esc(i.reason)}</div></div>` : ""}
       </div>
@@ -376,7 +383,7 @@
   function screenPedidos() {
     const sellers = [...new Set(inbox.map(p => p.seller).filter(Boolean))].sort();
     const bySeller = inbox.filter(p => !state.pedSeller || p.seller === state.pedSeller);
-    const list = bySeller.filter(p => state.pedFilter === "all" || p.status === state.pedFilter)
+    const list = bySeller.filter(p => (state.pedFilter === "all" || p.status === state.pedFilter) && FE.matches(state.q, pedClient(p), p.id, p.seller, p.client.ruc, p.client.doc))
       .sort((a, b) => String(b.receivedAt).localeCompare(String(a.receivedAt)));
     const count = k => k === "all" ? bySeller.length : bySeller.filter(p => p.status === k).length;
     const seg = (k, l) => `<button data-pedfilter="${k}" class="${state.pedFilter === k ? "on" : ""}">${l} · ${count(k)}</button>`;
@@ -389,13 +396,14 @@
         <button class="btn soft" data-paste>Pegar código</button>
       </div>
       <div class="section">
-        <div class="seg">${seg("pendiente", "Pendientes")}${seg("facturado", "Facturados")}${seg("rechazado", "Rechazados")}${seg("all", "Todos")}</div>
+        <div class="seg four">${seg("pendiente", "Pendientes")}${seg("facturado", "Facturados")}${seg("rechazado", "Rechazados")}${seg("all", "Todos")}</div>
+        ${inbox.length > 3 || state.q ? FE.searchBox(state.q, "Buscar por cliente, vendedor o número") : ""}
         ${sellers.length > 1 ? `<label for="pSeller">Vendedor</label><select id="pSeller" class="inline"><option value="">Todos los vendedores</option>
           ${sellers.map(s => `<option value="${esc(s)}" ${state.pedSeller === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>` : ""}
         <div class="card" style="margin-top:12px">
           ${list.length ? list.map(p => `<div class="row" data-openped="${esc(p.id)}" role="button" tabindex="0">
             <div class="main"><div class="title">${esc(pedClient(p))}</div><div class="sub">${esc(p.id)} · ${esc(p.seller)} · ${fmtDate(p.updatedAt || p.createdAt)}</div></div>
-            <div style="text-align:right"><div class="amount">${p.currency === "USD" ? "USD" : "Gs"} ${fmt(calcItems(p.items).total)}</div><div style="margin-top:4px">${pedChip(p.status)}</div></div>
+            <div style="text-align:right"><div class="amount">${FE.money(calcItems(p.items, p.currency).total, p.currency)}</div><div style="margin-top:4px">${pedChip(p.status)}</div></div>
           </div>`).join("") : `<div class="muted small">No hay pedidos en este filtro.</div>`}
         </div>
       </div>`;
@@ -404,7 +412,7 @@
   function screenPedido() {
     const p = inbox.find(x => x.id === state.pedidoId);
     if (!p) return screenPedidos();
-    const t = calcItems(p.items), r = classify(p.client, t.total);
+    const t = calcItems(p.items, p.currency), r = classify(p.client, pygOf(p, t));
     return `
       <button class="link" data-go="pedidos">← Pedidos</button>
       <h2>Pedido ${esc(p.id)}</h2>
@@ -425,8 +433,8 @@
       </div>
       <div class="section"><div class="section-title">Productos</div>
         <div class="card">
-          ${p.items.map(it => `<div class="kv"><span>${esc(it.desc)}<br><span class="small muted">${it.qty} × ${fmt(it.price)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</span></span><span class="amount">${fmt(calcItem(it).total)}</span></div>`).join("")}
-          <div class="kv"><span><b>Total</b></span><span class="amount">${p.currency === "USD" ? "USD" : "Gs"} ${fmt(t.total)}</span></div>
+          ${p.items.map(it => `<div class="kv"><span>${esc(it.desc)}<br><span class="small muted">${FE.fmtQty(it.qty)} × ${fmt(it.price, p.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</span></span><span class="amount">${fmt(calcItem(it, p.currency).total, p.currency)}</span></div>`).join("")}
+          <div class="kv"><span><b>Total</b></span><span class="amount">${FE.money(t.total, p.currency)}</span></div>
         </div></div>
       ${p.status === "pendiente" ? `
         <div class="btn-row" style="margin-top:16px">
@@ -559,15 +567,17 @@
     const map = { home: screenHome, new: screenNew, preview: screenPreview, result: screenResult, history: screenHistory, detail: screenDetail,
       settings: screenSettings, pedidos: screenPedidos, pedido: screenPedido };
     document.getElementById("screen").innerHTML = (map[s] || screenHome)();
+    FE.enhance(document.getElementById("screen"));
     document.getElementById("title").textContent = titles[s] || "Inicio";
     document.querySelectorAll(".tab").forEach(t => {
       const k = t.dataset.go;
       t.classList.toggle("on", s === k || (k === "history" && s === "detail") || (k === "new" && s === "preview") || (k === "pedidos" && s === "pedido"));
     });
     document.getElementById("screen").style.paddingBottom = s === "new" ? "170px" : "130px";
+    store.set("draft", state.draft); // el borrador sobrevive si se cierra la app
     companyLine(); window.scrollTo(0, 0);
   }
-  function go(s) { state.screen = s; render(); }
+  function go(s) { if (s !== state.screen) state.q = ""; state.screen = s; render(); }
 
   function syncFields() {
     const d = state.draft, g = id => document.getElementById(id);
@@ -579,8 +589,8 @@
   }
   function refreshTotal() {
     const bar = document.querySelector(".sticky-total"); if (!bar) return;
-    const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
-    bar.querySelector(".big").textContent = (d.currency === "USD" ? "USD " : "Gs ") + fmt(t.total);
+    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
+    bar.querySelector(".big").textContent = FE.money(t.total, d.currency);
     bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0 && timbradoOk());
   }
 
@@ -601,7 +611,7 @@
     const existing = inbox.find(x => x.id === p.id);
     if (!existing) {
       inbox.push(Object.assign(p, { status: "pendiente", receivedAt: now }));
-      save(); log("Pedido recibido", p.id + " · " + p.seller); state.pedidoId = p.id; go("pedido"); toast("Pedido cargado: pendiente de facturar");
+      save(); log("Pedido recibido", p.id + " · " + p.seller); FE.buzz(); state.pedidoId = p.id; go("pedido"); toast("Pedido cargado: pendiente de facturar");
       return;
     }
     if (p.rev > (existing.rev || 1)) {
@@ -680,7 +690,8 @@
       }
       const kude = Object.assign(issued, { cdc, qrUrl });
       const result = {
-        id, number: inv.number, date, client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.total,
+        id, number: inv.number, date, client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.totalPyg,
+        currency: inv.currency, totalOp: inv.totals.total,
         operation: inv.operation, status: approved ? "ok" : "bad", cdc,
         reason: approved ? "" : "1103 Número de timbrado no vigente (simulación)", pedidoId: inv.pedidoId, kude
       };
@@ -695,7 +706,8 @@
         }
       }
       save();
-      log(approved ? "Factura emitida" : "Factura rechazada (simulación)", inv.number + " · " + (inv.receiverName || "") + " · Gs " + fmt(inv.totals.total));
+      log(approved ? "Factura emitida" : "Factura rechazada (simulación)", inv.number + " · " + (inv.receiverName || "") + " · " + FE.money(inv.totals.total, inv.currency));
+      if (approved) FE.buzz(40);
       if (result.emailedTo) toast("Factura enviada por correo a " + result.emailedTo + " (simulado)");
       state.lastResult = result; state.draft = newDraft(); state.preview = null;
       go("result");
@@ -710,14 +722,23 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products, state.draft.currency); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products, state.draft.currency); return; }
+    if (ds.qtyminus !== undefined || ds.qtyplus !== undefined) {
+      syncFields();
+      const it = state.draft.items[+(ds.qtyplus !== undefined ? ds.qtyplus : ds.qtyminus)]; if (!it) return;
+      const q = Math.round((it.qty + (ds.qtyplus !== undefined ? 1 : -1)) * 1000) / 1000;
+      if (q <= 0) return;
+      it.qty = q; render(); return;
+    }
     if (ds.del !== undefined) { syncFields(); state.draft.items.splice(+ds.del, 1); render(); return; }
     if (ds.pickclient !== undefined) { syncFields(); clientPicker(clients, useClient); return; }
     if (ds.unlinkped !== undefined) { syncFields(); state.draft.pedidoId = null; render(); return; }
     if (ds.preview) {
       syncFields();
-      const r = classify(state.draft, calcItems(state.draft.items).total);
+      const dd = state.draft, tt = calcItems(dd.items, dd.currency);
+      if (dd.currency === "USD" && FE.pygTotal(tt.total, "USD", dd.exchange) == null) { toast("Escribí el tipo de cambio del día para facturar en dólares"); const x = document.getElementById("fTc"); if (x) x.focus(); return; }
+      const r = classify(dd, pygOf(dd, tt));
       if (!r.valid) { toast(r.why); return; }
       if (!timbradoOk()) { toast(timbradoProblem()); return; }
       state.preview = buildInvoice(state.draft); go("preview"); return;
@@ -795,10 +816,18 @@
   });
 
   screenEl.addEventListener("input", e => {
+    if (e.target.id === "hSearch") {
+      state.q = e.target.value; const pos = e.target.selectionStart;
+      render(); const el = document.getElementById("hSearch");
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
+      return;
+    }
     if (state.screen !== "new") return;
     syncFields();
     const id = e.target.id, pos = e.target.selectionStart;
     if (FE.receiverLiveIds(state.draft.mode).includes(id)) {
+      const filled = FE.autofillClient(clients, state.draft);
+      if (filled) toast("Cliente frecuente: " + (filled.name || "datos completados"));
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
@@ -817,7 +846,7 @@
     if (id === "restoreFile") { const f = e.target.files && e.target.files[0]; if (f) FE.importBackup(store, "facturador", f, () => location.reload()); return; }
     if (id === "pSeller") { state.pedSeller = e.target.value; render(); return; }
     if (id === "prAutoEmail") { prefs.autoEmail = e.target.checked; save(); return; }
-    if (state.screen === "new") { syncFields(); if (e.target.tagName === "SELECT") render(); }
+    if (state.screen === "new") { syncFields(); if (e.target.id === "fCur" && state.draft.items.length) toast("Cambiaste la moneda: revisá los precios de los productos"); if (e.target.tagName === "SELECT") render(); }
   });
 
   function loadLogo(file) {

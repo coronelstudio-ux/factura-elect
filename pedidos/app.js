@@ -15,6 +15,8 @@
   const save = () => { store.set("pedidos", pedidos); store.set("clients", clients); store.set("settings", settings); store.set("catalog", catalog); };
 
   const state = { screen: "new", detailId: null, filter: "all", draft: store.get("draft", null) || newDraft() };
+  // Total en guaraníes para el límite de innominado (en dólares, con el tipo de cambio si lo cargó)
+  const pygOf = (d, t) => { const v = FE.pygTotal(t.total, d.currency, d.exchange); return v == null ? 0 : v; };
   function newDraft() {
     return { editId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
       currency: "PYG", exchange: "", note: "", items: [] };
@@ -23,7 +25,7 @@
 
   // ================= Pantallas =================
   function screenNew() {
-    const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
+    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
     const hasItems = d.items.length > 0;
     const canSave = r.valid && hasItems;
     return `
@@ -41,11 +43,14 @@
         <div class="section-title"><span class="num ${hasItems ? "done" : ""}">2</span>Productos</div>
         <div class="card">
           ${!hasItems ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos o servicios.</div>` :
-            d.items.map((it, idx) => { const c = calcItem(it); return `<div class="item">
-              <div class="desc">${esc(it.desc)}</div><div class="amount">Gs ${fmt(c.total)}</div>
-              <div class="calc">${it.qty} × Gs ${fmt(it.price)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
-                · <button class="link" data-edititem="${idx}" style="min-height:0;padding:0;font-size:13px">Editar</button></div>
-              <button class="del" data-del="${idx}">Quitar</button></div>`; }).join("")}
+            d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
+              <div class="desc">${esc(it.desc)}</div><div class="amount">${FE.money(c.total, d.currency)}</div>
+              <div class="calc">${FE.fmtQty(it.qty)} × ${FE.money(it.price, d.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
+</div>
+              <div class="item-actions">
+                <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
+                <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
+              </div></div>`; }).join("")}
           <button class="add" data-add="1">+ Agregar producto o servicio</button>
         </div>
       </div>
@@ -70,26 +75,27 @@
 
       <div class="sticky-total">
         <div class="line"><span class="muted">${t.count ? t.count + (t.count === 1 ? " producto" : " productos") : "Total"}</span>
-          <span class="big">${d.currency === "USD" ? "USD " : "Gs "}${fmt(t.total)}</span></div>
+          <span class="big">${FE.money(t.total, d.currency)}</span></div>
         <button class="btn primary" data-savepedido ${canSave ? "" : "disabled"}>${d.editId ? "Guardar cambios y generar QR" : "Guardar pedido y generar QR"}</button>
       </div>`;
   }
 
-  const pedidoTotal = p => calcItems(p.items).total;
+  const pedidoTotal = p => calcItems(p.items, p.currency).total;
   const clientName = p => FE.receiverDisplayName(p.client);
   const shareChip = p => p.sharedAt ? '<span class="chip ok">Compartido</span>' : '<span class="chip warn">Sin compartir</span>';
 
   function screenList() {
-    const list = pedidos.filter(p => state.filter === "all" || (state.filter === "shared" ? !!p.sharedAt : !p.sharedAt));
+    const list = pedidos.filter(p => (state.filter === "all" || (state.filter === "shared" ? !!p.sharedAt : !p.sharedAt)) && FE.matches(state.q, clientName(p), p.id, p.client.ruc, p.client.doc));
     const count = k => k === "all" ? pedidos.length : pedidos.filter(p => k === "shared" ? !!p.sharedAt : !p.sharedAt).length;
     const seg = (k, l) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${l} · ${count(k)}</button>`;
     return `
       <h2>Mis pedidos</h2>
       <div class="seg">${seg("all", "Todos")}${seg("pending", "Sin compartir")}${seg("shared", "Compartidos")}</div>
+      ${pedidos.length > 3 || state.q ? FE.searchBox(state.q, "Buscar por cliente, número o RUC") : ""}
       <div class="card" style="margin-top:12px">
         ${list.length ? list.map(p => `<div class="row" data-open="${esc(p.id)}" role="button" tabindex="0">
           <div class="main"><div class="title">${esc(clientName(p))}</div><div class="sub">${esc(p.id)} · ${fmtDate(p.updatedAt || p.createdAt)}</div></div>
-          <div style="text-align:right"><div class="amount">${p.currency === "USD" ? "USD" : "Gs"} ${fmt(pedidoTotal(p))}</div><div style="margin-top:4px">${shareChip(p)}</div></div>
+          <div style="text-align:right"><div class="amount">${FE.money(pedidoTotal(p), p.currency)}</div><div style="margin-top:4px">${shareChip(p)}</div></div>
         </div>`).join("") : `<div class="muted small">No hay pedidos en este filtro.</div>`}
       </div>
       <button class="btn primary" data-go="new" style="margin-top:14px">Nuevo pedido</button>`;
@@ -98,7 +104,7 @@
   function screenDetail() {
     const p = pedidos.find(x => x.id === state.detailId);
     if (!p) return screenList();
-    const t = calcItems(p.items);
+    const t = calcItems(p.items, p.currency);
     return `
       <button class="link" data-go="list">← Mis pedidos</button>
       <h2>Pedido ${esc(p.id)}</h2>
@@ -116,8 +122,8 @@
           <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
           <div class="kv"><span class="muted">Vendedor</span><span>${esc(p.seller)}</span></div>
           ${p.note ? `<div class="kv"><span class="muted">Nota</span><span>${esc(p.note)}</span></div>` : ""}
-          ${p.items.map(it => `<div class="kv"><span>${esc(it.desc)}<br><span class="small muted">${it.qty} × ${fmt(it.price)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</span></span><span class="amount">${fmt(calcItem(it).total)}</span></div>`).join("")}
-          <div class="kv"><span><b>Total</b></span><span class="amount">${p.currency === "USD" ? "USD" : "Gs"} ${fmt(t.total)}</span></div>
+          ${p.items.map(it => `<div class="kv"><span>${esc(it.desc)}<br><span class="small muted">${FE.fmtQty(it.qty)} × ${fmt(it.price, p.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</span></span><span class="amount">${fmt(calcItem(it, p.currency).total, p.currency)}</span></div>`).join("")}
+          <div class="kv"><span><b>Total</b></span><span class="amount">${FE.money(t.total, p.currency)}</span></div>
         </div></div>
       <div class="btn-row" style="margin-top:16px">
         <button class="btn" data-edit="${esc(p.id)}">Editar</button>
@@ -180,6 +186,7 @@
     const s = state.screen;
     const map = { new: screenNew, list: screenList, detail: screenDetail, clients: screenClients, settings: screenSettings };
     document.getElementById("screen").innerHTML = (map[s] || screenNew)();
+    FE.enhance(document.getElementById("screen"));
     document.getElementById("title").textContent = titles[s] || "Pedidos";
     document.getElementById("companyLine").textContent = settings.seller ? "Vendedor: " + settings.seller : "Configurá tu nombre en Ajustes";
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.go === s || (t.dataset.go === "list" && s === "detail")));
@@ -187,11 +194,11 @@
     if (s === "detail") drawQr();
     window.scrollTo(0, 0);
   }
-  function go(s) { state.screen = s; render(); }
+  function go(s) { if (s !== state.screen) state.q = ""; state.screen = s; render(); }
 
   function qrFor(p) {
-    const t = calcItems(p.items);
-    return qrCanvas(encodePedido(p), ["Pedido " + p.id, clientName(p) + " · " + (p.currency === "USD" ? "USD " : "Gs ") + fmt(t.total), "Vendedor: " + p.seller]);
+    const t = calcItems(p.items, p.currency);
+    return qrCanvas(encodePedido(p), ["Pedido " + p.id, clientName(p) + " · " + FE.money(t.total, p.currency), "Vendedor: " + p.seller]);
   }
   function drawQr() {
     const p = pedidos.find(x => x.id === state.detailId), holder = document.getElementById("qrHolder");
@@ -213,8 +220,8 @@
   }
   function refreshTotal() {
     const bar = document.querySelector(".sticky-total"); if (!bar) return;
-    const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
-    bar.querySelector(".big").textContent = (d.currency === "USD" ? "USD " : "Gs ") + fmt(t.total);
+    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
+    bar.querySelector(".big").textContent = FE.money(t.total, d.currency);
     bar.querySelector("[data-savepedido]").disabled = !(r.valid && d.items.length > 0);
   }
 
@@ -233,7 +240,7 @@
 
   function savePedido() {
     syncFields();
-    const d = state.draft, t = calcItems(d.items), r = classify(d, t.total);
+    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
     if (!r.valid) { toast(r.why); return; }
     if (!d.items.length) { toast("Agregá al menos un producto"); return; }
     if (!settings.seller) { askSeller(savePedido); return; }
@@ -261,7 +268,7 @@
     const r = FE.T.decodeCatalog(text);
     if (!r.ok) { toast(r.error); return; }
     catalog = { empresa: r.empresa, products: r.products, loadedAt: new Date().toISOString() };
-    save(); render(); toast("Catálogo cargado: " + r.products.length + " producto(s)");
+    save(); render(); FE.buzz(); toast("Catálogo cargado: " + r.products.length + " producto(s)");
   }
   function catalogPasteSheet() {
     sheet(`<h3>Pegar código del catálogo</h3><textarea id="catCode" placeholder="FEC1.…"></textarea>
@@ -307,10 +314,17 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; saveDraft(); render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; saveDraft(); render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); saveDraft(); render(); }, null, catalog.products); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; saveDraft(); render(); }, state.draft.items[i], catalog.products); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); saveDraft(); render(); }, null, catalog.products, state.draft.currency); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; saveDraft(); render(); }, state.draft.items[i], catalog.products, state.draft.currency); return; }
     if (ds.catpaste !== undefined) { catalogPasteSheet(); return; }
     if (ds.catclear !== undefined) { confirmSheet("¿Quitar el catálogo?", "Los pedidos ya cargados no cambian.", "Quitar", () => { catalog = { empresa: "", products: [], loadedAt: "" }; save(); render(); toast("Catálogo quitado"); }, true); return; }
+    if (ds.qtyminus !== undefined || ds.qtyplus !== undefined) {
+      syncFields();
+      const it = state.draft.items[+(ds.qtyplus !== undefined ? ds.qtyplus : ds.qtyminus)]; if (!it) return;
+      const q = Math.round((it.qty + (ds.qtyplus !== undefined ? 1 : -1)) * 1000) / 1000;
+      if (q <= 0) return;
+      it.qty = q; saveDraft(); render(); return;
+    }
     if (ds.del !== undefined) { syncFields(); state.draft.items.splice(+ds.del, 1); saveDraft(); render(); return; }
     if (ds.pickclient !== undefined) { syncFields(); clientPicker(clients, useClient); return; }
     if (ds.clear !== undefined) { state.draft = newDraft(); saveDraft(); render(); return; }
@@ -356,10 +370,18 @@
     if (ds.backup !== undefined) { FE.exportBackup(store, "pedidos"); return; }
   });
   screenEl.addEventListener("input", e => {
+    if (e.target.id === "hSearch") {
+      state.q = e.target.value; const pos = e.target.selectionStart;
+      render(); const el = document.getElementById("hSearch");
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
+      return;
+    }
     if (state.screen !== "new") return;
     syncFields();
     const id = e.target.id, pos = e.target.selectionStart;
     if (FE.receiverLiveIds(state.draft.mode).includes(id)) {
+      const filled = FE.autofillClient(clients, state.draft);
+      if (filled) toast("Cliente frecuente: " + (filled.name || "datos completados"));
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
@@ -378,7 +400,7 @@
       if (f) FE.importBackup(store, "pedidos", f, () => location.reload());
       return;
     }
-    if (state.screen === "new") { syncFields(); if (e.target.tagName === "SELECT") render(); }
+    if (state.screen === "new") { syncFields(); if (e.target.id === "fCur" && state.draft.items.length) toast("Cambiaste la moneda: revisá los precios de los productos"); if (e.target.tagName === "SELECT") render(); }
   });
   screenEl.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && e.target.dataset.open) { e.preventDefault(); e.target.click(); } });
   document.querySelector(".tabbar").addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });

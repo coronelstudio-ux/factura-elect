@@ -118,6 +118,25 @@ test("Pedido: código alterado se rechaza", () => {
   assert.strictEqual(FE.decodePedido(code.slice(0, -4) + "AAAA").ok, false);
 });
 
+// ---------- Montos en guaraníes y en dólares ----------
+test("Guaraníes: «45.000» se lee como 45000", () => assert.strictEqual(FE.parseAmount("45.000"), 45000));
+test("Dólares: 12,50 / 12.50 / 1.250,50 / 1,250.50", () => {
+  assert.strictEqual(FE.parseAmount("12,50", "USD"), 12.5); assert.strictEqual(FE.parseAmount("12.50", "USD"), 12.5);
+  assert.strictEqual(FE.parseAmount("1.250,50", "USD"), 1250.5); assert.strictEqual(FE.parseAmount("1,250.50", "USD"), 1250.5);
+  assert.strictEqual(FE.parseAmount("1.250", "USD"), 1250);
+});
+test("Formato: Gs sin decimales y USD con 2", () => { assert.strictEqual(FE.fmt(1250000), "1.250.000"); assert.strictEqual(FE.fmt(1250.5, "USD"), "1.250,50"); assert.strictEqual(FE.money(7, "USD"), "USD 7,00"); });
+test("IVA en dólares con 2 decimales", () => {
+  const c = FE.calcItem({ qty: 3, price: 12.5, tax: "10" }, "USD");
+  assert.strictEqual(c.total, 37.5); assert.strictEqual(c.iva10, 3.41);
+  const t = FE.calcItems([{ qty: 1, price: 10.1, tax: "5" }, { qty: 2, price: 0.35, tax: "10" }], "USD");
+  assert.strictEqual(t.total, 10.8); assert.strictEqual(t.iva5, 0.48); assert.strictEqual(t.iva10, 0.06);
+});
+test("Límite de innominado se mide en guaraníes", () => {
+  assert.strictEqual(FE.pygTotal(1000, "USD", "7.800"), 7800000); assert.strictEqual(FE.pygTotal(1000, "USD", ""), null);
+  assert.strictEqual(FE.classify({ mode: "sin" }, FE.pygTotal(1000, "USD", "7.800")).valid, false);
+});
+
 // ---------- Multiempresa: roles y permisos ----------
 test("Sin usuario (un solo dispositivo) se permite todo", () => assert.ok(T.can(null, "empresa.certificado")));
 test("Facturador no edita timbrados ni ve certificados", () => { const u = { role: "facturador" }; assert.ok(T.can(u, "facturar")); assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); });

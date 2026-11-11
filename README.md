@@ -73,6 +73,17 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - **Cancelación** solo dentro de las 48 horas desde la aprobación; después, nota de crédito.
 - La respuesta de SIFEN sigue siendo simulada. El detalle de qué falta está en [`docs/informe-tecnico.md`](docs/informe-tecnico.md).
 
+## Carga rápida
+
+- **Teclados:** cada campo abre el teclado que corresponde. Es numérico en RUC, PIN, timbrado, cédula, precios y cantidades, y completo en nombres, descripciones y pasaportes. En correo y teléfono abre el teclado propio de cada uno. Los nombres empiezan con mayúscula y los caracteres que no corresponden se descartan.
+- **Enter** pasa al campo siguiente; en el último confirma la hoja.
+- **Precios** con separador de miles mientras se escriben, y el total de la línea se ve antes de agregar.
+- **«Agregar y otro»** carga varios productos sin cerrar la hoja. Las cantidades se ajustan con **−** y **+**.
+- **Cliente frecuente:** al escribir un RUC o documento ya usado, se completan solos el nombre y el correo.
+- **Búsqueda** en el Historial, en la bandeja de Pedidos y en Mis pedidos.
+- El **borrador de la factura** se guarda: si se cierra la app, sigue donde quedó.
+- **Dólares:** precios, IVA y totales con 2 decimales. Para facturar en USD hace falta el tipo de cambio del día. El límite de innominado se mide en guaraníes.
+
 ## Pruebas
 
 ```

@@ -391,6 +391,7 @@
     const s = state.screen;
     const map = { panel: screenPanel, empresas: screenEmpresas, empresa: screenEmpresa, alta: screenAlta, usuarios: screenUsuarios, auditoria: screenAuditoria, ajustes: screenAjustes };
     document.getElementById("screen").innerHTML = (map[s] || screenPanel)();
+    FE.enhance(document.getElementById("screen"));
     document.getElementById("title").textContent = titles[s] || "Panel";
     document.getElementById("companyLine").textContent = user.name + " · " + T.ROLES[user.role].label;
     document.querySelectorAll(".tab").forEach(t => {

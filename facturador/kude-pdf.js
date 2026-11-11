@@ -33,6 +33,7 @@
     const { jsPDF } = global.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
     const T = inv.totals, isUSD = inv.currency === "USD", test = company.env === "test";
+    const fmt = n => global.FE.fmt(n, inv.currency), fmtGs = n => global.FE.fmt(n); // montos en la moneda de la factura / en guaraníes
     const logo = await prepareLogo(company.logo);
     let y = M;
 
@@ -117,7 +118,7 @@
     const ensure = h => { if (y + h > bottomLimit) { doc.addPage(); y = M; header(); } };
     header();
     inv.items.forEach((it, i) => {
-      const gross = Math.round(it.qty * it.price), total = gross - Math.round(gross * (it.discount || 0) / 100);
+      const total = global.FE.calcItem(it, inv.currency).total;
       const dl = wrap(it.desc, cols[1].w - 2.4, 8);
       const h = Math.max(1, dl.length) * lh(8) + 2.6;
       ensure(h);
@@ -141,7 +142,7 @@
     };
     totalRow("SUBTOTAL", [[6, fmt(T.exe)], [7, fmt(T.b5)], [8, fmt(T.b10)]]);
     totalRow("TOTAL DE LA OPERACIÓN" + (isUSD ? " (USD)" : ""), [[8, fmt(T.total)]]);
-    totalRow("TOTAL EN GUARANÍES", [[8, fmt(isUSD ? T.totalPyg : T.total)]]);
+    totalRow("TOTAL EN GUARANÍES", [[8, isUSD ? fmtGs(T.totalPyg) : fmt(T.total)]]);
     ensure(8);
     const liq = [["LIQUIDACIÓN IVA", M + 1.2, "left"], ["(5%) " + fmt(T.iva5), M + 85, "right"], ["(10%) " + fmt(T.iva10), M + 135, "right"], ["TOTAL IVA " + fmt(T.iva), M + CW - 1.2, "right"]];
     liq.forEach(([s, x, a]) => text(s, x, y + 4.5, { size: 8.5, bold: true, align: a }));
@@ -195,6 +196,7 @@
   // Se dibuja dos veces: la primera mide el alto y la segunda arma la página con ese alto.
   function drawTicket(doc, inv, company, opts, logo) {
     const TWD = 80, TM = 4, TCW = TWD - TM * 2, T = inv.totals, isUSD = inv.currency === "USD", test = company.env === "test";
+    const fmt = n => global.FE.fmt(n, inv.currency), fmtGs = n => global.FE.fmt(n);
     let y = TM + 2;
     const font = (size, bold, color) => { doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); doc.setTextColor.apply(doc, color || BLACK); };
     const wrap = (s, w, size, bold) => { font(size, bold); return doc.splitTextToSize(clean(s), w); };
@@ -219,14 +221,14 @@
     if (inv.receiverEmail) left("Correo: " + inv.receiverEmail, 7.5);
     sep();
     inv.items.forEach((it, i) => {
-      const gross = Math.round(it.qty * it.price), total = gross - Math.round(gross * (it.discount || 0) / 100);
+      const total = global.FE.calcItem(it, inv.currency).total;
       left((it.code ? it.code + " " : "") + it.desc, 7.5, true);
       pair(String(it.qty).replace(".", ",") + " x " + fmt(it.price) + (it.discount ? " - " + it.discount + "%" : "") + "  " + (it.tax === "E" ? "Exenta" : "IVA " + it.tax + "%"), fmt(total), 7.5);
     });
     sep();
     pair("Subtotal exentas", fmt(T.exe), 7.5); pair("Subtotal 5%", fmt(T.b5), 7.5); pair("Subtotal 10%", fmt(T.b10), 7.5);
     pair("TOTAL" + (isUSD ? " (USD)" : ""), fmt(T.total), 9.5, true);
-    if (isUSD) pair("Total en guaraníes", fmt(T.totalPyg), 7.5, true);
+    if (isUSD) pair("Total en guaraníes", fmtGs(T.totalPyg), 7.5, true);
     pair("Liquidación IVA 5%", fmt(T.iva5), 7.5); pair("Liquidación IVA 10%", fmt(T.iva10), 7.5); pair("Total IVA", fmt(T.iva), 7.5, true);
     sep();
     const QS = 34;

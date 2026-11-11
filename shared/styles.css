@@ -108,6 +108,16 @@
   .item .desc { font-weight: 600; }
   .item .calc { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .item .del { grid-column: 2; grid-row: 1 / span 2; align-self: start; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; min-height: 32px; padding: 0 0 0 6px; }
+  .item .item-actions { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 10px; }
+  .item .item-actions .link { min-height: 36px; padding: 0 0 0 14px; font-size: 14px; }
+  .link.danger { color: var(--bad); }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .stepper button { width: 40px; height: 36px; border: 0; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 20px; font-weight: 700; cursor: pointer; }
+  .stepper button:disabled { opacity: .35; cursor: default; }
+  .stepper b { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .item-preview { font-weight: 700; color: var(--accent); min-height: 20px; margin-top: 10px; }
+  .btn-row.three { grid-template-columns: 1fr 1.25fr 1fr; }
+  .btn-row.three .btn { font-size: 14px; padding: 10px 8px; }
 
   .detect { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
   .detect .kind { font-weight: 700; color: var(--accent); }
@@ -225,3 +235,27 @@ select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
 }
 .install-ok { color: var(--accent); font-weight: 700; }
 .cdc-text { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: normal; overflow-wrap: normal; white-space: normal; line-height: 1.5; }
+
+/* ===== Pestañas con íconos uniformes y respuesta al tocar ===== */
+* { -webkit-tap-highlight-color: transparent; }
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.tab .ico { display: flex; align-items: center; justify-content: center; width: 56px; height: 28px; border-radius: 14px; margin: 0; transition: background .15s; }
+.tab .ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tab.on .ico { background: var(--accent-soft); }
+.tab { position: relative; }
+.tab .badge { position: absolute; top: 3px; left: calc(50% + 8px); margin: 0; }
+.btn, .seg button, .add, .tab, .stepper button { transition: transform .08s ease, filter .15s; }
+.btn:active:not(:disabled), .add:active, .stepper button:active:not(:disabled) { transform: scale(.97); filter: brightness(.96); }
+.row[role=button]:active { background: var(--accent-soft); }
+.row[role=button] { border-radius: 8px; transition: background .15s; }
+button:focus-visible, a:focus-visible, .row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg.four button { font-size: 13px; padding: 0 2px; }
+@media (max-width: 360px) {
+  .seg button { font-size: 12px; }
+  .seg.four button { font-size: 11.5px; }
+  .tab { font-size: 11px; }
+  .tab .ico { width: 46px; }
+}
+input[type=search] { -webkit-appearance: none; appearance: none; }
+@media (max-width: 380px) { .grid2.stack-sm { grid-template-columns: 1fr; gap: 0; } }
+.seg.four button { line-height: 1.15; min-height: 44px; }
