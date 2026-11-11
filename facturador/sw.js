@@ -1,5 +1,5 @@
 // Guarda la app para usarla sin internet. Primero intenta la red (para recibir actualizaciones) y si no hay, usa la copia.
-const CACHE = "facturador-v6b";
+const CACHE = "facturador-v6c";
 const ASSETS = ["./", "./index.html", "./app.js", "./kude-pdf.js", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png",
   "../shared/core.js", "../shared/tenant.js", "../shared/styles.css", "../vendor/lz-string.min.js", "../vendor/jsQR.js", "../vendor/qrcode.js", "../vendor/jspdf.umd.min.js"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });

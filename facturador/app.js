@@ -24,7 +24,8 @@
   let timbrados = store.get("timbrados", []);
   let products = store.get("products", []);   // productos frecuentes
   // Preferencias del cliente: valores por defecto, pie del KuDE, formato de impresión, correo automático
-  const prefs = Object.assign({ condition: "contado", currency: "PYG", exchange: "", exchangeDate: "", footerText: "", printFormat: "a4", autoEmail: false }, store.get("prefs", {}));
+  const prefs = Object.assign({ condition: "contado", currency: "PYG", exchange: "", exchangeDate: "", footerText: "", printFormat: "a4", autoEmail: false,
+    remSalida: "", remModo: "1", remMarca: "", remChapa: "", remChofer: "", remChoferDoc: "", afConstancia: "1" }, store.get("prefs", {}));
   const save = () => {
     T.saveEmpresa(company); store.set("invoices", invoices); store.set("pedidos", inbox); store.set("clients", clients);
     store.set("timbrados", timbrados); store.set("products", products); store.set("prefs", prefs);
@@ -39,12 +40,33 @@
   // ================= Estado =================
   const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: store.get("draft", null) || newDraft(), preview: null, q: "",
     pedFilter: "pendiente", pedSeller: "", pedidoId: null };
-  function newDraft() {
-    return { pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: prefs.condition, installments: 1,
-      currency: prefs.currency, exchange: prefs.exchangeDate === FE.todayKey() ? prefs.exchange : "", items: [] };
+  // Borrador de documento. type: código del tipo de documento (1 factura, 4 autofactura, 5 nota de crédito, 6 nota de débito, 7 remisión)
+  function newDraft(type) {
+    const code = String(type || "1");
+    return { deType: code, pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "",
+      condition: prefs.condition, installments: 1, currency: code === "4" ? "PYG" : prefs.currency,
+      exchange: prefs.exchangeDate === FE.todayKey() ? prefs.exchange : "", items: [],
+      assoc: null, motivo: code === "6" ? "8" : "2",
+      seller: { kind: "1", name: "", docType: "1", doc: "", address: "", city: "" },
+      constancia: { tipo: prefs.afConstancia || "1", numero: "" },
+      rem: { motivo: "1", inicio: FE.todayKey(), fin: "", salida: prefs.remSalida || [company.address, company.city].filter(Boolean).join(", "), entrega: "",
+        modo: prefs.remModo || "1", responsable: "propio", marca: prefs.remMarca, chapa: prefs.remChapa, chofer: prefs.remChofer, choferDoc: prefs.remChoferDoc,
+        transportista: "", transportistaRuc: "" } };
   }
-  const activeTimbrado = () => timbrados.find(t => t.active) || null;
+  // Borradores guardados antes de los tipos de documento: completar campos que faltan
+  function fixDraft(d) { const base = newDraft(d.deType); Object.keys(base).forEach(k => { if (d[k] === undefined) d[k] = base[k]; }); return d; }
+  state.draft = fixDraft(state.draft);
+  const activeTimbrado = () => { const t = timbrados.find(x => x.active) || null; return t ? T.normTimbrado(t) : null; };
   const timbradoOk = () => timbradoStatus(activeTimbrado()) === "vigente";
+  // Si el tipo se puede emitir ahora: disponible en SIFEN, habilitado en el timbrado activo y timbrado vigente
+  function docState(code) {
+    const ty = T.deType(code), t = activeTimbrado();
+    if (!ty.available) return { ok: false, state: "soon", why: ty.reason };
+    if (!t || !timbradoOk()) return { ok: false, state: "off", why: timbradoProblem() || "No hay timbrado activo" };
+    if (!T.typeEnabled(t, ty.code)) return { ok: false, state: "off", why: "No está habilitado en el timbrado " + t.number + ". " +
+      (can("timbrados.editar") ? "Si lo habilitaste en Marangatu, agregalo en Ajustes → Timbrados." : "Si está habilitado en Marangatu, pedile al estudio que lo agregue.") };
+    return { ok: true, state: "on", why: "" };
+  }
   // Total en guaraníes del borrador (en dólares, con el tipo de cambio; 0 si todavía no lo cargó)
   const pygOf = (d, t) => { const v = FE.pygTotal(t.total, d.currency, d.exchange); return v == null ? 0 : v; };
   function timbradoProblem() {
@@ -55,7 +77,7 @@
     if (st === "vencido") return "El timbrado activo " + t.number + " venció el " + isoToDmy(t.end) + ". " + where;
     return "";
   }
-  const nextNumberStr = () => { const t = activeTimbrado(); return t ? company.establishment + "-" + company.point + "-" + String(t.nextNumber).padStart(7, "0") : "Sin timbrado activo"; };
+  const nextNumberStr = code => { const t = activeTimbrado(); return t ? company.establishment + "-" + company.point + "-" + String(T.nextNum(t, String(code || "1"))).padStart(7, "0") : "Sin timbrado activo"; };
 
   // ================= Utilidades de interfaz =================
   const statusChip = s => s === "ok" ? '<span class="chip ok">Aprobada</span>' : s === "bad" ? '<span class="chip bad">Rechazada</span>' : '<span class="chip warn">Pendiente</span>';
@@ -74,9 +96,9 @@
   // ================= Pantallas =================
   function screenHome() {
     const today = FE.todayKey();
-    const todays = invoices.filter(i => i.status === "ok" && FE.localDayKey(i.date) === today);
+    const todays = invoices.filter(i => i.status === "ok" && !i.cancelled && String(i.deType || "1") === "1" && FE.localDayKey(i.date) === today);
     const pending = invoices.filter(i => i.status === "warn").length;
-    const rejected = invoices.filter(i => i.status === "bad").length;
+    const rejected = invoices.filter(i => i.status === "bad" && !i.cancelled).length;
     const pp = pendingCount();
     return `
       <div class="hero">
@@ -85,7 +107,7 @@
         <div class="meta">${todays.length} aprobada(s) · ${pending} pendiente(s)</div>
       </div>
       <div class="quick">
-        <button class="btn primary" data-go="new">Nueva factura</button>
+        <button class="btn primary" data-go="new">Nuevo documento</button>
         <button class="btn soft" data-go="pedidos">Pedidos${pp ? " (" + pp + ")" : ""}</button>
       </div>
       ${timbradoNotice()}
@@ -101,69 +123,261 @@
     if (problem) return `<div class="notice bad"><b>No se puede facturar</b>${esc(problem)}</div>`;
     const days = t.end ? Math.round((Date.parse(t.end) - Date.parse(FE.todayKey())) / 86400000) : null;
     if (days !== null && days <= 30) return `<div class="notice warn"><b>El timbrado ${esc(t.number)} vence en ${days} día(s)</b>Vigente hasta el ${isoToDmy(t.end)}. Cargá el nuevo en Ajustes → Timbrados.</div>`;
-    return `<div class="notice ok"><b>Timbrado activo ${esc(t.number)}</b>${esc(vigenciaText(t))} · próxima factura ${esc(nextNumberStr())}</div>`;
+    return `<div class="notice ok"><b>Timbrado activo ${esc(t.number)}</b>${esc(vigenciaText(t))} · habilita: ${esc(T.normTimbrado(t).tipos.map(c => T.deType(c).short).join(", "))} · próxima factura ${esc(nextNumberStr("1"))}</div>`;
   }
   function rowInvoice(i) {
+    const ty = T.deType(i.deType), tag = ty.code === "1" ? "" : `<span class="tag ${ty.key}">${esc(ty.abbr)}</span>`;
     return `<div class="row" data-open="${i.id}" role="button" tabindex="0">
-      <div class="main"><div class="title">${esc(i.client)}</div><div class="sub">${esc(i.number)} · ${fmtDate(i.date)}</div></div>
-      <div style="text-align:right"><div class="amount">Gs ${fmt(i.total)}</div><div style="margin-top:4px">${statusChip(i.status)}</div></div>
+      <div class="main"><div class="title">${esc(i.client)}</div><div class="sub">${tag}${esc(i.number)} · ${fmtDate(i.date)}</div></div>
+      <div style="text-align:right"><div class="amount">${ty.key === "remision" ? esc(ty.short) : (ty.code === "5" ? "− " : "") + "Gs " + fmt(i.total)}</div><div style="margin-top:4px">${i.cancelled ? '<span class="chip neutral">Cancelada</span>' : statusChip(i.status)}</div></div>
     </div>`;
   }
 
+  // ================= Nuevo documento =================
+  const DOC_HINT = { "1": "Venta de bienes o servicios", "5": "Anula o reduce una factura aprobada", "6": "Aumenta el monto de una factura",
+    "4": "Compra a una persona que no es contribuyente", "7": "Traslado de mercaderías" };
+  const setPath = (o, path, v) => { const ks = path.split("."), last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), o)[last] = v; };
+  const getPath = (o, path) => path.split(".").reduce((a, k) => a == null ? a : a[k], o);
+  const fid = path => "f_" + path.replace(/\./g, "_");
+  const fld = (label, path, kb, extra) => `<label for="${fid(path)}">${label}</label><input id="${fid(path)}" data-field="${path}" ${kb ? `data-kb="${kb}"` : ""} value="${esc(getPath(state.draft, path) || "")}" ${extra || ""}>`;
+  const sel = (label, path, opts) => `<label for="${fid(path)}">${label}</label><select id="${fid(path)}" data-field="${path}">${opts.map(([c, l]) =>
+    `<option value="${esc(c)}" ${String(getPath(state.draft, path)) === String(c) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  const segf = (path, opts) => `<div class="seg">${opts.map(([c, l]) => `<button data-setfield="${path}" data-value="${esc(c)}" class="${String(getPath(state.draft, path)) === String(c) ? "on" : ""}">${esc(l)}</button>`).join("")}</div>`;
+  const sectionT = (n, done, title, extra) => `<div class="section-title"><span class="num ${done ? "done" : ""}">${n}</span>${title}${extra || ""}</div>`;
+
+  function docPickerHTML(d) {
+    const ty = T.deType(d.deType);
+    return `<button class="doc-picker" data-docpick aria-haspopup="dialog"><span><span class="lbl">Tipo de documento</span><span class="val">${esc(ty.label)}</span></span><span class="caret">▾</span></button>`;
+  }
+  // Desplegable con todos los tipos: los habilitados primero; los demás, en gris y con el motivo
+  function docPickerSheet() {
+    const order = { on: 0, off: 1, soon: 2 };
+    const list = T.DE_TYPES.map(ty => Object.assign({ ty }, docState(ty.code))).sort((a, b) => order[a.state] - order[b.state]);
+    const chip = st => st === "on" ? '<span class="chip ok">Habilitado</span>' : st === "off" ? '<span class="chip bad">No habilitado</span>' : '<span class="chip neutral">Próximamente</span>';
+    sheet(`<h3>Tipo de documento</h3>
+      <p class="muted small" style="margin:2px 0 8px">Solo podés emitir los tipos habilitados en el timbrado activo.</p>
+      ${list.map(x => `<button class="doc-opt ${x.ok ? "" : "off"} ${x.ty.code === state.draft.deType ? "on" : ""}" data-pickdoc="${x.ty.code}" ${x.ok ? "" : 'aria-disabled="true"'}>
+        <span class="abbr">${esc(x.ty.abbr)}</span>
+        <span><span class="t">${esc(x.ty.label)}</span><span class="w">${esc(x.ok ? DOC_HINT[x.ty.code] || "" : x.why)}</span></span>
+        <span class="state">${chip(x.state)}</span></button>`).join("")}
+      <button class="btn" data-x style="margin-top:12px">Cerrar</button>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.addEventListener("click", e => {
+        const b = e.target.closest("[data-pickdoc]"); if (!b) return;
+        const st = docState(b.dataset.pickdoc);
+        if (!st.ok) { toast(st.why); return; }
+        close(); switchDocType(b.dataset.pickdoc);
+      });
+    });
+  }
+  function switchDocType(code) {
+    syncFields();
+    const old = state.draft;
+    if (old.deType === code) return;
+    const d = newDraft(code);
+    // Factura, autofactura y remisión conservan los productos; factura y remisión, también el cliente
+    if (["1", "7"].includes(code) && ["1", "7"].includes(old.deType)) ["mode", "ruc", "name", "doc", "docType", "country", "email", "pedidoId"].forEach(k => d[k] = old[k]);
+    if (["1", "4", "7"].includes(code) && ["1", "4", "7"].includes(old.deType)) d.items = old.items.map(i => Object.assign({}, i, code === "4" ? { tax: "E" } : {}));
+    if (code === "7" && old.deType === "1" && old.assoc) d.assoc = old.assoc;
+    state.draft = d; state.preview = null; render();
+    if (T.deType(code).assoc && !d.assoc) assocPicker();
+  }
+
+  // Facturas aprobadas que se pueden asociar a una nota, con su saldo (total menos notas de crédito ya emitidas)
+  const isType = (i, code) => String(i.deType || "1") === code;
+  const credited = fac => invoices.filter(n => isType(n, "5") && n.assocId === fac.id && n.status === "ok" && !n.cancelled).reduce((a, n) => a + (n.totalOp != null ? n.totalOp : n.total), 0);
+  const facTotalOp = fac => fac.totalOp != null ? fac.totalOp : fac.total;
+  const saldoOf = fac => Math.max(0, Math.round((facTotalOp(fac) - credited(fac)) * 100) / 100);
+  function assocPicker(onlyType) {
+    const facs = invoices.filter(i => isType(i, "1") && i.status === "ok" && !i.cancelled && i.kude);
+    const rows = q => { const f = facs.filter(i => FE.matches(q, i.client, i.number, i.ruc));
+      return f.length ? f.map(i => `<div class="row" data-assoc="${i.id}"><div class="main"><div class="title">${esc(i.number)} · ${esc(i.client)}</div>
+        <div class="sub">${fmtDate(i.date)} · ${FE.money(facTotalOp(i), i.currency)}${state.draft.deType === "5" ? " · saldo " + FE.money(saldoOf(i), i.currency) : ""}</div></div><span class="link">Elegir</span></div>`).join("")
+        : `<div class="muted small" style="padding:8px 0">${facs.length ? "Ninguna factura coincide." : "Todavía no hay facturas aprobadas para asociar."}</div>`; };
+    sheet(`<h3>Factura asociada</h3>
+      <input id="aSearch" type="search" data-kb="search" placeholder="Buscar por cliente, número o RUC" style="margin-top:8px">
+      <div id="aList" style="margin-top:6px">${rows("")}</div>
+      <button class="btn" data-x style="margin-top:12px">Cerrar</button>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("#aSearch").oninput = e => { el.querySelector("#aList").innerHTML = rows(e.target.value); };
+      el.addEventListener("click", e => { const r = e.target.closest("[data-assoc]"); if (!r) return; close(); setAssoc(invoices.find(x => x.id === +r.dataset.assoc)); });
+    });
+  }
+  function setAssoc(fac) {
+    if (!fac) return;
+    const d = state.draft, k = fac.kude;
+    d.assoc = { id: fac.id, number: fac.number, cdc: fac.cdc, date: fac.date, currency: k.currency, client: fac.client };
+    d.currency = k.currency; d.exchange = k.exchange || "";
+    if (d.deType === "5") d.items = k.items.map(i => Object.assign({}, i)); // nota de crédito: se parte de los productos de la factura
+    if (d.deType === "7") {                                                  // remisión: destinatario y mercaderías de la factura
+      const r = k.receiver || {}; Object.assign(d, { mode: r.mode || "con", ruc: r.ruc || "", doc: r.doc || "", docType: r.docType || "1", country: r.country || "", name: r.name || "" });
+      d.items = k.items.map(i => ({ desc: i.desc, qty: i.qty, price: 0, tax: "E", discount: 0, code: i.code }));
+    }
+    render();
+  }
+
+  function itemsHTML(d, opts) {
+    opts = opts || {};
+    return `<div class="card">
+      ${!d.items.length ? `<div class="muted small" style="padding:4px 0 2px">${opts.empty || "Todavía no agregaste productos o servicios."}</div>` :
+        d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
+          <div class="desc">${esc(it.desc)}</div><div class="amount">${opts.noPrice ? FE.fmtQty(it.qty) + " UNI" : FE.money(c.total, d.currency)}</div>
+          <div class="calc">${opts.noPrice ? (it.code ? esc(it.code) : "Sin precio: solo traslado") : FE.fmtQty(it.qty) + " × " + FE.money(it.price, d.currency) + (it.discount ? " − " + it.discount + "%" : "") + " · " + (opts.noTax ? "Sin IVA" : taxLabel(it.tax))}</div>
+          <div class="item-actions">
+            <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
+            <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
+          </div></div>`; }).join("")}
+      <button class="add" data-add="1">+ ${opts.addLabel || "Agregar producto o servicio"}</button>
+    </div>`;
+  }
+  const stickyHTML = (left, right, ok, label) => `<div class="sticky-total">
+      <div class="line"><span class="muted">${left}</span><span class="big">${right}</span></div>
+      <button class="btn primary" data-preview="1" ${ok ? "" : "disabled"}>${label}</button></div>`;
+  const countText = n => n ? n + (n === 1 ? " producto" : " productos") : "Total";
+  // Si se puede ir a la vista previa, y por qué no
+  function draftCheck(d) {
+    const ty = T.deType(d.deType), ds = docState(d.deType), t = calcItems(d.items, d.currency);
+    if (!ds.ok) return { ok: false, why: ds.why, t };
+    if (!d.items.length) return { ok: false, why: ty.key === "remision" ? "Agregá las mercaderías que se trasladan" : "Agregá al menos un producto", t };
+    if (ty.assoc) {
+      if (!d.assoc) return { ok: false, why: "Elegí la factura asociada", t };
+      if (t.total <= 0) return { ok: false, why: "El total tiene que ser mayor a cero", t };
+      const fac = invoices.find(x => x.id === d.assoc.id);
+      if (ty.key === "nc" && fac && t.total > saldoOf(fac) + 0.001) return { ok: false, why: "La nota de crédito supera el saldo de la factura (" + FE.money(saldoOf(fac), fac.currency) + ")", t };
+      return { ok: true, t };
+    }
+    if (ty.key === "autofactura") {
+      const s = d.seller;
+      if (!s.name.trim()) return { ok: false, why: "Escribí el nombre del vendedor", t };
+      if (!s.doc.trim()) return { ok: false, why: "Escribí el documento del vendedor", t };
+      if (!d.constancia.numero.trim()) return { ok: false, why: "Escribí el número de la constancia", t };
+      return { ok: true, t };
+    }
+    const r = classify(d, ty.key === "remision" ? 0 : pygOf(d, t));
+    if (!r.valid) return { ok: false, why: r.why, t };
+    if (ty.key === "remision") {
+      const m = d.rem;
+      if (!m.inicio) return { ok: false, why: "Elegí la fecha de inicio del traslado", t };
+      if (!m.entrega.trim()) return { ok: false, why: "Escribí el punto de entrega", t };
+      if (m.modo === "1" && (!String(m.chapa || "").trim() || !String(m.chofer || "").trim())) return { ok: false, why: "Para transporte terrestre escribí la chapa del vehículo y el chofer", t };
+      if (m.responsable === "tercero" && !FE.parseRuc(m.transportistaRuc)) return { ok: false, why: "Escribí el RUC del transportista", t };
+    }
+    return { ok: true, t };
+  }
+
   function screenNew() {
-    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    const hasItems = d.items.length > 0;
-    const canPreview = r.valid && hasItems && timbradoOk();
+    const d = state.draft, ty = T.deType(d.deType), ds = docState(d.deType);
+    const head = `${docPickerHTML(d)}
+      ${ds.ok ? "" : `<div class="notice bad"><b>No se puede emitir ${esc(ty.short.toLowerCase())}</b>${esc(ds.why)}
+        ${ds.state === "off" ? `<button class="link" data-go="settings" style="display:block;padding:4px 0 0;min-height:0">Ver timbrados</button>` : ""}</div>`}`;
+    const body = ty.key === "nc" || ty.key === "nd" ? newNota(d, ty) : ty.key === "autofactura" ? newAuto(d) : ty.key === "remision" ? newRemision(d) : newFactura(d);
+    return head + body;
+  }
+
+  function newFactura(d) {
+    const chk = draftCheck(d), t = chk.t, r = classify(d, pygOf(d, t)), hasItems = d.items.length > 0;
     const ped = d.pedidoId ? inbox.find(p => p.id === d.pedidoId) : null;
     return `
-      ${ped ? `<div class="notice ok" style="margin-top:0"><b>Facturando el pedido ${esc(ped.id)}</b>Cargado por ${esc(ped.seller)}. Revisá los datos y emití.
+      ${ped ? `<div class="notice ok"><b>Facturando el pedido ${esc(ped.id)}</b>Cargado por ${esc(ped.seller)}. Revisá los datos y emití.
         <button class="link" data-unlinkped style="display:block;padding:4px 0 0;min-height:0">Quitar vínculo con el pedido</button></div>` : ""}
-      ${timbradoOk() ? "" : `<div class="notice bad" style="margin-top:0"><b>No se puede facturar</b>${esc(timbradoProblem())}
-        <button class="link" data-go="settings" style="display:block;padding:4px 0 0;min-height:0">Ir a Timbrados</button></div>`}
-      <div class="lead">Elegí el tipo de cliente. El tipo de operación se detecta solo.</div>
+      <div class="lead" style="margin-top:10px">Elegí el tipo de cliente. El tipo de operación se detecta solo.</div>
       <div class="section">
-        <div class="section-title"><span class="num ${r.valid ? "done" : ""}">1</span>Cliente
-          <button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button></div>
+        ${sectionT(1, r.valid, "Cliente", `<button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button>`)}
         ${FE.receiverBlock(d, r, t.total, { why: true })}
         <label for="fEmail">Correo para enviar la factura (opcional)</label>
         <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
       </div>
-
+      <div class="section">${sectionT(2, hasItems, "Productos")}${itemsHTML(d)}</div>
       <div class="section">
-        <div class="section-title"><span class="num ${hasItems ? "done" : ""}">2</span>Productos</div>
-        <div class="card">
-          ${!hasItems ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos o servicios.</div>` :
-            d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
-              <div class="desc">${esc(it.desc)}</div><div class="amount">${FE.money(c.total, d.currency)}</div>
-              <div class="calc">${FE.fmtQty(it.qty)} × ${FE.money(it.price, d.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
-</div>
-              <div class="item-actions">
-                <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
-                <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
-              </div></div>`; }).join("")}
-          <button class="add" data-add="1">+ Agregar producto o servicio</button>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title"><span class="num">3</span>Condición de venta</div>
+        ${sectionT(3, false, "Condición de venta")}
         <div class="seg">
           <button data-cond="contado" class="${d.condition === "contado" ? "on" : ""}">Contado</button>
           <button data-cond="credito" class="${d.condition === "credito" ? "on" : ""}">Crédito</button>
         </div>
         <div class="grid2" style="margin-top:4px">
-          ${d.condition === "credito" ? `<div><label for="fCuotas">Cuotas</label><input id="fCuotas" inputmode="numeric" value="${d.installments}"></div>` : `<div></div>`}
+          ${d.condition === "credito" ? `<div><label for="fCuotas">Cuotas</label><input id="fCuotas" value="${d.installments}"></div>` : `<div></div>`}
           <div><label for="fCur">Moneda</label>
             <select id="fCur"><option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select></div>
         </div>
-        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" inputmode="numeric" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
+        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
       </div>
+      ${stickyHTML(countText(t.count), FE.money(t.total, d.currency), chk.ok, "Ver factura")}`;
+  }
 
-      <div class="sticky-total">
-        <div class="line"><span class="muted">${t.count ? t.count + (t.count === 1 ? " producto" : " productos") : "Total"}</span>
-          <span class="big">${FE.money(t.total, d.currency)}</span></div>
-        <button class="btn primary" data-preview="1" ${canPreview ? "" : "disabled"}>Ver factura</button>
-      </div>`;
+  function newNota(d, ty) {
+    const chk = draftCheck(d), t = chk.t, fac = d.assoc ? invoices.find(x => x.id === d.assoc.id) : null, isNC = ty.key === "nc";
+    return `
+      <div class="lead" style="margin-top:10px">${isNC ? "Anula o reduce, total o parcialmente, una factura aprobada: devoluciones, descuentos o ajustes." : "Aumenta el monto de una factura aprobada: intereses, recargos o ajustes de precio."}</div>
+      <div class="section">
+        ${sectionT(1, !!fac, "Factura asociada")}
+        ${fac ? `<div class="card"><div class="kv"><span class="muted">Factura</span><span><b>${esc(fac.number)}</b></span></div>
+            <div class="kv"><span class="muted">Cliente</span><span>${esc(fac.client)}</span></div>
+            <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(fac.date)}</span></div>
+            <div class="kv"><span class="muted">Total</span><span>${FE.money(facTotalOp(fac), fac.currency)}</span></div>
+            ${isNC ? `<div class="kv"><span class="muted">Saldo para acreditar</span><span class="amount">${FE.money(saldoOf(fac), fac.currency)}</span></div>` : ""}
+            <button class="link" data-pickassoc>Cambiar factura</button></div>`
+          : `<button class="btn soft" data-pickassoc>Elegir la factura</button>`}
+        ${sel("Motivo de emisión", "motivo", isNC ? T.MOTIVOS_NC : T.MOTIVOS_ND)}
+      </div>
+      <div class="section">${sectionT(2, d.items.length > 0, isNC ? "Productos a acreditar" : "Conceptos a debitar")}
+        ${isNC && fac ? `<p class="muted small" style="margin:0 0 8px">Están los productos de la factura: quitá los que no corresponden o bajá las cantidades.</p>` : ""}
+        ${itemsHTML(d, { empty: fac ? "Agregá los conceptos." : "Primero elegí la factura.", addLabel: isNC ? "Agregar producto" : "Agregar concepto (ej. intereses)" })}</div>
+      ${!chk.ok && fac && d.items.length ? `<div class="notice warn">${esc(chk.why)}</div>` : ""}
+      ${stickyHTML(countText(t.count), FE.money(t.total, d.currency), chk.ok, isNC ? "Ver nota de crédito" : "Ver nota de débito")}`;
+  }
+
+  function newAuto(d) {
+    const chk = draftCheck(d), t = chk.t, s = d.seller;
+    return `
+      <div class="lead" style="margin-top:10px">Para compras a personas que no son contribuyentes. La emite el comprador (tu empresa), solo en guaraníes y no respalda crédito fiscal de IVA.</div>
+      <div class="section">
+        ${sectionT(1, !!(s.name && s.doc), "Vendedor")}
+        ${segf("seller.kind", [["1", "No contribuyente"], ["2", "Extranjero"]])}
+        ${fld("Nombre y apellido", "seller.name", "name")}
+        <div class="grid2">
+          <div>${sel("Tipo de documento", "seller.docType", [["1", "Cédula paraguaya"], ["2", "Pasaporte"], ["3", "Cédula extranjera"], ["4", "Carnet de residencia"], ["9", "Otro"]])}</div>
+          <div>${fld("Número", "seller.doc", s.docType === "1" ? "digits" : "code")}</div>
+        </div>
+        ${fld("Dirección (opcional)", "seller.address", "address")}
+        ${fld("Ciudad (opcional)", "seller.city", "city")}
+      </div>
+      <div class="section">
+        ${sectionT(2, !!d.constancia.numero, "Constancia")}
+        ${sel("Tipo de constancia", "constancia.tipo", T.CONSTANCIAS)}
+        ${fld("Número de la constancia", "constancia.numero", "code")}
+      </div>
+      <div class="section">${sectionT(3, d.items.length > 0, "Productos o servicios comprados")}${itemsHTML(d, { noTax: true })}</div>
+      ${stickyHTML(countText(t.count), FE.money(t.total, "PYG"), chk.ok, "Ver autofactura")}`;
+  }
+
+  function newRemision(d) {
+    const chk = draftCheck(d), r = classify(d, 0), m = d.rem, units = d.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
+    return `
+      <div class="lead" style="margin-top:10px">Acompaña el traslado de mercaderías. Tiene que estar aprobada antes de salir.</div>
+      ${d.assoc ? `<div class="notice ok"><b>Remisión de la factura ${esc(d.assoc.number)}</b>${esc(d.assoc.client || "")}</div>` : ""}
+      <div class="section">
+        ${sectionT(1, r.valid, "Destinatario", `<button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button>`)}
+        ${FE.receiverBlock(d, r, 0)}
+      </div>
+      <div class="section">
+        ${sectionT(2, !!(m.inicio && m.entrega), "Traslado")}
+        ${sel("Motivo del traslado", "rem.motivo", T.MOTIVOS_REM)}
+        <div class="grid2 stack-sm"><div>${fld("Inicio del traslado", "rem.inicio", "", 'type="date"')}</div><div>${fld("Fin estimado (opcional)", "rem.fin", "", 'type="date"')}</div></div>
+        ${fld("Punto de salida", "rem.salida", "address")}
+        ${fld("Punto de entrega", "rem.entrega", "address", 'placeholder="Dirección y ciudad de entrega"')}
+      </div>
+      <div class="section">
+        ${sectionT(3, !!(m.chapa && m.chofer), "Transporte")}
+        ${sel("Modalidad", "rem.modo", T.MODOS_TRANSPORTE)}
+        <label>Responsable del transporte</label>
+        ${segf("rem.responsable", [["propio", "Propio"], ["tercero", "Transportista"]])}
+        ${m.responsable === "tercero" ? `<div class="grid2 stack-sm"><div>${fld("RUC del transportista", "rem.transportistaRuc", "ruc")}</div><div>${fld("Nombre o razón social", "rem.transportista", "org")}</div></div>` : ""}
+        <div class="grid2"><div>${fld("Marca del vehículo", "rem.marca", "name")}</div><div>${fld("Chapa", "rem.chapa", "code")}</div></div>
+        <div class="grid2"><div>${fld("Chofer", "rem.chofer", "name")}</div><div>${fld("Cédula del chofer", "rem.choferDoc", "digits")}</div></div>
+      </div>
+      <div class="section">${sectionT(4, d.items.length > 0, "Mercaderías")}${itemsHTML(d, { noPrice: true, empty: "Agregá lo que se traslada.", addLabel: "Agregar mercadería" })}</div>
+      ${!chk.ok && d.items.length && docState("7").ok ? `<div class="notice warn">${esc(chk.why)}</div>` : ""}
+      ${stickyHTML(d.items.length + " ítem(s)", FE.fmtQty(units) + " unidades", chk.ok, "Ver nota de remisión")}`;
   }
 
   // ----- KuDE: mismo diseño que el PDF de prueba -----
@@ -176,16 +390,86 @@
     if (!(key in qrCache)) { const cv = FE.qrCanvas(key); qrCache[key] = cv ? cv.toDataURL("image/png") : ""; }
     return qrCache[key];
   }
+  // Datos del encabezado del KuDE según el tipo (los usan la pantalla y el PDF)
+  const condText = inv => inv.condition === "credito" ? "[ ] Contado   [X] Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "[X] Contado   [ ] Crédito";
+  const curText = inv => inv.currency === "USD" ? "USD" + (inv.exchange ? " · TC " + inv.exchange : "") : "PYG";
+  function docInfoPairs(inv) {
+    const code = String(inv.deType || "1"), p = [["Fecha y hora de emisión", inv.dateLabel]];
+    if (code === "4") {
+      const s = inv.seller || {}, docName = (FE.DOC_SHORT[s.docType] || "Doc.") + " " + (s.doc || "");
+      p.push(["Vendedor", s.name || "-"], ["Documento del vendedor", docName], ["Naturaleza del vendedor", s.kind === "2" ? "Extranjero" : "No contribuyente"],
+        ["Dirección del vendedor", [s.address, s.city].filter(Boolean).join(", ") || "-"],
+        ["Constancia", T.labelOf(T.CONSTANCIAS, (inv.constancia || {}).tipo) + " Nº " + ((inv.constancia || {}).numero || "-")],
+        ["Condición", condText({ condition: "contado" })], ["Moneda", "PYG"], ["Tipo de transacción", "Compra de productos y servicios"]);
+      return p;
+    }
+    if (code === "7") {
+      const m = inv.rem || {};
+      p.push(["RUC / Documento del destinatario", inv.receiverId || "-"], ["Destinatario", inv.receiverName || "-"],
+        ["Motivo del traslado", T.labelOf(T.MOTIVOS_REM, m.motivo)], ["Inicio del traslado", T.isoToDmy(m.inicio) || "-"],
+        ["Fin estimado", T.isoToDmy(m.fin) || "-"], ["Punto de salida", m.salida || "-"], ["Punto de entrega", m.entrega || "-"],
+        ["Modalidad de transporte", T.labelOf(T.MODOS_TRANSPORTE, m.modo)], ["Vehículo", [m.marca, m.chapa ? "chapa " + m.chapa : ""].filter(Boolean).join(" · ") || "-"],
+        ["Chofer", [m.chofer, m.choferDoc ? "CI " + m.choferDoc : ""].filter(Boolean).join(" · ") || "-"]);
+      if (m.responsable === "tercero") p.push(["Transportista", (m.transportista || "") + " · RUC " + (m.transportistaRuc || "")]);
+      if (inv.assoc) p.push(["Factura asociada", inv.assoc.number]);
+      return p;
+    }
+    p.push(["RUC / Documento Nº", inv.receiverId || "Innominado"]);
+    if (code === "1") p.push(["Condición de venta", condText(inv)]);
+    p.push(["Nombre o razón social", inv.receiverName || "-"], ["Moneda", curText(inv)]);
+    if (code === "5" || code === "6") {
+      p.push(["Documento asociado", "Factura electrónica Nº " + (inv.assoc ? inv.assoc.number : "-")], ["CDC del documento asociado", inv.assoc && inv.assoc.cdc ? FE.formatCdc(inv.assoc.cdc) : "-"],
+        ["Motivo de emisión", inv.motivoLabel || "-"]);
+    } else {
+      p.push(["Dirección / Correo", inv.receiverEmail || "-"], ["Tipo de transacción", "Venta de mercadería"]);
+      if (inv.pedidoId) p.push(["Pedido", inv.pedidoId]);
+    }
+    return p;
+  }
   function kudeHTML(inv) {
-    const T = inv.totals, fm = n => fmt(n, inv.currency);
+    const T2 = inv.totals, fm = n => fmt(n, inv.currency), code = String(inv.deType || "1"), noPrice = code === "7";
     const cdcFmt = inv.cdc ? FE.formatCdc(inv.cdc) : "Pendiente de aprobación";
-    const isUSD = inv.currency === "USD";
-    const test = company.env === "test";
+    const isUSD = inv.currency === "USD", test = company.env === "test";
+    const label = inv.typeLabel || "Factura electrónica", title = inv.typeTitle || "FACTURA ELECTRÓNICA";
+    const codeOf = (it, i) => esc(it.code || "INF" + String(i + 1).padStart(3, "0"));
+    const table = noPrice ? `
+        <table>
+          <colgroup><col style="width:15%"><col style="width:55%"><col style="width:12%"><col style="width:18%"></colgroup>
+          <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th></tr></thead>
+          <tbody>${inv.items.map((it, i) => `<tr><td>${codeOf(it, i)}</td><td>${esc(it.desc)}</td><td>UNI</td><td class="n">${FE.fmtQty(it.qty)}</td></tr>`).join("")}</tbody>
+        </table>
+        <div class="klist">${inv.items.map((it, i) => `<div class="ki"><div class="ki-top"><span class="ki-cod">${codeOf(it, i)}</span><b>${esc(it.desc)}</b></div>
+          <div class="ki-row"><span class="lbl">Cantidad</span><b>${FE.fmtQty(it.qty)} UNI</b></div></div>`).join("")}</div>` : `
+        <table>
+          <colgroup><col class="c-cod"><col class="c-desc"><col class="c-un"><col class="c-qty"><col class="c-pu"><col class="c-dc"><col class="c-ex"><col class="c-5"><col class="c-10"></colgroup>
+          <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th><th class="n">Precio</th><th class="n">Desc.</th><th class="n">Exentas</th><th class="n">5%</th><th class="n">10%</th></tr></thead>
+          <tbody>
+            ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<tr>
+              <td>${codeOf(it, i)}</td><td>${esc(it.desc)}</td><td>UNI</td>
+              <td class="n">${FE.fmtQty(it.qty)}</td><td class="n">${fm(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
+              <td class="n">${it.tax === "E" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fm(c.total) : "0"}</td></tr>`; }).join("")}
+            <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fm(T2.exe)}</td><td class="n">${fm(T2.b5)}</td><td class="n">${fm(T2.b10)}</td></tr>
+            <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fm(T2.total)}</td></tr>
+            <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T2.totalPyg : T2.total)}</td></tr>
+          </tbody>
+        </table>
+        <div class="klist">
+          ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<div class="ki">
+            <div class="ki-top"><span class="ki-cod">${codeOf(it, i)}</span><b>${esc(it.desc)}</b></div>
+            <div class="ki-row"><span>${FE.fmtQty(it.qty)} UNI × ${fm(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
+            <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fm(c.total)}</b></div>
+          </div>`; }).join("")}
+          <div class="kt"><span>Subtotal exentas</span><span>${fm(T2.exe)}</span></div>
+          <div class="kt"><span>Subtotal 5%</span><span>${fm(T2.b5)}</span></div>
+          <div class="kt"><span>Subtotal 10%</span><span>${fm(T2.b10)}</span></div>
+          <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T2.total)}</span></div>
+          <div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(isUSD ? T2.totalPyg : T2.total)}</span></div>
+        </div>`;
     return `
     <div class="kude" id="kudeBody">
       ${test ? `<div class="band">AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA</div>
       <div class="band2">DOCUMENTO ELECTRÓNICO SIN VALOR COMERCIAL NI FISCAL - GENERADO EN AMBIENTE DE PRUEBA</div>` : ""}
-      <div class="ttl">KuDE de Factura Electrónica</div>
+      <div class="ttl">KuDE de ${esc(label)}</div>
       <div class="box"><div class="hd">
         <div>
           ${company.logo ? `<img class="logo-img" src="${company.logo}" alt="Logo del emisor">` : `<div class="logo">Logo del emisor<br>(lo carga el cliente)</div>`}
@@ -194,52 +478,19 @@
         <div>
           <div style="font-weight:700;font-size:12px">RUC: ${esc(company.ruc)}-${esc(company.dv)}</div>
           <div style="margin-top:4px">${timbradoLines(inv).map(esc).join("<br>")}</div>
-          <div class="fact" style="margin-top:12px">FACTURA ELECTRÓNICA</div>
+          <div class="fact" style="margin-top:12px">${esc(title)}</div>
           <div style="font-weight:700;font-size:11px">${esc(inv.number)}</div>
         </div>
       </div></div>
-      <div class="box"><div class="grid">
-        <div><span>Fecha y hora de emisión</span><br>${esc(inv.dateLabel)}</div>
-        <div><span>RUC / Documento Nº</span><br>${esc(inv.receiverId || "Innominado")}</div>
-        <div><span>Condición de venta</span><br>${inv.condition === "credito" ? "[ ] Contado   [X] Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "[X] Contado   [ ] Crédito"}</div>
-        <div><span>Nombre o razón social</span><br>${esc(inv.receiverName)}</div>
-        <div><span>Moneda</span><br>${isUSD ? "USD" + (inv.exchange ? " · TC " + esc(inv.exchange) : "") : "PYG"}</div>
-        <div><span>Dirección / Correo</span><br>${esc(inv.receiverEmail || "-")}</div>
-        <div><span>Tipo de transacción</span><br>Venta de mercadería</div>
-        ${inv.pedidoId ? `<div><span>Pedido</span><br>${esc(inv.pedidoId)}</div>` : ""}
-      </div></div>
-      <div class="box" style="padding:0"><div class="tblwrap">
-        <table>
-          <colgroup><col class="c-cod"><col class="c-desc"><col class="c-un"><col class="c-qty"><col class="c-pu"><col class="c-dc"><col class="c-ex"><col class="c-5"><col class="c-10"></colgroup>
-          <thead><tr><th>Cod</th><th>Descripción</th><th>Unidad</th><th class="n">Cantidad</th><th class="n">Precio</th><th class="n">Desc.</th><th class="n">Exentas</th><th class="n">5%</th><th class="n">10%</th></tr></thead>
-          <tbody>
-            ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<tr>
-              <td>${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</td><td>${esc(it.desc)}</td><td>UNI</td>
-              <td class="n">${FE.fmtQty(it.qty)}</td><td class="n">${fm(it.price)}</td><td class="n">${it.discount ? it.discount + "%" : "0"}</td>
-              <td class="n">${it.tax === "E" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fm(c.total) : "0"}</td></tr>`; }).join("")}
-            <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fm(T.exe)}</td><td class="n">${fm(T.b5)}</td><td class="n">${fm(T.b10)}</td></tr>
-            <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fm(T.total)}</td></tr>
-            <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T.totalPyg : T.total)}</td></tr>
-          </tbody>
-        </table>
-        <div class="klist">
-          ${inv.items.map((it, i) => { const c = calcItem(it, inv.currency); return `<div class="ki">
-            <div class="ki-top"><span class="ki-cod">${esc(it.code || "INF" + String(i + 1).padStart(3, "0"))}</span><b>${esc(it.desc)}</b></div>
-            <div class="ki-row"><span>${FE.fmtQty(it.qty)} UNI × ${fm(it.price)}</span><span class="lbl">Desc. ${it.discount ? it.discount + "%" : "0"}</span></div>
-            <div class="ki-row"><span class="lbl">${it.tax === "E" ? "Exentas" : it.tax === "5" ? "Gravadas 5%" : "Gravadas 10%"}</span><b>${fm(c.total)}</b></div>
-          </div>`; }).join("")}
-          <div class="kt"><span>Subtotal exentas</span><span>${fm(T.exe)}</span></div>
-          <div class="kt"><span>Subtotal 5%</span><span>${fm(T.b5)}</span></div>
-          <div class="kt"><span>Subtotal 10%</span><span>${fm(T.b10)}</span></div>
-          <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T.total)}</span></div>
-          <div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(isUSD ? T.totalPyg : T.total)}</span></div>
-        </div>
-        </div><div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fm(T.iva5)}</span><span>(10%) ${fm(T.iva10)}</span><span>TOTAL IVA ${fm(T.iva)}</span></div>
+      <div class="box"><div class="grid">${docInfoPairs(inv).map(([k, v]) => `<div><span>${esc(k)}</span><br>${esc(v)}</div>`).join("")}</div></div>
+      <div class="box" style="padding:0"><div class="tblwrap">${table}</div>
+        ${noPrice ? "" : `<div class="liq" style="padding:6px 8px 8px;"><span>LIQUIDACIÓN IVA</span><span>(5%) ${fm(T2.iva5)}</span><span>(10%) ${fm(T2.iva10)}</span><span>TOTAL IVA ${fm(T2.iva)}</span></div>`}
+        ${code === "4" ? `<div class="legal" style="padding:0 8px 8px">La autofactura no respalda crédito fiscal en el IVA.</div>` : ""}
       </div>
       <div class="box"><div class="foot">
         ${qrImg(inv) ? `<div class="qr has"><img src="${qrImg(inv)}" alt="QR de consulta"></div>` : `<div class="qr">QR al aprobarse</div>`}
         <div>
-          <div style="font-size:10px">Consulte la validez de esta factura electrónica con el número de CDC en:</div>
+          <div style="font-size:10px">Consulte la validez de este documento electrónico con el número de CDC en:</div>
           <a class="link" href="#" onclick="return false">${esc(consultUrl())}</a>
           <div class="cdc">CDC: ${esc(cdcFmt)}</div>
           <div class="legal">ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA DE UN DOCUMENTO ELECTRÓNICO (XML)</div>
@@ -262,121 +513,160 @@
     if (t.end) out.push("Fin de vigencia: " + isoToDmy(t.end));
     return out;
   }
-  function buildInvoice(d) {
-    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t)), now = new Date();
-    const receiver = FE.receiverFromDraft(d, r);
-    return {
-      number: nextNumberStr(),
-      timbrado: (t => ({ id: t.id, number: t.number, start: t.start, end: t.end }))(activeTimbrado()),
-      issuedAt: FE.localIso(now),
-      dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8),
-      receiver,
-      receiverId: FE.receiverIdText(receiver),
-      receiverName: receiver.name || (d.mode === "con" ? "" : "Consumidor final"),
-      receiverEmail: d.email, receiverMode: d.mode,
-      items: d.items.map(i => Object.assign({}, i)), currency: d.currency, exchange: d.exchange,
-      condition: d.condition, installments: d.installments,
-      operation: r.operation, operationLabel: opName[r.operation] || "", pedidoId: d.pedidoId || null,
-      totals: { exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total,
-        totalPyg: FE.pygTotal(t.total, d.currency, d.exchange) || 0 },
-      cdc: ""
-    };
+  // Arma el documento a partir del borrador (factura, notas, autofactura o remisión)
+  function buildDoc(d) {
+    const ty = T.deType(d.deType), now = new Date(), tim = activeTimbrado();
+    const base = { deType: ty.code, typeLabel: ty.label, typeTitle: ty.title, number: nextNumberStr(ty.code),
+      timbrado: { id: tim.id, number: tim.number, start: tim.start, end: tim.end }, issuedAt: FE.localIso(now),
+      dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8), pedidoId: d.pedidoId || null };
+    const totalsOf = (t, cur, ex) => ({ exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total, totalPyg: FE.pygTotal(t.total, cur, ex) || 0 });
+    const items = d.items.map(i => Object.assign({}, i));
+    if (ty.assoc) {
+      const src = invoices.find(x => x.id === d.assoc.id), k = src.kude, t = calcItems(items, k.currency);
+      const motivos = ty.key === "nc" ? T.MOTIVOS_NC : T.MOTIVOS_ND;
+      return Object.assign(base, { receiver: k.receiver, receiverId: k.receiverId, receiverName: k.receiverName, receiverEmail: k.receiverEmail, receiverMode: k.receiverMode,
+        items, currency: k.currency, exchange: k.exchange, operation: k.operation, operationLabel: k.operationLabel,
+        assoc: { id: src.id, number: src.number, cdc: src.cdc, date: src.date }, motivo: d.motivo, motivoLabel: T.labelOf(motivos, d.motivo),
+        totals: totalsOf(t, k.currency, k.exchange), cdc: "" });
+    }
+    if (ty.key === "autofactura") {
+      const its = items.map(i => Object.assign(i, { tax: "E" })), t = calcItems(its, "PYG");
+      return Object.assign(base, { receiver: { mode: "con", ruc: company.ruc + "-" + company.dv, name: company.name }, receiverId: company.ruc + "-" + company.dv,
+        receiverName: company.name, receiverMode: "con", seller: Object.assign({}, d.seller), constancia: Object.assign({}, d.constancia),
+        items: its, currency: "PYG", exchange: "", condition: "contado", operation: "", totals: totalsOf(t, "PYG", ""), cdc: "" });
+    }
+    if (ty.key === "remision") {
+      const r = classify(d, 0), receiver = FE.receiverFromDraft(d, r);
+      return Object.assign(base, { receiver, receiverId: FE.receiverIdText(receiver), receiverName: receiver.name || (d.mode === "con" ? "" : "Consumidor final"),
+        receiverEmail: d.email, receiverMode: d.mode, items: items.map(i => Object.assign(i, { price: 0, tax: "E", discount: 0 })), currency: "PYG", exchange: "",
+        rem: Object.assign({}, d.rem, { chapa: String(d.rem.chapa || "").toUpperCase().replace(/\s+/g, " ").trim() }), assoc: d.assoc ? { id: d.assoc.id, number: d.assoc.number, cdc: d.assoc.cdc } : null,
+        operation: r.operation, totals: totalsOf(calcItems([], "PYG"), "PYG", ""), cdc: "" });
+    }
+    const t = calcItems(items, d.currency), r = classify(d, pygOf(d, t)), receiver = FE.receiverFromDraft(d, r);
+    return Object.assign(base, { receiver, receiverId: FE.receiverIdText(receiver), receiverName: receiver.name || (d.mode === "con" ? "" : "Consumidor final"),
+      receiverEmail: d.email, receiverMode: d.mode, items, currency: d.currency, exchange: d.exchange, condition: d.condition, installments: d.installments,
+      operation: r.operation, operationLabel: opName[r.operation] || "", totals: totalsOf(t, d.currency, d.exchange), cdc: "" });
   }
 
+  const shortOf = doc => T.deType(doc && doc.deType).short;
   function screenPreview() {
     const inv = state.preview;
     if (!inv) return screenNew();
+    const short = shortOf(inv).toLowerCase();
     return `
-      <button class="link" data-back="new">← Editar factura</button>
+      <button class="link" data-back="new">← Editar</button>
       <h2>Vista previa</h2>
-      <p class="lead">Revisá los datos. Una vez aprobada, la factura no se puede cambiar: solo cancelarla o emitir una nota de crédito.</p>
+      <p class="lead">Revisá los datos. Una vez aprobada, la ${esc(short)} no se puede cambiar: solo cancelarla${inv.deType === "1" ? " o emitir una nota de crédito" : ""}.</p>
       ${kudeHTML(inv)}
       <div style="margin-top:14px" class="btn-row">
         <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar logo<input type="file" id="logoFile" accept="image/*" hidden></label>
         <button class="btn" data-pdf="1">Descargar PDF</button>
       </div>
       <button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>
-      <button class="btn primary" data-emit="1" style="margin-top:10px">Emitir factura</button>
+      <button class="btn primary" data-emit="1" style="margin-top:10px">Emitir ${esc(short)}</button>
       <div class="muted small" style="margin-top:10px;text-align:center">${company.env === "test" ? "Se usa el ambiente de prueba. " : ""}La aprobación de SIFEN es simulada.</div>`;
   }
 
   function screenResult() {
     const r = state.lastResult;
     if (!r) return screenHome();
-    const ok = r.status === "ok";
+    const ok = r.status === "ok", ty = T.deType(r.deType), isRem = ty.key === "remision";
     return `
       <div class="card" style="margin-top:6px;text-align:left;padding:18px">
         <div>${ok ? '<span class="chip ok">Aprobada</span>' : '<span class="chip bad">Rechazada</span>'}</div>
-        <h2 style="margin-top:10px">${ok ? "Factura emitida" : "No se pudo aprobar"}</h2>
-        <div class="small muted">${esc(r.number)} · ${esc(r.client)}</div>
-        <div class="amount" style="font-size:22px;margin-top:6px">${r.currency === "USD" ? FE.money(r.totalOp, "USD") + " · " : ""}Gs ${fmt(r.total)}</div>
+        <h2 style="margin-top:10px">${ok ? esc(ty.short) + " emitida" : "No se pudo aprobar"}</h2>
+        <div class="small muted">${esc(ty.short)} ${esc(r.number)} · ${esc(r.client)}</div>
+        ${isRem ? "" : `<div class="amount" style="font-size:22px;margin-top:6px">${r.currency === "USD" ? FE.money(r.totalOp, "USD") + " · " : ""}Gs ${fmt(r.total)}</div>`}
+        ${r.assocNumber ? `<div class="small" style="margin-top:6px">Asociada a la factura ${esc(r.assocNumber)}</div>` : ""}
         ${r.emailedTo ? `<div class="small" style="margin-top:6px">Enviada por correo a ${esc(r.emailedTo)} (simulado)</div>` : ""}
-        ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? "marcado como facturado" : "sigue pendiente de facturar"}</div>` : ""}
+        ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? (ty.code === "1" ? "marcado como facturado" : "documento emitido") : "sigue pendiente"}</div>` : ""}
         ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small cdc-text" style="margin-top:2px">${esc(FE.formatCdc(r.cdc))}</div>`
           : `<div class="notice bad" style="margin-top:12px"><b>Motivo</b>${esc(r.reason)}<br>Corregí el dato y volvé a emitir.</div>`}
       </div>
       ${ok ? `
-        <div class="section"><div class="section-title">Enviar al cliente</div>
+        <div class="section"><div class="section-title">Enviar</div>
           <div class="btn-row">
             <button class="btn soft" data-open="${r.id}">Ver y descargar PDF</button>
             <button class="btn primary" data-share="mail">Enviar por correo</button>
           </div>
-          <div class="muted small" style="margin-top:8px">WhatsApp llega en una próxima versión.</div>
         </div>` : ""}
       <div class="btn-row" style="margin-top:18px">
         <button class="btn" data-go="${r.pedidoId ? "pedidos" : "history"}">${r.pedidoId ? "Ver pedidos" : "Ver historial"}</button>
-        <button class="btn primary" data-go="new">Nueva factura</button>
+        <button class="btn primary" data-go="new">Nuevo documento</button>
       </div>`;
   }
 
   function screenHistory() {
-    const list = invoices.filter(i => (state.filter === "all" || i.status === state.filter) && FE.matches(state.q, i.client, i.number, i.ruc, i.pedidoId));
-    const count = k => k === "all" ? invoices.length : invoices.filter(i => i.status === k).length;
+    const byType = invoices.filter(i => !state.typeFilter || String(i.deType || "1") === state.typeFilter);
+    const list = byType.filter(i => (state.filter === "all" || i.status === state.filter) && FE.matches(state.q, i.client, i.number, i.ruc, i.pedidoId, shortOf(i)));
+    const count = k => k === "all" ? byType.length : byType.filter(i => i.status === k).length;
     const seg = (k, label) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${label} · ${count(k)}</button>`;
+    const present = T.DE_TYPES.filter(ty => invoices.some(i => String(i.deType || "1") === ty.code));
     return `
       <h2>Historial</h2>
+      ${present.length > 1 || state.typeFilter ? `<select id="hType" class="inline" style="margin-bottom:10px" aria-label="Tipo de documento"><option value="">Todos los documentos</option>
+        ${present.map(ty => `<option value="${ty.code}" ${state.typeFilter === ty.code ? "selected" : ""}>${esc(ty.short)}</option>`).join("")}</select>` : ""}
       <div class="seg four">${seg("all", "Todas")}${seg("ok", "Aprobadas")}${seg("warn", "Pendientes")}${seg("bad", "Rechazadas")}</div>
       ${FE.searchBox(state.q, "Buscar por cliente, número o RUC")}
       <div class="card" style="margin-top:12px">
-        ${list.length ? list.map(rowInvoice).join("") : `<div class="muted small">${state.q ? "Ninguna factura coincide con la búsqueda." : "No hay comprobantes en este filtro."}</div>`}
+        ${list.length ? list.map(rowInvoice).join("") : `<div class="muted small">${state.q ? "Ningún documento coincide con la búsqueda." : "No hay comprobantes en este filtro."}</div>`}
       </div>`;
   }
 
-  const CANCEL_MS = 48 * 3600 * 1000;
-  const canCancel = i => i.status === "ok" && Date.now() - Date.parse(i.date) < CANCEL_MS;
+  // Plazo de cancelación según el tipo (48 h; la remisión, 168 h)
+  const cancelMs = i => T.deType(i.deType).cancelH * 3600 * 1000;
+  const canCancel = i => i.status === "ok" && !i.cancelled && Date.now() - Date.parse(i.date) < cancelMs(i);
+  const isInnominada = i => isType(i, "1") && i.kude && i.kude.receiver && i.kude.receiver.mode === "sin" && !String(i.kude.receiver.doc || "").trim();
   function screenDetail() {
     const i = invoices.find(x => x.id === state.detailId);
     if (!i) return screenHistory();
+    const ty = T.deType(i.deType), isFac = ty.code === "1", ok = i.status === "ok" && !i.cancelled, k = i.kude || {};
+    const related = isFac ? invoices.filter(n => n.assocId === i.id) : [];
+    const assoc = i.assocId ? invoices.find(x => x.id === i.assocId) : null;
+    const hours = ty.cancelH;
+    const action = (code, label) => { const st = docState(code); return `<button class="btn soft" data-mkdoc="${code}" ${st.ok ? "" : "disabled"} title="${esc(st.why)}">${label}</button>`; };
+    const off = isFac && ok ? ["5", "6", "7"].filter(c => !docState(c).ok) : [];
     return `
       <button class="link" data-back="history">← Historial</button>
-      <h2>${esc(i.number)}</h2>
-      <div style="margin-bottom:14px">${statusChip(i.status)}</div>
+      <h2>${esc(ty.short)} ${esc(i.number)}</h2>
+      <div style="margin-bottom:14px">${statusChip(i.status)} ${i.cancelled ? '<span class="chip neutral">Cancelada</span>' : ""}</div>
       <div class="card">
-        <div class="kv"><span class="muted">Cliente</span><span>${esc(i.client)}</span></div>
-        <div class="kv"><span class="muted">RUC / documento</span><span>${esc(i.ruc || "Sin identificar")}</span></div>
-        <div class="kv"><span class="muted">Operación</span><span>${esc(opName[i.operation] || "")} (${esc(i.operation)})</span></div>
+        <div class="kv"><span class="muted">${ty.key === "autofactura" ? "Vendedor" : ty.key === "remision" ? "Destinatario" : "Cliente"}</span><span>${esc(ty.key === "autofactura" ? (k.seller || {}).name || i.client : i.client)}</span></div>
+        ${ty.key === "autofactura" ? "" : `<div class="kv"><span class="muted">RUC / documento</span><span>${esc(i.ruc || "Sin identificar")}</span></div>`}
+        ${i.operation && isFac ? `<div class="kv"><span class="muted">Operación</span><span>${esc(opName[i.operation] || "")} (${esc(i.operation)})</span></div>` : ""}
         <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(i.date)}</span></div>
+        ${assoc ? `<div class="kv"><span class="muted">Factura asociada</span><span><button class="link" data-open="${assoc.id}" style="min-height:0;padding:0">${esc(assoc.number)}</button></span></div>` : ""}
+        ${k.motivoLabel ? `<div class="kv"><span class="muted">Motivo</span><span>${esc(k.motivoLabel)}</span></div>` : ""}
+        ${ty.key === "remision" && k.rem ? `<div class="kv"><span class="muted">Traslado</span><span>${esc(T.labelOf(T.MOTIVOS_REM, k.rem.motivo))} · ${esc(k.rem.entrega)}</span></div>` : ""}
         ${i.pedidoId ? `<div class="kv"><span class="muted">Pedido</span><span><button class="link" data-openped="${esc(i.pedidoId)}" style="min-height:0;padding:0">${esc(i.pedidoId)}</button></span></div>` : ""}
-        ${i.currency === "USD" ? `<div class="kv"><span class="muted">Total en dólares</span><span class="amount">${FE.money(i.totalOp, "USD")}</span></div>` : ""}
-        <div class="kv"><span class="muted">Total${i.currency === "USD" ? " en guaraníes" : ""}</span><span class="amount">Gs ${fmt(i.total)}</span></div>
+        ${i.nominacion ? `<div class="kv"><span class="muted">Nominada</span><span>${esc(i.nominacion.name)} · ${esc((FE.DOC_SHORT[i.nominacion.docType] || "") + " " + i.nominacion.doc)} · ${fmtDate(i.nominacion.at)}</span></div>` : ""}
+        ${ty.key === "remision" ? "" : `${i.currency === "USD" ? `<div class="kv"><span class="muted">Total en dólares</span><span class="amount">${FE.money(i.totalOp, "USD")}</span></div>` : ""}
+          <div class="kv"><span class="muted">Total${i.currency === "USD" ? " en guaraníes" : ""}</span><span class="amount">Gs ${fmt(i.total)}</span></div>`}
+        ${isFac && related.some(n => isType(n, "5") && n.status === "ok") ? `<div class="kv"><span class="muted">Saldo después de notas de crédito</span><span class="amount">${FE.money(saldoOf(i), i.currency)}</span></div>` : ""}
         ${i.cdc ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">CDC</div><div class="small cdc-text" style="margin-top:4px">${esc(FE.formatCdc(i.cdc))}</div></div>` : ""}
         ${i.reason ? `<div style="padding:12px 0;border-top:1px solid var(--border)"><div class="muted small">Motivo</div><div style="margin-top:4px;color:var(--bad)">${esc(i.reason)}</div></div>` : ""}
       </div>
+      ${related.length ? `<div class="section"><div class="section-title">Documentos asociados</div><div class="card">${related.map(rowInvoice).join("")}</div></div>` : ""}
+      ${isFac && ok ? `<div class="section"><div class="section-title">Emitir a partir de esta factura</div>
+        <div class="btn-row three">${action("5", "Nota de crédito")}${action("6", "Nota de débito")}${action("7", "Remisión")}</div>
+        ${off.length ? `<div class="muted small" style="margin-top:6px">${off.map(c => esc(T.deType(c).short) + ": " + esc(docState(c).why)).join("<br>")}</div>` : ""}</div>` : ""}
+      ${isInnominada(i) && ok && !i.nominacion ? `<button class="btn soft" data-nominar="${i.id}" style="margin-top:12px">Nominar: identificar al comprador</button>
+        <div class="muted small" style="margin-top:6px">Se emitió sin identificar al comprador. La nominación se puede hacer una sola vez.</div>` : ""}
       ${i.kude ? `<div class="section"><div class="section-title">KuDE</div>${kudeHTML(i.kude)}</div>` : ""}
       <div class="btn-row" style="margin-top:16px">
         <button class="btn soft" ${i.kude ? `data-pdf="${esc(i.number)}"` : `data-share="pdf"`} ${i.status === "ok" ? "" : "disabled"}>Descargar PDF${i.kude ? (prefs.printFormat === "ticket" ? " (ticket)" : " (A4)") : ""}</button>
         <button class="btn soft" data-share="mail" ${i.status === "ok" ? "" : "disabled"}>Enviar por correo</button>
       </div>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn" data-cancel="${i.id}" ${canCancel(i) ? "" : "disabled"}>Cancelar factura</button>
-        <button class="btn primary" data-go="new">Nueva factura</button>
+        <button class="btn" data-cancel="${i.id}" ${canCancel(i) ? "" : "disabled"}>Cancelar ${esc(ty.short.toLowerCase())}</button>
+        ${isFac && ok && !canCancel(i) && docState("5").ok ? `<button class="btn primary" data-mkdoc="5">Emitir nota de crédito</button>` : `<button class="btn primary" data-go="new">Nuevo documento</button>`}
       </div>
       ${i.kude && i.status === "ok" ? `<button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}
       ${i.emailedTo ? `<div class="muted small" style="margin-top:8px">Enviada por correo a ${esc(i.emailedTo)} (simulado).</div>` : ""}
-      <div class="muted small" style="margin-top:12px">${i.status === "ok"
-        ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + CANCEL_MS).toISOString()) + " (48 horas desde la aprobación)."
-          : "Pasaron las 48 horas para cancelarla. Para corregirla, emití una nota de crédito.")
-        : "Podés cancelar hasta 48 horas después de la aprobación. Después, emití una nota de crédito."}</div>`;
+      <div class="muted small" style="margin-top:12px">${i.cancelled ? "Cancelada." : i.status === "ok"
+        ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + cancelMs(i)).toISOString()) + " (" + hours + " horas desde la aprobación)."
+          : "Pasaron las " + hours + " horas para cancelarla." + (isFac ? " Para corregirla, emití una nota de crédito." : ""))
+        : "Se puede cancelar hasta " + hours + " horas después de la aprobación."}</div>`;
   }
 
   // ----- Pedidos recibidos -----
@@ -440,7 +730,9 @@
         <div class="btn-row" style="margin-top:16px">
           <button class="btn" data-rejectped="${esc(p.id)}" style="color:var(--bad)">Rechazar</button>
           <button class="btn primary" data-invoiceped="${esc(p.id)}">Facturar</button>
-        </div>` : ""}
+        </div>
+        <button class="btn soft" data-remped="${esc(p.id)}" style="margin-top:10px" ${docState("7").ok ? "" : "disabled"}>Emitir nota de remisión${p.remisionNumber ? " (ya emitida: " + esc(p.remisionNumber) + ")" : ""}</button>
+        ${docState("7").ok ? "" : `<div class="muted small" style="margin-top:4px">Nota de remisión: ${esc(docState("7").why)}</div>`}` : ""}
       ${p.status === "rechazado" ? `
         <div class="btn-row" style="margin-top:16px">
           <button class="btn" data-delped="${esc(p.id)}" style="color:var(--bad)">Eliminar</button>
@@ -493,6 +785,15 @@
           <div class="seg"><button data-prefformat="a4" class="${prefs.printFormat === "a4" ? "on" : ""}">Hoja A4</button><button data-prefformat="ticket" class="${prefs.printFormat === "ticket" ? "on" : ""}">Ticket 80 mm</button></div>
           ${T.checkbox("prAutoEmail", prefs.autoEmail, "Enviar la factura por correo al cliente al aprobarse")}
           <div class="muted small" style="margin-top:4px">El envío real del correo lo hará el servidor; por ahora se simula.</div>
+          <div class="section-title" style="margin-top:18px">Nota de remisión</div>
+          <label for="prRemSalida" style="margin-top:0">Punto de salida por defecto</label><input id="prRemSalida" data-kb="address" value="${esc(prefs.remSalida)}" placeholder="${esc([company.address, company.city].filter(Boolean).join(", "))}">
+          <label for="prRemModo">Modalidad de transporte</label><select id="prRemModo">${T.MODOS_TRANSPORTE.map(([c, l]) => `<option value="${c}" ${prefs.remModo === c ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+          <div class="grid2"><div><label for="prRemMarca">Marca del vehículo</label><input id="prRemMarca" data-kb="name" value="${esc(prefs.remMarca)}"></div>
+            <div><label for="prRemChapa">Chapa</label><input id="prRemChapa" data-kb="code" value="${esc(prefs.remChapa)}"></div></div>
+          <div class="grid2"><div><label for="prRemChofer">Chofer</label><input id="prRemChofer" data-kb="name" value="${esc(prefs.remChofer)}"></div>
+            <div><label for="prRemChoferDoc">Cédula del chofer</label><input id="prRemChoferDoc" data-kb="digits" value="${esc(prefs.remChoferDoc)}"></div></div>
+          <div class="section-title" style="margin-top:18px">Autofactura</div>
+          <label for="prAfConst" style="margin-top:0">Tipo de constancia más usado</label><select id="prAfConst">${T.CONSTANCIAS.map(([c, l]) => `<option value="${c}" ${prefs.afConstancia === c ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
           <button class="btn soft" data-saveprefs style="margin-top:12px">Guardar preferencias</button>
         </div>`) : ""}
       ${can("usuarios.empresa") ? section("Usuarios de la empresa", `<div class="card">
@@ -533,11 +834,13 @@
     prefs.exchange = ex; prefs.exchangeDate = ex ? FE.todayKey() : "";
     prefs.footerText = g("prFooter").value.trim().slice(0, 400);
     prefs.autoEmail = g("prAutoEmail").checked;
+    [["prRemSalida", "remSalida"], ["prRemModo", "remModo"], ["prRemMarca", "remMarca"], ["prRemChapa", "remChapa"], ["prRemChofer", "remChofer"],
+      ["prRemChoferDoc", "remChoferDoc"], ["prAfConst", "afConstancia"]].forEach(([id, k]) => { if (g(id)) prefs[k] = g(id).value.trim(); });
   }
   // Si el formulario de factura está vacío, toma los valores por defecto nuevos
   function refreshEmptyDraft() {
     const d = state.draft;
-    if (!d.items.length && !d.ruc && !d.doc && !d.name && !d.pedidoId) state.draft = newDraft();
+    if (!d.items.length && !d.ruc && !d.doc && !d.name && !d.pedidoId && !d.assoc) state.draft = newDraft(d.deType);
   }
   function savePrefs() {
     readPrefsForm(); save(); refreshEmptyDraft();
@@ -560,7 +863,7 @@
   }
 
   // ================= Render y eventos =================
-  const titles = { home: "Inicio", new: "Nueva factura", preview: "Vista previa", result: "Resultado", history: "Historial", detail: "Comprobante",
+  const titles = { home: "Inicio", new: "Nuevo documento", preview: "Vista previa", result: "Resultado", history: "Historial", detail: "Comprobante",
     settings: "Ajustes", pedidos: "Pedidos", pedido: "Pedido" };
   function render() {
     const s = state.screen;
@@ -581,6 +884,7 @@
 
   function syncFields() {
     const d = state.draft, g = id => document.getElementById(id);
+    if (state.screen === "new") document.querySelectorAll("#screen [data-field]").forEach(el => setPath(d, el.dataset.field, el.value));
     FE.syncReceiver(d);
     if (g("fEmail")) d.email = g("fEmail").value;
     if (g("fCuotas")) d.installments = Math.max(1, parseInt(g("fCuotas").value, 10) || 1);
@@ -589,16 +893,16 @@
   }
   function refreshTotal() {
     const bar = document.querySelector(".sticky-total"); if (!bar) return;
-    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    bar.querySelector(".big").textContent = FE.money(t.total, d.currency);
-    bar.querySelector("[data-preview]").disabled = !(r.valid && d.items.length > 0 && timbradoOk());
+    const d = state.draft, chk = draftCheck(d);
+    if (d.deType !== "7") bar.querySelector(".big").textContent = FE.money(chk.t.total, d.currency);
+    bar.querySelector("[data-preview]").disabled = !chk.ok;
   }
 
   // ----- Cargar / editar timbrado (hoja compartida en shared/tenant.js) -----
   function timbradoSheet(t) {
     if (!can("timbrados.editar")) { toast("Los timbrados los administra el estudio"); return; }
     const used = !!t && (t.used || invoices.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === t.id));
-    T.timbradoSheet({ list: timbrados, t, used, onSave: (list, msg) => {
+    T.timbradoSheet({ list: timbrados, t, used, usedTipos: t ? T.usedTiposOf(invoices, t.id) : [], onSave: (list, msg) => {
       timbrados = list; save(); log(t ? "Timbrado editado" : "Timbrado cargado", msg); toast(msg); render();
     } });
   }
@@ -665,13 +969,17 @@
   let emitting = false;
   async function emit() {
     const inv = state.preview; if (!inv || emitting) return;
-    if (inv.pedidoId) {
+    const ty = T.deType(inv.deType), isFac = ty.code === "1";
+    if (isFac && inv.pedidoId) {
       const p = inbox.find(x => x.id === inv.pedidoId);
       if (p && p.status === "facturado") { toast("Ese pedido ya fue facturado (" + p.invoiceNumber + ")"); return; }
     }
-    const tim = activeTimbrado();
-    if (!timbradoOk() || !tim || (inv.timbrado && inv.timbrado.id !== tim.id)) {
-      toast(timbradoProblem() || "Cambió el timbrado activo. Volvé a abrir la vista previa."); return;
+    const tim = activeTimbrado(), st = docState(ty.code);
+    if (!st.ok) { toast(st.why); return; }
+    if (!tim || (inv.timbrado && inv.timbrado.id !== tim.id) || inv.number !== nextNumberStr(ty.code)) { toast("Cambió el timbrado o la numeración. Volvé a abrir la vista previa."); state.preview = null; go("new"); return; }
+    if (ty.key === "nc") {
+      const fac = invoices.find(x => x.id === inv.assoc.id);
+      if (!fac || inv.totals.total > saldoOf(fac) + 0.001) { toast("La nota de crédito supera el saldo de la factura"); return; }
     }
     emitting = true;
     try {
@@ -679,39 +987,77 @@
       const id = invoices.reduce((m, i) => Math.max(m, i.id), 0) + 1;
       const now = new Date(), date = now.toISOString();
       const issued = Object.assign({}, inv, { issuedAt: FE.localIso(now), dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8) });
+      const noAmounts = ty.key === "remision", noIva = noAmounts || ty.key === "autofactura";
       let cdc = "", qrUrl = "";
       if (approved) {
-        cdc = FE.buildCdc({ deType: "1", ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
-          number: tim.nextNumber, taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
-        const firma = await T.Firmador.firmar({ empresa: company, cdc, payload: { items: issued.items, totals: issued.totals, receiver: issued.receiver } });
-        const digest = firma.digestValue;
+        cdc = FE.buildCdc({ deType: ty.code, ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
+          number: T.nextNum(tim, ty.code), taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
+        const firma = await T.Firmador.firmar({ empresa: company, cdc, payload: { deType: ty.code, items: issued.items, totals: issued.totals, receiver: issued.receiver } });
         qrUrl = await FE.buildQrUrl({ env: company.env, cdc, date: issued.issuedAt, receiver: issued.receiver,
-          total: issued.totals.total, iva: issued.totals.iva, items: issued.items.length, digest, csc: FE.CSC_TEST });
+          total: noAmounts ? 0 : issued.totals.total, iva: noIva ? 0 : issued.totals.iva, items: issued.items.length, digest: firma.digestValue, csc: FE.CSC_TEST });
       }
       const kude = Object.assign(issued, { cdc, qrUrl });
+      const client = ty.key === "autofactura" ? (inv.seller && inv.seller.name) || "Vendedor" : inv.receiverName || "Consumidor final";
       const result = {
-        id, number: inv.number, date, client: inv.receiverName || "Consumidor final", ruc: inv.receiverId, total: inv.totals.totalPyg,
-        currency: inv.currency, totalOp: inv.totals.total,
-        operation: inv.operation, status: approved ? "ok" : "bad", cdc,
+        id, deType: ty.code, number: inv.number, date, client, ruc: ty.key === "autofactura" ? (FE.DOC_SHORT[inv.seller.docType] || "") + " " + inv.seller.doc : inv.receiverId,
+        total: inv.totals.totalPyg, currency: inv.currency, totalOp: inv.totals.total,
+        operation: inv.operation, status: approved ? "ok" : "bad", cdc, assocId: inv.assoc ? inv.assoc.id : null, assocNumber: inv.assoc ? inv.assoc.number : "",
         reason: approved ? "" : "1103 Número de timbrado no vigente (simulación)", pedidoId: inv.pedidoId, kude
       };
       invoices.unshift(result);
       if (approved) {
-        tim.nextNumber += 1; tim.used = true;
-        if (prefs.autoEmail && inv.receiverEmail) result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
-        clients = upsertClient(clients, inv.receiver);
-        if (inv.pedidoId) {
+        T.bumpNum(tim, ty.code);
+        if (prefs.autoEmail && inv.receiverEmail && ty.key !== "autofactura") result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
+        if (isFac || ty.key === "remision") clients = upsertClient(clients, inv.receiver);
+        if (isFac && inv.pedidoId) {
           const p = inbox.find(x => x.id === inv.pedidoId);
           if (p) { p.status = "facturado"; p.invoiceNumber = inv.number; p.invoiceId = id; p.invoicedAt = date; }
         }
+        if (ty.key === "remision" && inv.pedidoId) { const p = inbox.find(x => x.id === inv.pedidoId); if (p) { p.remisionNumber = inv.number; p.remisionId = id; } }
       }
       save();
-      log(approved ? "Factura emitida" : "Factura rechazada (simulación)", inv.number + " · " + (inv.receiverName || "") + " · " + FE.money(inv.totals.total, inv.currency));
+      log(approved ? ty.short + " emitida" : ty.short + " rechazada (simulación)", inv.number + " · " + client + (noAmounts ? "" : " · " + FE.money(inv.totals.total, inv.currency)) + (inv.assoc ? " · factura " + inv.assoc.number : ""));
       if (approved) FE.buzz(40);
-      if (result.emailedTo) toast("Factura enviada por correo a " + result.emailedTo + " (simulado)");
+      if (result.emailedTo) toast(ty.short + " enviada por correo a " + result.emailedTo + " (simulado)");
       state.lastResult = result; state.draft = newDraft(); state.preview = null;
       go("result");
     } finally { emitting = false; }
+  }
+
+  const itemOpts = () => ({ noPrice: state.draft.deType === "7", noTax: state.draft.deType === "4" });
+  // Inicia un documento a partir de una factura (notas o remisión) o de un pedido (remisión)
+  function startFromInvoice(code, fac) {
+    const st = docState(code); if (!st.ok) { toast(st.why); return; }
+    state.draft = newDraft(code); state.preview = null; setAssoc(fac); go("new");
+  }
+  function startRemisionFromPedido(p) {
+    const st = docState("7"); if (!st.ok) { toast(st.why); return; }
+    const d = newDraft("7"), c = p.client;
+    Object.assign(d, { pedidoId: p.id, mode: c.mode, ruc: c.ruc || "", name: c.name || "", doc: c.doc || "", docType: c.docType || "1", country: c.country || "", email: c.email || "" });
+    d.items = p.items.map(i => ({ desc: i.desc, qty: i.qty, price: 0, tax: "E", discount: 0, code: i.code }));
+    state.draft = d; state.preview = null; go("new");
+  }
+  // Nominación: identificar al comprador de una factura emitida sin identificar (una sola vez)
+  function nominarSheet(inv) {
+    sheet(`<h3>Nominar la factura ${esc(inv.number)}</h3>
+      <p class="muted small">Registra al comprador de una factura emitida como innominada. Se puede hacer una sola vez.</p>
+      <div class="grid2">
+        <div><label for="nmType">Tipo de documento</label><select id="nmType">${["1", "2", "3", "4", "6", "9"].map(k => `<option value="${k}">${esc(FE.DOC_TYPES[k])}</option>`).join("")}</select></div>
+        <div><label for="nmDoc">Número</label><input id="nmDoc" data-kb="code"></div>
+      </div>
+      <label for="nmName">Nombre del comprador</label><input id="nmName" data-kb="name">
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Nominar</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const docType = el.querySelector("#nmType").value, doc = el.querySelector("#nmDoc").value.trim(), name = el.querySelector("#nmName").value.trim();
+        if (!doc) { toast("Escribí el número de documento"); return; }
+        if (docType === "1" && !/^\d+$/.test(doc)) { toast("La cédula paraguaya lleva solo números"); return; }
+        if (!name) { toast("Escribí el nombre del comprador"); return; }
+        inv.nominacion = { docType, doc, name, at: new Date().toISOString(), user: user ? user.name : "" };
+        inv.client = name; inv.ruc = (FE.DOC_SHORT[docType] || "") + " " + doc;
+        save(); log("Factura nominada", inv.number + " · " + name + " · " + inv.ruc); close(); render(); toast("Factura nominada");
+      };
+    });
   }
 
   const screenEl = document.getElementById("screen");
@@ -722,8 +1068,14 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products, state.draft.currency); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products, state.draft.currency); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products, state.draft.currency, itemOpts()); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products, state.draft.currency, itemOpts()); return; }
+    if (ds.docpick !== undefined) { syncFields(); docPickerSheet(); return; }
+    if (ds.pickassoc !== undefined) { syncFields(); assocPicker(); return; }
+    if (ds.setfield) { syncFields(); setPath(state.draft, ds.setfield, ds.value); render(); return; }
+    if (ds.mkdoc) { const fac = invoices.find(x => x.id === state.detailId); if (fac) startFromInvoice(ds.mkdoc, fac); return; }
+    if (ds.nominar) { const inv = invoices.find(x => x.id === +ds.nominar); if (inv && !inv.nominacion) nominarSheet(inv); return; }
+    if (ds.remped) { const p = inbox.find(x => x.id === ds.remped); if (p) startRemisionFromPedido(p); return; }
     if (ds.qtyminus !== undefined || ds.qtyplus !== undefined) {
       syncFields();
       const it = state.draft.items[+(ds.qtyplus !== undefined ? ds.qtyplus : ds.qtyminus)]; if (!it) return;
@@ -738,10 +1090,9 @@
       syncFields();
       const dd = state.draft, tt = calcItems(dd.items, dd.currency);
       if (dd.currency === "USD" && FE.pygTotal(tt.total, "USD", dd.exchange) == null) { toast("Escribí el tipo de cambio del día para facturar en dólares"); const x = document.getElementById("fTc"); if (x) x.focus(); return; }
-      const r = classify(dd, pygOf(dd, tt));
-      if (!r.valid) { toast(r.why); return; }
-      if (!timbradoOk()) { toast(timbradoProblem()); return; }
-      state.preview = buildInvoice(state.draft); go("preview"); return;
+      const chk = draftCheck(dd);
+      if (!chk.ok) { toast(chk.why); return; }
+      state.preview = buildDoc(dd); go("preview"); return;
     }
     if (ds.back) { go(ds.back); return; }
     if (ds.pdf !== undefined) { downloadKudePdf(prefs.printFormat); return; }
@@ -753,8 +1104,8 @@
     if (ds.share) { toast(ds.share === "pdf" ? "PDF listo (demo)" : "Factura enviada por correo (demo)"); return; }
     if (ds.cancel) {
       const inv = invoices.find(x => x.id === +ds.cancel);
-      if (inv && !canCancel(inv)) { toast("Pasaron las 48 horas: emití una nota de crédito"); render(); return; }
-      if (inv) { inv.status = "bad"; inv.cancelled = true; inv.reason = "Cancelada por el emisor (demo)"; save(); log("Factura cancelada", inv.number); toast("Cancelación registrada (demo)"); }
+      if (inv && !canCancel(inv)) { toast("Pasó el plazo de cancelación" + (isType(inv, "1") ? ": emití una nota de crédito" : "")); render(); return; }
+      if (inv) { inv.cancelled = true; inv.reason = "Cancelada por el emisor (evento simulado)"; save(); log(shortOf(inv) + " cancelada", inv.number); toast("Cancelación registrada (simulada)"); }
       render(); return;
     }
     if (ds.env) {
@@ -776,7 +1127,8 @@
     }
     if (ds.invoiceped) {
       const p = inbox.find(x => x.id === ds.invoiceped); if (!p) return;
-      state.draft = draftFromPedido(p); state.preview = null; go("new"); return;
+      if (!docState("1").ok) { toast(docState("1").why); return; }
+      state.draft = fixDraft(draftFromPedido(p)); state.preview = null; go("new"); return;
     }
     // Ajustes
     if (ds.timadd !== undefined) { timbradoSheet(null); return; }
@@ -845,6 +1197,7 @@
     }
     if (id === "restoreFile") { const f = e.target.files && e.target.files[0]; if (f) FE.importBackup(store, "facturador", f, () => location.reload()); return; }
     if (id === "pSeller") { state.pedSeller = e.target.value; render(); return; }
+    if (id === "hType") { state.typeFilter = e.target.value; render(); return; }
     if (id === "prAutoEmail") { prefs.autoEmail = e.target.checked; save(); return; }
     if (state.screen === "new") { syncFields(); if (e.target.id === "fCur" && state.draft.items.length) toast("Cambiaste la moneda: revisá los precios de los productos"); if (e.target.tagName === "SELECT") render(); }
   });
@@ -866,7 +1219,7 @@
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv),
+      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv), pairs: docInfoPairs(inv),
         footerText: prefs.footerText, format: format || prefs.printFormat });
       toast("PDF descargado");
     } catch (err) {

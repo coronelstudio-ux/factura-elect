@@ -66,6 +66,8 @@ Dos apps web instalables (PWA), sin servidor. Todo se guarda en el dispositivo (
 | Cancelación solo dentro de 48 h desde la aprobación | `facturador/app.js` | Funciona (simulada) |
 | Clientes frecuentes, respaldo, logo, instalación | ambas apps | Funciona |
 | App **Admin** multiempresa: alta guiada, certificados (solo datos), timbrados, CSC, ambiente, usuarios y roles, alertas, cola de envíos, auditoría | `admin/`, `shared/tenant.js` | Funciona en el dispositivo; ver `docs/arquitectura-multiempresa.md` |
+| Tipos de documento: factura, nota de crédito y de débito (con documento asociado, motivo y tope de saldo), autofactura y nota de remisión; timbrado con tipos habilitados y numeración por tipo | `shared/tenant.js`, `facturador/app.js` | Funciona (SIFEN simulado); recibo, retención, exportación e importación figuran como no disponibles |
+| Eventos: cancelación por tipo, inutilización de rangos, nominación | `facturador/app.js`, `admin/app.js` | Funciona (simulado) |
 | Punto de conexión de la firma (`Firmador.firmar`) | `shared/tenant.js` | Simulado; ver `docs/firma-electronica.md` |
 | Pruebas automáticas | `tests/run.js` | `node tests/run.js` |
 
@@ -127,7 +129,7 @@ La columna "App" indica si la app actual ya la aplica.
 | CDC de 44 dígitos: tipo de documento (2), RUC emisor (8), DV (1), establecimiento (3), punto (3), número (7), tipo de contribuyente (1), fecha AAAAMMDD (8), tipo de emisión (1), código de seguridad (9), DV del CDC (1) | Sí |
 | DV módulo 11 con pesos 2 a 9 desde la derecha; si da 10 u 11, el DV es 0 | Sí |
 | Código de seguridad aleatorio de 9 dígitos, distinto en cada DE | Sí |
-| Autofactura solo en guaraníes (NT 012) | No aplica todavía (solo factura) |
+| Autofactura solo en guaraníes (NT 012) | Sí |
 | IVA por ítem: afectación 1 gravado, 2 exonerado, 3 exento, 4 gravado parcial (NT 013) | Parcial: gravado 5 %, 10 % y exento |
 | Descuentos con la fórmula de la NT 001 | Parcial: descuento porcentual por ítem; verificar fórmula |
 | Tipo de transacción solo con C002 igual a 1 o 4 (NT 006) | Fijo en "Venta de mercadería" |
@@ -138,7 +140,7 @@ La columna "App" indica si la app actual ya la aplica.
 |---|---|
 | Tipo de documento: 1 cédula, 2 pasaporte, 3 cédula extranjera, 4 carnet de residencia, 5 innominado, 6 tarjeta diplomática, 9 otro (NT 023 y 027) | Sí |
 | Innominado no permitido desde Gs 7.000.000 (NT 024, desde el 1/1/2025; reemplaza los Gs 35.000.000 de la NT 021) | Sí |
-| En nominación (NT 027) no se permite el tipo 5 | No aplica todavía (sin eventos) |
+| En nominación (NT 027) no se permite el tipo 5 | Sí (la nominación no ofrece innominado) |
 | Contribuyente se identifica por RUC; no contribuyente, por documento | Sí |
 | Operación automática: sin RUC → B2C; organismo del Estado → B2G con código DNCP (NT 020 y 026); contribuyente → B2B; extranjero → B2F | Sí (falta pedir el código DNCP en B2G) |
 | El tipo de operación no se imprime en el KuDE; se imprime el tipo de transacción | Sí |

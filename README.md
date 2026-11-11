@@ -73,6 +73,28 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - **Cancelación** solo dentro de las 48 horas desde la aprobación; después, nota de crédito.
 - La respuesta de SIFEN sigue siendo simulada. El detalle de qué falta está en [`docs/informe-tecnico.md`](docs/informe-tecnico.md).
 
+## Documentos electrónicos
+
+En **Nueva** hay un botón desplegable **Tipo de documento**. Muestra todos los tipos: los habilitados para elegir y, en gris y con el motivo, los que no se pueden usar.
+
+| Tipo | Código | Qué permite |
+|---|---|---|
+| Factura | 1 | Venta, como hasta ahora |
+| Nota de crédito | 5 | Desde una factura aprobada (botón en el detalle o al elegir la factura). Trae sus productos para quitar o bajar cantidades, con motivo; no puede superar el saldo de la factura |
+| Nota de débito | 6 | Aumenta una factura (intereses, recargos, ajustes), con motivo |
+| Autofactura | 4 | Compra a no contribuyentes o extranjeros: datos del vendedor y de la constancia; solo guaraníes, sin IVA |
+| Nota de remisión | 7 | Traslado de mercaderías: motivo, fechas, salida y entrega, transporte, vehículo y chofer, cantidades sin precio. Se arma desde una factura o un pedido |
+| Recibo de dinero · Comprobante de retención · Facturas de exportación e importación | — | Se muestran como **Próximamente**: SIFEN todavía no los recibe o falta su reglamentación |
+
+- **Timbrado por tipo:** cada timbrado lleva los **tipos habilitados** (los mismos que se eligieron al habilitarse en Marangatu) y una **numeración propia por tipo**. Solo se emite un tipo si está en el timbrado activo y vigente. Un tipo ya usado no se puede quitar.
+- **El tipo va en el CDC** (posiciones 1 y 2: 01, 04, 05, 06, 07). El KuDE y el PDF (A4 y ticket) cambian según el tipo.
+- **Eventos (simulados):**
+  - **Cancelación** dentro del plazo (48 h; la remisión, 168 h). Pasado el plazo de una factura, se ofrece la nota de crédito.
+  - **Inutilización** de rangos no usados (app Admin, ficha de la empresa).
+  - **Nominación** de facturas emitidas sin identificar al comprador (una vez).
+- **Preferencias de documentos** (Ajustes): punto de salida, vehículo y chofer por defecto para la remisión, y tipo de constancia de la autofactura.
+- Los motivos de emisión y de traslado siguen el manual técnico; **hay que confirmarlos con la versión vigente** antes de producción.
+
 ## Carga rápida
 
 - **Teclados:** cada campo abre el teclado que corresponde. Es numérico en RUC, PIN, timbrado, cédula, precios y cantidades, y completo en nombres, descripciones y pasaportes. En correo y teléfono abre el teclado propio de cada uno. Los nombres empiezan con mayúscula y los caracteres que no corresponden se descartan.

@@ -362,9 +362,11 @@
   // Hoja para agregar un producto (misma que el facturador original)
   // products (opcional): productos frecuentes para elegir y completar los campos
   // cur: moneda del documento. En dólares, los productos frecuentes (en guaraníes) no completan el precio.
-  function itemSheet(onSave, initial, products, cur) {
-    const it = initial || { desc: "", qty: 1, price: "", tax: "10", discount: 0, code: "" };
-    const prods = products || [], usd = cur === "USD", sym = usd ? "USD" : "Gs";
+  // opts: { noPrice: solo descripción y cantidad (remisión), noTax: sin IVA (autofactura) }
+  function itemSheet(onSave, initial, products, cur, opts) {
+    opts = opts || {};
+    const it = initial || { desc: "", qty: 1, price: "", tax: opts.noTax || opts.noPrice ? "E" : "10", discount: 0, code: "" };
+    const prods = products || [], usd = cur === "USD", sym = usd ? "USD" : "Gs", np = !!opts.noPrice, nt = !!opts.noTax;
     sheet(`
       <h3>${initial ? "Editar producto" : "Nuevo producto"}</h3>
       ${prods.length ? `<label for="iProd">Producto frecuente</label><select id="iProd"><option value="">Elegí uno o escribilo abajo</option>
@@ -374,15 +376,15 @@
       <input type="hidden" id="iCode" value="${esc(it.code || "")}">
       <div class="grid2">
         <div><label for="iQty">Cantidad</label><input id="iQty" data-kb="decimal" value="${esc(fmtQty(it.qty))}"></div>
-        <div><label for="iPrice">Precio unitario (${sym})</label><input id="iPrice" data-kb="${usd ? "money2" : "money"}" placeholder="0" value="${esc(it.price === "" ? "" : fmt(it.price, cur))}"></div>
+        ${np ? `<div></div>` : `<div><label for="iPrice">Precio unitario (${sym})</label><input id="iPrice" data-kb="${usd ? "money2" : "money"}" placeholder="0" value="${esc(it.price === "" || !it.price ? "" : fmt(it.price, cur))}"></div>`}
       </div>
-      <div class="grid2">
-        <div><label for="iTax">Impuesto</label><select id="iTax">
+      ${np ? `<input type="hidden" id="iTax" value="E"><input type="hidden" id="iDisc" value="0">` : `<div class="grid2">
+        ${nt ? `<div><label>Impuesto</label><div class="muted small" style="padding:14px 0">Sin IVA</div><input type="hidden" id="iTax" value="E"></div>` : `<div><label for="iTax">Impuesto</label><select id="iTax">
           <option value="10" ${it.tax === "10" ? "selected" : ""}>IVA 10%</option>
           <option value="5" ${it.tax === "5" ? "selected" : ""}>IVA 5%</option>
-          <option value="E" ${it.tax === "E" ? "selected" : ""}>Exento</option></select></div>
+          <option value="E" ${it.tax === "E" ? "selected" : ""}>Exento</option></select></div>`}
         <div><label for="iDisc">Descuento (%)</label><input id="iDisc" data-kb="decimal" value="${esc(fmtQty(it.discount || 0))}"></div>
-      </div>
+      </div>`}
       <div class="item-preview" id="iPreview"></div>
       <div class="btn-row ${initial ? "" : "three"}" style="margin-top:14px">
         <button class="btn" id="iCancel">${initial ? "Cancelar" : "Listo"}</button>
@@ -392,32 +394,32 @@
       const q = id => el.querySelector(id), pick = q("#iProd");
       const read = () => ({
         desc: q("#iDesc").value.trim(), qty: parseFloat(q("#iQty").value.replace(/\./g, "").replace(",", ".")) || 0,
-        price: parseAmount(q("#iPrice").value, cur), tax: q("#iTax").value,
+        price: np ? 0 : parseAmount(q("#iPrice").value, cur), tax: np || nt ? "E" : q("#iTax").value,
         discount: Math.min(100, Math.max(0, parseFloat(q("#iDisc").value.replace(",", ".")) || 0)), code: q("#iCode").value
       });
       // Total de la línea mientras se escribe
-      const preview = () => { const v = read(); q("#iPreview").textContent = v.qty > 0 && v.price > 0 ? "Total de la línea: " + money(calcItem(v, cur).total, cur) : ""; };
+      const preview = () => { const v = read(); q("#iPreview").textContent = !np && v.qty > 0 && v.price > 0 ? "Total de la línea: " + money(calcItem(v, cur).total, cur) : ""; };
       el.addEventListener("input", preview); el.addEventListener("change", preview); preview();
       q("#iCancel").onclick = close;
       if (pick) pick.onchange = () => {
         const p = prods[+pick.value]; if (!p) return;
-        q("#iDesc").value = p.desc; if (!usd) q("#iPrice").value = fmt(p.price);
-        q("#iTax").value = p.tax; q("#iCode").value = p.code || "";
-        const next = usd ? q("#iPrice") : q("#iQty"); next.focus(); next.select(); preview();
+        q("#iDesc").value = p.desc; if (!usd && !np) q("#iPrice").value = fmt(p.price);
+        if (!np && !nt) q("#iTax").value = p.tax; q("#iCode").value = p.code || "";
+        const next = usd && !np ? q("#iPrice") : q("#iQty"); next.focus(); next.select(); preview();
       };
       q("#iDesc").addEventListener("input", () => { q("#iCode").value = ""; });
       const submit = more => {
         const v = read();
         if (!v.desc) { toast("Escribí el nombre del producto"); q("#iDesc").focus(); return; }
         if (v.qty <= 0) { toast("La cantidad tiene que ser mayor a cero"); q("#iQty").focus(); return; }
-        if (v.price <= 0) { toast("El precio tiene que ser mayor a cero"); q("#iPrice").focus(); return; }
+        if (!np && v.price <= 0) { toast("El precio tiene que ser mayor a cero"); q("#iPrice").focus(); return; }
         const item = { desc: v.desc, qty: v.qty, price: v.price, tax: v.tax, discount: v.discount };
         if (v.code) item.code = v.code;
         onSave(item);
         if (!more) { close(); return; }
         // Deja el formulario listo para el siguiente producto
         toast("Agregado: " + v.desc);
-        q("#iDesc").value = ""; q("#iCode").value = ""; q("#iQty").value = "1"; q("#iPrice").value = ""; q("#iDisc").value = "0"; q("#iTax").value = "10";
+        q("#iDesc").value = ""; q("#iCode").value = ""; q("#iQty").value = "1"; if (!np) { q("#iPrice").value = ""; q("#iDisc").value = "0"; } if (!np && !nt) q("#iTax").value = "10";
         if (pick) pick.value = "";
         preview(); (pick || q("#iDesc")).focus();
       };

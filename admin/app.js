@@ -25,6 +25,34 @@
   const section = (title, body, extra) => `<div class="section"><div class="section-title">${title}${extra || ""}</div>${body}</div>`;
   const invoicesOf = e => T.storeFor(e.id).get("invoices", []);
   const timbradosOf = e => T.storeFor(e.id).get("timbrados", []);
+  const inutilsOf = e => T.storeFor(e.id).get("inutilizaciones", []);
+  function inutilSheet(e) {
+    const st = T.storeFor(e.id), tims = st.get("timbrados", []).map(T.normTimbrado), act = tims.find(t => t.active) || tims[0];
+    if (!act) { toast("La empresa no tiene timbrados"); return; }
+    const tipoOpts = t => t.tipos.map(c => `<option value="${c}">${esc(T.deType(c).short)} (próximo ${String(T.nextNum(t, c)).padStart(7, "0")})</option>`).join("");
+    sheet(`<h3>Inutilizar números</h3>
+      <p class="muted small">Declara a SIFEN que esos números no se van a usar. No se puede deshacer.</p>
+      <label for="iuTim">Timbrado</label><select id="iuTim">${tims.map(t => `<option value="${esc(t.id)}" ${t === act ? "selected" : ""}>${esc(t.number)}${t.active ? " (activo)" : ""}</option>`).join("")}</select>
+      <label for="iuTipo">Tipo de documento</label><select id="iuTipo">${tipoOpts(act)}</select>
+      <div class="muted small" style="margin-top:6px">Establecimiento y punto: ${esc(e.establishment)}-${esc(e.point)}</div>
+      <div class="grid2"><div><label for="iuDesde">Desde el número</label><input id="iuDesde" data-kb="digits"></div><div><label for="iuHasta">Hasta el número</label><input id="iuHasta" data-kb="digits"></div></div>
+      <label for="iuMot">Motivo</label><input id="iuMot" data-kb="sentence" placeholder="Ej. Salto de numeración por error del sistema">
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok style="background:var(--bad);border-color:var(--bad)">Inutilizar</button></div>`, (el, close) => {
+      el.querySelector("#iuTim").onchange = ev => { const t = tims.find(x => x.id === ev.target.value); el.querySelector("#iuTipo").innerHTML = tipoOpts(t); };
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const t = tims.find(x => x.id === el.querySelector("#iuTim").value), code = el.querySelector("#iuTipo").value;
+        const desde = parseInt(el.querySelector("#iuDesde").value, 10), hasta = parseInt(el.querySelector("#iuHasta").value, 10), motivo = el.querySelector("#iuMot").value.trim();
+        if (motivo.length < 5) { toast("Escribí el motivo (al menos 5 letras)"); return; }
+        const list = inutilsOf(e), r = T.inutilizar({ t, deTypeCode: code, desde, hasta, docs: invoicesOf(e), inutils: list, prefix: e.establishment + "-" + e.point + "-" });
+        if (!r.ok) { toast(r.error); return; }
+        list.unshift({ id: FE.randomId(6), timbradoId: t.id, timbrado: t.number, deType: code, est: e.establishment, point: e.point, desde, hasta, motivo, at: new Date().toISOString(), user: user.name });
+        st.set("inutilizaciones", list); st.set("timbrados", tims);
+        log("Inutilización de numeración", e.name + " · " + T.deType(code).short + " " + desde + " al " + hasta + " · " + motivo, e.id);
+        close(); render(); toast("Números inutilizados");
+      };
+    });
+  }
 
   // ================= Pantallas =================
   function screenPanel() {
@@ -100,8 +128,15 @@
           ${can("empresa.ambiente") ? `<div class="seg" style="margin-top:8px"><button data-setenv="test" class="${e.env !== "prod" ? "on" : ""}">Prueba</button><button data-setenv="prod" class="${e.env === "prod" ? "on" : ""}">Producción</button></div>` : ""}
           ${can("empresa.tecnico") ? `<button class="btn soft" data-editcsc style="margin-top:10px">Editar IdCSC</button>` : ""}
         </div>`)}
-      ${section("Facturas", `<div class="card">
-          ${kv("Aprobadas", inv.filter(i => i.status === "ok").length)}${kv("Rechazadas por corregir", inv.filter(i => i.status === "bad" && !i.cancelled).length)}
+      ${section("Inutilización de numeración", `<div class="card">
+          ${inutilsOf(e).length ? inutilsOf(e).map(x => `<div class="kv"><span><b>${esc(T.deType(x.deType).short)} ${esc(x.est)}-${esc(x.point)} · ${String(x.desde).padStart(7, "0")} al ${String(x.hasta).padStart(7, "0")}</b>
+            <br><span class="small muted">Timbrado ${esc(x.timbrado)} · ${esc(x.motivo)} · ${esc(x.user)}</span></span><span class="small muted">${fmtDate(x.at)}</span></div>`).join("")
+            : `<div class="muted small">No hay rangos inutilizados.</div>`}
+          ${can("timbrados.editar") ? `<button class="add" data-inutil>+ Inutilizar números</button>` : ""}
+          <div class="muted small" style="margin-top:8px">Para números que no se van a usar (saltos, errores de carga). El evento real se enviará a SIFEN desde el servidor.</div>
+        </div>`)}
+      ${section("Documentos emitidos", `<div class="card">
+          ${T.DE_TYPES.filter(ty => ty.available && inv.some(i => String(i.deType || "1") === ty.code && i.status === "ok")).map(ty => kv(esc(ty.short) + " aprobadas", inv.filter(i => String(i.deType || "1") === ty.code && i.status === "ok").length)).join("") || kv("Aprobados", 0)}${kv("Rechazadas por corregir", inv.filter(i => i.status === "bad" && !i.cancelled).length)}
           ${kv("Canceladas", inv.filter(i => i.cancelled).length)}${kv("Pendientes de envío", inv.filter(i => i.status === "warn").length)}
         </div>`)}
       ${section("Usuarios de la empresa", `<div class="card">
@@ -191,7 +226,8 @@
       body = `${act ? `<div class="notice ok" style="margin-top:0"><b>Timbrado activo ${esc(act.number)}</b>${esc(T.vigenciaText(act))}</div>` : ""}
         ${inp("tNum4", "Número de timbrado (8 dígitos)", act ? act.number : "", 'inputmode="numeric" maxlength="8"')}
         <div class="grid2"><div>${inp("tStart4", "Fecha de inicio", act ? act.start : FE.todayKey(), 'type="date"')}</div><div>${inp("tEnd4", "Fecha de fin (vacío = sin fin)", act ? act.end : "", 'type="date"')}</div></div>
-        ${inp("tNext4", "Número de la primera factura", act ? act.nextNumber : 1, 'inputmode="numeric"')}
+        ${inp("tNext4", "Número del primer documento de cada tipo", act ? act.nextNumber : 1, 'inputmode="numeric"')}
+        ${T.tiposFieldsHTML(act ? T.normTimbrado(act).tipos : ["1", "5", "6"], null)}
         ${inp("aCsc", "IdCSC de prueba", e.csc || "0001", 'inputmode="numeric" maxlength="4"')}
         <div class="muted small" style="margin-top:6px">En prueba se usa el CSC del manual. El CSC de producción se carga en el paso 6.</div>`;
     } else if (step === 5) {
@@ -254,16 +290,19 @@
       if (!/^\d{8}$/.test(num)) { toast("El timbrado tiene que tener 8 dígitos"); return false; }
       if (!start) { toast("Elegí la fecha de inicio del timbrado"); return false; }
       if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return false; }
-      if (!(next >= 1)) { toast("El número de la primera factura tiene que ser 1 o más"); return false; }
+      if (!(next >= 1)) { toast("El número del primer documento tiene que ser 1 o más"); return false; }
+      const tipos = T.readTipos(document.getElementById("screen")).tipos;
+      if (!tipos.length) { toast("Marcá al menos un tipo de documento habilitado"); return false; }
       if (!/^\d{1,4}$/.test(v("aCsc"))) { toast("El IdCSC tiene hasta 4 dígitos"); return false; }
       e.csc = v("aCsc").padStart(4, "0");
       T.saveEmpresa(e);
       const st = T.storeFor(e.id), tims = st.get("timbrados", []), act = tims.find(t => t.active);
-      if (act && act.number === num) Object.assign(act, act.used ? { end } : { start, end, nextNumber: next });
+      const numeros = {}; tipos.forEach(c => numeros[c] = next);
+      if (act && act.number === num) { T.normTimbrado(act); Object.assign(act, act.used ? { end } : { start, end, numeros }); act.tipos = Array.from(new Set([...(act.used ? act.tipos : []), ...tipos])); tipos.forEach(c => { if (!act.numeros[c]) act.numeros[c] = next; }); T.normTimbrado(act); }
       else if (tims.some(t => t.number === num)) { toast("Ese timbrado ya está cargado en la empresa"); return false; }
-      else { tims.forEach(t => t.active = false); tims.push({ id: FE.randomId(6), number: num, start, end, nextNumber: next, active: true, createdAt: new Date().toISOString() }); }
+      else { tims.forEach(t => t.active = false); tims.push(T.normTimbrado({ id: FE.randomId(6), number: num, start, end, tipos, numeros, active: true, createdAt: new Date().toISOString() })); }
       st.set("timbrados", tims);
-      log("Timbrado cargado (alta)", e.name + " · " + num, e.id);
+      log("Timbrado cargado (alta)", e.name + " · " + num + " · " + tipos.map(c => T.deType(c).short).join(", "), e.id);
     } else if (a.step === 5) {
       const checks = {};
       document.querySelectorAll("[data-check]").forEach(c => { if (c.checked) checks[c.dataset.check] = true; });
@@ -436,10 +475,12 @@
     if ((ds.timadd !== undefined || ds.timedit) && emp) {
       if (!can("timbrados.editar")) return;
       const st = T.storeFor(emp.id), list = st.get("timbrados", []), tt = ds.timedit ? list.find(x => x.id === ds.timedit) : null;
-      const used = !!tt && (tt.used || st.get("invoices", []).some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === tt.id));
-      T.timbradoSheet({ list, t: tt, used, onSave: (l, msg) => { st.set("timbrados", l); log(tt ? "Timbrado editado" : "Timbrado cargado", emp.name + " · " + msg, emp.id); toast(msg); render(); } });
+      const docs = st.get("invoices", []);
+      const used = !!tt && (tt.used || docs.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === tt.id));
+      T.timbradoSheet({ list, t: tt, used, usedTipos: tt ? T.usedTiposOf(docs, tt.id) : [], onSave: (l, msg) => { st.set("timbrados", l); log(tt ? "Timbrado editado" : "Timbrado cargado", emp.name + " · " + msg, emp.id); toast(msg); render(); } });
       return;
     }
+    if (ds.inutil !== undefined && emp) { if (can("timbrados.editar")) inutilSheet(emp); return; }
     if (ds.timact && emp) {
       if (!can("timbrados.editar")) return;
       const st = T.storeFor(emp.id), list = st.get("timbrados", []);

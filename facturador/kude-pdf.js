@@ -49,7 +49,8 @@
       text("AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA", W / 2, y + 3, { size: 9, bold: true, color: RED, align: "center" }); y += 5;
       text("DOCUMENTO ELECTRÓNICO SIN VALOR COMERCIAL NI FISCAL - GENERADO EN AMBIENTE DE PRUEBA", W / 2, y + 2, { size: 6.5, color: RED, align: "center" }); y += 4;
     }
-    text("KuDE de Factura Electrónica", W / 2, y + 3.5, { size: 10.5, align: "center" }); y += 7;
+    const noPrice = String(inv.deType || "1") === "7";
+    text("KuDE de " + (inv.typeLabel || "Factura electrónica"), W / 2, y + 3.5, { size: 10.5, align: "center" }); y += 7;
 
     // ---------- Emisor ----------
     const top = y, LX = M + 3, RX = M + 106, LW = 98, RW = CW - 106 - 3;
@@ -69,7 +70,7 @@
     text("RUC: " + company.ruc + "-" + company.dv, RX, ry, { size: 10.5, bold: true }); ry += 5.5;
     (opts.timbradoLines || ["Timbrado Nº: " + company.timbrado, "Inicio de vigencia: " + company.start, "Fin de vigencia: " + company.end]).forEach(l => { text(l, RX, ry, { size: 8.5 }); ry += lh(8.5); });
     ry += 5;
-    text("FACTURA ELECTRÓNICA", RX, ry, { size: 12.5, bold: true }); ry += 6;
+    lines(wrap(inv.typeTitle || "FACTURA ELECTRÓNICA", RW, 12.5, true), RX, ry, 12.5, true); ry += lh(12.5) * (wrap(inv.typeTitle || "FACTURA ELECTRÓNICA", RW, 12.5, true).length - 1) + 6;
     text(inv.number, RX, ry, { size: 11.5, bold: true }); ry += 2;
     const hH = Math.max(ly, ry) - top + 2;
     box(M, top, CW, hH); doc.setLineWidth(0.2); doc.line(M + 103, top + 3, M + 103, top + hH - 3);
@@ -79,13 +80,13 @@
     const cond = inv.condition === "credito"
       ? "[  ] Contado   [X] Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "")
       : "[X] Contado   [  ] Crédito";
-    const pairs = [
+    const pairs = opts.pairs || [
       ["Fecha y hora de emisión", inv.dateLabel], ["RUC / Documento Nº", inv.receiverId || "Innominado"],
       ["Condición de venta", cond], ["Nombre o razón social", inv.receiverName || "-"],
       ["Moneda", isUSD ? "USD" + (inv.exchange ? " · Tipo de cambio " + inv.exchange : "") : "PYG - Guaraní"], ["Dirección / Correo", inv.receiverEmail || "-"],
       ["Tipo de transacción", "Venta de mercadería"]
     ];
-    if (inv.pedidoId) pairs.push(["Pedido", inv.pedidoId]);
+    if (!opts.pairs && inv.pedidoId) pairs.push(["Pedido", inv.pedidoId]);
     const rTop = y, colW = (CW - 9) / 2;
     let rowY = rTop + 3.5;
     for (let i = 0; i < pairs.length; i += 2) {
@@ -103,7 +104,7 @@
     y = rowY + 1.5;
 
     // ---------- Productos ----------
-    const cols = [
+    const cols = noPrice ? [{ t: "Cod", w: 22 }, { t: "Descripción", w: 118 }, { t: "Unidad", w: 20 }, { t: "Cantidad", w: 30, r: 1 }] : [
       { t: "Cod", w: 15 }, { t: "Descripción", w: 55 }, { t: "Unidad", w: 12 }, { t: "Cantidad", w: 15, r: 1 }, { t: "Precio", w: 22, r: 1 },
       { t: "Desc.", w: 11, r: 1 }, { t: "Exentas", w: 20, r: 1 }, { t: "5%", w: 20, r: 1 }, { t: "10%", w: 20, r: 1 }
     ];
@@ -127,6 +128,7 @@
       lines(dl, colX[1] + 1.2, by, 8);
       cell(2, "UNI", by, { size: 8 });
       cell(3, String(it.qty).replace(".", ","), by, { size: 8 });
+      if (noPrice) { y += h; hr(y, LIGHT, 0.15); return; }
       cell(4, fmt(it.price), by, { size: 8 });
       cell(5, it.discount ? it.discount + "%" : "0", by, { size: 8 });
       cell(6, it.tax === "E" ? fmt(total) : "0", by, { size: 8 });
@@ -140,13 +142,17 @@
       vals.forEach(([i, v]) => cell(i, v, y + 4.2, { size: 8.5, bold: true }));
       y += 6.5; hr(y, BLACK, 0.25);
     };
-    totalRow("SUBTOTAL", [[6, fmt(T.exe)], [7, fmt(T.b5)], [8, fmt(T.b10)]]);
-    totalRow("TOTAL DE LA OPERACIÓN" + (isUSD ? " (USD)" : ""), [[8, fmt(T.total)]]);
-    totalRow("TOTAL EN GUARANÍES", [[8, isUSD ? fmtGs(T.totalPyg) : fmt(T.total)]]);
-    ensure(8);
-    const liq = [["LIQUIDACIÓN IVA", M + 1.2, "left"], ["(5%) " + fmt(T.iva5), M + 85, "right"], ["(10%) " + fmt(T.iva10), M + 135, "right"], ["TOTAL IVA " + fmt(T.iva), M + CW - 1.2, "right"]];
-    liq.forEach(([s, x, a]) => text(s, x, y + 4.5, { size: 8.5, bold: true, align: a }));
-    y += 6.5; hr(y, BLACK, 0.3); y += 4;
+    if (noPrice) { hr(y, BLACK, 0.3); y += 4; }
+    else {
+      totalRow("SUBTOTAL", [[6, fmt(T.exe)], [7, fmt(T.b5)], [8, fmt(T.b10)]]);
+      totalRow("TOTAL DE LA OPERACIÓN" + (isUSD ? " (USD)" : ""), [[8, fmt(T.total)]]);
+      totalRow("TOTAL EN GUARANÍES", [[8, isUSD ? fmtGs(T.totalPyg) : fmt(T.total)]]);
+      ensure(8);
+      const liq = [["LIQUIDACIÓN IVA", M + 1.2, "left"], ["(5%) " + fmt(T.iva5), M + 85, "right"], ["(10%) " + fmt(T.iva10), M + 135, "right"], ["TOTAL IVA " + fmt(T.iva), M + CW - 1.2, "right"]];
+      liq.forEach(([s, x, a]) => text(s, x, y + 4.5, { size: 8.5, bold: true, align: a }));
+      y += 6.5; hr(y, BLACK, 0.3); y += 4;
+      if (String(inv.deType) === "4") { text("La autofactura no respalda crédito fiscal en el IVA.", M, y, { size: 7.5, color: GREY }); y += 4; }
+    }
 
     // ---------- Pie con QR y CDC ----------
     const TX = M + 40, TW = CW - 43;
@@ -164,7 +170,7 @@
       text("QR al aprobarse", M + 3 + QS / 2, fTop + 3 + QS / 2, { size: 7.5, color: GREY, align: "center" });
     }
     let fy = fTop + 6;
-    text("Consulte la validez de esta factura electrónica con el número de CDC en:", TX, fy, { size: 8 }); fy += lh(8) + 0.4;
+    text("Consulte la validez de este documento electrónico con el número de CDC en:", TX, fy, { size: 8 }); fy += lh(8) + 0.4;
     text(opts.consultUrl, TX, fy, { size: 8, color: BLUE }); doc.link(TX, fy - 3, doc.getTextWidth(clean(opts.consultUrl)), 4, { url: opts.consultUrl }); fy += 2.5;
     doc.setFillColor(201, 219, 239); doc.rect(TX, fy, TW, 6.5, "F");
     text("CDC: " + (inv.cdc ? global.FE.formatCdc(inv.cdc) : "Pendiente de aprobación"), TX + TW / 2, fy + 4.4, { size: 8.5, bold: true, align: "center" }); fy += 10;
@@ -184,10 +190,10 @@
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      text("Factura electrónica " + inv.number, M, H - 5, { size: 7, color: GREY });
+      text((inv.typeLabel || "Factura electrónica") + " " + inv.number, M, H - 5, { size: 7, color: GREY });
       text("Página " + p + " de " + pages, W - M, H - 5, { size: 7, color: GREY, align: "right" });
     }
-    doc.setProperties({ title: "KuDE " + inv.number, subject: "Factura electrónica " + inv.number + " · " + (inv.receiverName || ""),
+    doc.setProperties({ title: "KuDE " + inv.number, subject: (inv.typeLabel || "Factura electrónica") + " " + inv.number + " · " + (inv.receiverName || ""),
       author: company.name, creator: "Factura Elect", keywords: "KuDE, factura electrónica, " + (inv.cdc || "") });
     return doc;
   }
@@ -212,25 +218,33 @@
     center(company.address + " · " + company.city, 7);
     if (company.phone) center("Tel. " + company.phone, 7);
     (opts.timbradoLines || []).forEach(l => center(l, 7));
-    y += 1; center("FACTURA ELECTRÓNICA", 9, true); center(inv.number, 9, true); y += 1; sep();
-    pair("Fecha", inv.dateLabel, 7.5);
-    pair("Condición", inv.condition === "credito" ? "Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "Contado", 7.5);
-    pair("Moneda", isUSD ? "USD" + (inv.exchange ? " · TC " + inv.exchange : "") : "PYG", 7.5);
-    left("Cliente: " + (inv.receiverName || "-"), 7.5);
-    left("RUC / Documento: " + (inv.receiverId || "Innominado"), 7.5);
-    if (inv.receiverEmail) left("Correo: " + inv.receiverEmail, 7.5);
+    const noPrice = String(inv.deType || "1") === "7";
+    y += 1; center(inv.typeTitle || "FACTURA ELECTRÓNICA", 9, true); center(inv.number, 9, true); y += 1; sep();
+    if (opts.pairs) opts.pairs.forEach(([k, v]) => left(k + ": " + v, 7.5));
+    else {
+      pair("Fecha", inv.dateLabel, 7.5);
+      pair("Condición", inv.condition === "credito" ? "Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "Contado", 7.5);
+      pair("Moneda", isUSD ? "USD" + (inv.exchange ? " · TC " + inv.exchange : "") : "PYG", 7.5);
+      left("Cliente: " + (inv.receiverName || "-"), 7.5);
+      left("RUC / Documento: " + (inv.receiverId || "Innominado"), 7.5);
+      if (inv.receiverEmail) left("Correo: " + inv.receiverEmail, 7.5);
+    }
     sep();
     inv.items.forEach((it, i) => {
       const total = global.FE.calcItem(it, inv.currency).total;
       left((it.code ? it.code + " " : "") + it.desc, 7.5, true);
+      if (noPrice) { pair("Cantidad", String(it.qty).replace(".", ",") + " UNI", 7.5); return; }
       pair(String(it.qty).replace(".", ",") + " x " + fmt(it.price) + (it.discount ? " - " + it.discount + "%" : "") + "  " + (it.tax === "E" ? "Exenta" : "IVA " + it.tax + "%"), fmt(total), 7.5);
     });
     sep();
-    pair("Subtotal exentas", fmt(T.exe), 7.5); pair("Subtotal 5%", fmt(T.b5), 7.5); pair("Subtotal 10%", fmt(T.b10), 7.5);
-    pair("TOTAL" + (isUSD ? " (USD)" : ""), fmt(T.total), 9.5, true);
-    if (isUSD) pair("Total en guaraníes", fmtGs(T.totalPyg), 7.5, true);
-    pair("Liquidación IVA 5%", fmt(T.iva5), 7.5); pair("Liquidación IVA 10%", fmt(T.iva10), 7.5); pair("Total IVA", fmt(T.iva), 7.5, true);
-    sep();
+    if (!noPrice) {
+      pair("Subtotal exentas", fmt(T.exe), 7.5); pair("Subtotal 5%", fmt(T.b5), 7.5); pair("Subtotal 10%", fmt(T.b10), 7.5);
+      pair("TOTAL" + (isUSD ? " (USD)" : ""), fmt(T.total), 9.5, true);
+      if (isUSD) pair("Total en guaraníes", fmtGs(T.totalPyg), 7.5, true);
+      pair("Liquidación IVA 5%", fmt(T.iva5), 7.5); pair("Liquidación IVA 10%", fmt(T.iva10), 7.5); pair("Total IVA", fmt(T.iva), 7.5, true);
+      if (String(inv.deType) === "4") center("No respalda crédito fiscal en el IVA", 6.5, false, GREY);
+      sep();
+    }
     const QS = 34;
     if (opts.qrText && global.qrcode) {
       const qr = global.qrcode(0, "M"); qr.addData(opts.qrText, "Byte"); qr.make();

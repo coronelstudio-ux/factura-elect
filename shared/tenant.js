@@ -82,7 +82,8 @@
       const st = storeFor(emp.id);
       ["invoices", "pedidos", "clients", "timbrados"].forEach(k => { const v = legacy.get(k, null); if (v != null) st.set(k, v); });
       if (!st.get("timbrados", null)) st.set("timbrados", [{ id: randomId(6), number: emp.timbrado, start: dmyToIso(emp.start), end: dmyToIso(emp.end),
-        nextNumber: emp.nextNumber || 1, active: true, createdAt: new Date().toISOString() }]);
+        nextNumber: emp.nextNumber || 1, tipos: HABILITABLES.slice(), numeros: Object.fromEntries(HABILITABLES.map(c => [c, c === "1" ? emp.nextNumber || 1 : 1])),
+        active: true, createdAt: new Date().toISOString() }]);
       setActive(emp.id);
       list = listEmpresas();
     }
@@ -125,7 +126,48 @@
   }
   const auditList = () => G.get("audit", []);
 
+  // ================= Tipos de documento electrónico (iTiDE) =================
+  // code = tipo de documento del CDC (posiciones 1-2). available = SIFEN ya lo recibe; los demás se muestran deshabilitados con el motivo.
+  const DE_TYPES = [
+    { code: "1", key: "factura", label: "Factura electrónica", short: "Factura", abbr: "FE", title: "FACTURA ELECTRÓNICA", available: true, cancelH: 48 },
+    { code: "5", key: "nc", label: "Nota de crédito electrónica", short: "Nota de crédito", abbr: "NC", title: "NOTA DE CRÉDITO ELECTRÓNICA", available: true, cancelH: 48, assoc: true },
+    { code: "6", key: "nd", label: "Nota de débito electrónica", short: "Nota de débito", abbr: "ND", title: "NOTA DE DÉBITO ELECTRÓNICA", available: true, cancelH: 48, assoc: true },
+    { code: "4", key: "autofactura", label: "Autofactura electrónica", short: "Autofactura", abbr: "AF", title: "AUTOFACTURA ELECTRÓNICA", available: true, cancelH: 48 },
+    { code: "7", key: "remision", label: "Nota de remisión electrónica", short: "Nota de remisión", abbr: "NR", title: "NOTA DE REMISIÓN ELECTRÓNICA", available: true, cancelH: 168 },
+    { code: "RD", key: "recibo", label: "Recibo de dinero electrónico", short: "Recibo", abbr: "RD", available: false,
+      reason: "Lo crea el Decreto 872; SIFEN todavía no publicó su formato ni su tipo de documento." },
+    { code: "8", key: "retencion", label: "Comprobante de retención electrónico", short: "Retención", abbr: "CR", available: false,
+      reason: "Previsto en SIFEN para el futuro; hoy la retención se emite en forma virtual en Marangatu." },
+    { code: "2", key: "exportacion", label: "Factura electrónica de exportación", short: "Exportación", abbr: "FX", available: false, reason: "Prevista para el futuro en SIFEN." },
+    { code: "3", key: "importacion", label: "Factura electrónica de importación", short: "Importación", abbr: "FI", available: false, reason: "Prevista para el futuro en SIFEN." }
+  ];
+  const deType = code => DE_TYPES.find(t => t.code === String(code || "1")) || DE_TYPES[0];
+  const HABILITABLES = DE_TYPES.filter(t => t.available).map(t => t.code);
+  // Motivos de emisión (códigos del manual técnico; a confirmar con la versión vigente)
+  const MOTIVOS_NC = [["1", "Devolución y ajuste de precios"], ["2", "Devolución"], ["3", "Descuento"], ["4", "Bonificación"], ["5", "Crédito incobrable"],
+    ["6", "Recupero de costo"], ["7", "Recupero de gasto"], ["8", "Ajuste de precio"]];
+  const MOTIVOS_ND = [["8", "Ajuste de precio"], ["9", "Intereses o recargos"], ["10", "Gastos adicionales"], ["99", "Otro"]];
+  const MOTIVOS_REM = [["1", "Traslado por venta"], ["2", "Traslado por consignación"], ["3", "Exportación"], ["4", "Traslado por compra"], ["5", "Importación"],
+    ["6", "Traslado por devolución"], ["7", "Traslado entre locales de la empresa"], ["8", "Traslado para transformación"], ["9", "Traslado para reparación"],
+    ["10", "Traslado por emisor móvil"], ["11", "Exhibición o demostración"], ["12", "Participación en ferias"], ["13", "Traslado de encomienda"], ["14", "Decomiso"], ["99", "Otro"]];
+  const MODOS_TRANSPORTE = [["1", "Terrestre"], ["2", "Fluvial"], ["3", "Aéreo"], ["4", "Multimodal"]];
+  const CONSTANCIAS = [["1", "Constancia de no ser contribuyente"], ["2", "Constancia de microproductor"]];
+  const labelOf = (list, code) => (list.find(x => x[0] === String(code)) || [code, ""])[1];
+
   // ================= Timbrados =================
+  // Cada timbrado habilita algunos tipos de documento y lleva una numeración por tipo:
+  // { id, number, start, end, tipos: ["1","5",...], numeros: { "1": 13, "5": 1 }, nextNumber (= numeros["1"]), active, used }
+  function normTimbrado(t) {
+    if (!t) return t;
+    if (!Array.isArray(t.tipos) || !t.tipos.length) t.tipos = ["1"];
+    if (!t.numeros) t.numeros = { "1": t.nextNumber || 1 };
+    t.tipos.forEach(c => { if (!(t.numeros[c] >= 1)) t.numeros[c] = 1; });
+    t.nextNumber = t.numeros["1"] || 1;
+    return t;
+  }
+  const typeEnabled = (t, code) => !!t && normTimbrado(t).tipos.includes(String(code));
+  const nextNum = (t, code) => normTimbrado(t).numeros[String(code)] || 1;
+  function bumpNum(t, code) { normTimbrado(t); t.numeros[code] = nextNum(t, code) + 1; t.nextNumber = t.numeros["1"] || 1; t.used = true; }
   function timbradoStatus(t) {
     const today = FE.todayKey();
     if (!t) return "none";
@@ -137,13 +179,14 @@
   function timbradoListHTML(list, opts) {
     opts = opts || {};
     const rows = list.slice().sort((a, b) => (b.active - a.active) || String(b.start).localeCompare(String(a.start))).map(t => {
+      normTimbrado(t);
       const st = timbradoStatus(t);
       const chip = t.active ? (st === "vigente" ? '<span class="chip ok">Activo</span>' : '<span class="chip bad">Activo · ' + st + '</span>')
         : st === "vencido" ? '<span class="chip neutral">Vencido</span>' : st === "futuro" ? '<span class="chip warn">Todavía no vigente</span>' : '<span class="chip neutral">Inactivo</span>';
       return `<div class="row" style="cursor:default;align-items:flex-start"><div class="main">
         <div class="title">Nº ${esc(t.number)}</div>
         <div class="sub">${esc(vigenciaText(t))}</div>
-        <div class="sub">Próximo número: ${String(t.nextNumber).padStart(7, "0")}</div>
+        <div class="tipos">${t.tipos.map(c => `<span class="tipo-chip" title="${esc(deType(c).label)}">${esc(deType(c).short)} · ${String(nextNum(t, c)).padStart(7, "0")}</span>`).join("")}</div>
         <div style="margin-top:6px">${chip}</div></div>
         ${opts.editable ? `<span style="display:flex;flex-direction:column;align-items:flex-end">
           ${t.active ? "" : `<button class="link" data-timact="${esc(t.id)}" ${st === "vencido" ? "disabled" : ""}>Activar</button>`}
@@ -151,17 +194,37 @@
     }).join("");
     return (rows || `<div class="muted small">Todavía no hay timbrados cargados.</div>`) +
       (opts.editable ? `<button class="add" data-timadd>+ Cargar timbrado</button>` : "") +
-      `<div class="muted small" style="margin-top:8px">${opts.editable ? "Todos los timbrados quedan guardados. Solo se factura con el activo, y solo mientras esté vigente."
-        : "Los timbrados los administra el estudio."}</div>`;
+      `<div class="muted small" style="margin-top:8px">${opts.editable ? "Cada timbrado habilita los tipos de documento elegidos en Marangatu, con numeración propia por tipo. Solo se emite con el activo, y solo mientras esté vigente."
+        : "Los timbrados los administra el estudio. El número al lado de cada tipo es el próximo a usar."}</div>`;
   }
   const checkbox = (id, checked, text) => `<label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
     <input type="checkbox" id="${id}" ${checked ? "checked" : ""} style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> ${text}</label>`;
-  // Hoja para cargar o editar un timbrado. o: { list, t, used, onSave(list, message) }
+  // Casillas de tipos habilitados (para timbrado y alta guiada). sel: tipos marcados; nums: próximos números (si se editan)
+  function tiposFieldsHTML(sel, nums, usedTipos) {
+    return `<label>Tipos de documento habilitados en este timbrado</label>
+      <div class="card" style="padding:4px 14px">${HABILITABLES.map(c => {
+        const ty = deType(c), on = sel.includes(c), locked = (usedTipos || []).includes(c);
+        return `<div class="tipo-row"><label style="display:flex;gap:10px;align-items:center;margin:0;color:var(--text);font-weight:600;flex:1">
+          <input type="checkbox" data-tipo="${c}" ${on ? "checked" : ""} ${locked ? "disabled" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(ty.short)}</label>
+          ${nums ? `<input data-tiponum="${c}" data-kb="digits" value="${esc(nums[c] || 1)}" ${on ? "" : "disabled"} aria-label="Próximo número de ${esc(ty.short)}" style="width:110px;min-height:40px;padding:6px 10px">` : ""}</div>`;
+      }).join("")}</div>
+      <div class="muted small" style="margin-top:6px">Marcá los mismos tipos que elegiste al habilitarte en Marangatu. SIFEN rechaza un documento cuyo tipo no esté en el timbrado.${nums ? " El número es el próximo a usar en cada tipo." : ""}</div>`;
+  }
+  function readTipos(el) {
+    const tipos = Array.from(el.querySelectorAll("[data-tipo]")).filter(c => c.checked).map(c => c.dataset.tipo);
+    const nums = {};
+    el.querySelectorAll("[data-tiponum]").forEach(i => { nums[i.dataset.tiponum] = parseInt(i.value.replace(/\D/g, ""), 10) || 1; });
+    return { tipos, nums };
+  }
+  function bindTipos(el) {
+    el.querySelectorAll("[data-tipo]").forEach(c => c.addEventListener("change", () => { const n = el.querySelector(`[data-tiponum="${c.dataset.tipo}"]`); if (n) n.disabled = !c.checked; }));
+  }
+  // Hoja para cargar o editar un timbrado. o: { list, t, used, usedTipos, onSave(list, message) }
   function timbradoSheet(o) {
-    const list = o.list, t = o.t, editing = !!t, used = editing && !!o.used;
-    const v = t || { number: "", start: FE.todayKey(), end: "", nextNumber: 1 };
+    const list = o.list, t = o.t ? normTimbrado(o.t) : null, editing = !!t, used = editing && !!o.used;
+    const v = t || { number: "", start: FE.todayKey(), end: "", nextNumber: 1, tipos: ["1", "5", "6"], numeros: {} };
     sheet(`<h3>${editing ? "Editar timbrado" : "Cargar timbrado"}</h3>
-      ${used ? `<p class="muted small">Ya se emitieron facturas con este timbrado: el número y la fecha de inicio no se pueden cambiar.</p>` : ""}
+      ${used ? `<p class="muted small">Ya se emitieron documentos con este timbrado: el número y la fecha de inicio no se pueden cambiar.</p>` : ""}
       <label for="tNum">Número de timbrado (8 dígitos)</label>
       <input id="tNum" inputmode="numeric" maxlength="8" placeholder="12345678" value="${esc(v.number)}" ${used ? "disabled" : ""}>
       <div class="grid2">
@@ -169,29 +232,40 @@
         <div><label for="tEnd">Fecha de fin</label><input id="tEnd" type="date" value="${esc(v.end)}" ${v.end ? "" : "disabled"}></div>
       </div>
       ${checkbox("tNoEnd", !v.end, "Sin fecha de fin")}
-      <label for="tNext">${used ? "Próximo número de factura" : "Número de la primera factura"}</label>
-      <input id="tNext" inputmode="numeric" value="${esc(v.nextNumber)}">
+      ${tiposFieldsHTML(v.tipos, editing ? v.numeros : null, o.usedTipos)}
+      ${editing ? "" : `<label for="tNext">Número del primer documento de cada tipo</label><input id="tNext" inputmode="numeric" value="1">`}
       ${editing ? "" : checkbox("tAct", true, "Activarlo ahora (el actual queda inactivo)")}
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
       const noEnd = el.querySelector("#tNoEnd"), endEl = el.querySelector("#tEnd");
       noEnd.onchange = () => { endEl.disabled = noEnd.checked; if (noEnd.checked) endEl.value = ""; };
+      bindTipos(el);
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
         const number = el.querySelector("#tNum").value.replace(/\D/g, ""), start = el.querySelector("#tStart").value;
-        const end = noEnd.checked ? "" : endEl.value, next = parseInt(el.querySelector("#tNext").value.replace(/\D/g, ""), 10);
+        const end = noEnd.checked ? "" : endEl.value, sel = readTipos(el);
         if (!/^\d{8}$/.test(number)) { toast("El timbrado tiene que tener 8 dígitos"); return; }
         if (!start) { toast("Elegí la fecha de inicio"); return; }
         if (!noEnd.checked && !end) { toast("Elegí la fecha de fin o marcá «Sin fecha de fin»"); return; }
         if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return; }
-        if (!(next >= 1 && next <= 9999999)) { toast("El número de factura tiene que estar entre 1 y 9.999.999"); return; }
+        if (!sel.tipos.length) { toast("Marcá al menos un tipo de documento"); return; }
         if (list.some(x => x.number === number && x !== t)) { toast("Ese timbrado ya está cargado"); return; }
         let msg;
         if (editing) {
-          if (used && next < t.nextNumber) { toast("El próximo número no puede ser menor a " + t.nextNumber + ": ya se usaron los anteriores"); return; }
-          Object.assign(t, used ? { end, nextNumber: next } : { number, start, end, nextNumber: next });
+          const numeros = {};
+          for (const c of sel.tipos) {
+            const n = sel.nums[c] || 1, min = (t.numeros && t.numeros[c]) || 1;
+            if (n > 9999999) { toast("El número tiene que ser menor a 10.000.000"); return; }
+            if (used && n < min && (o.usedTipos || []).includes(c)) { toast(deType(c).short + ": el próximo número no puede ser menor a " + min + ", ya se usaron los anteriores"); return; }
+            numeros[c] = n;
+          }
+          Object.assign(t, used ? { end } : { number, start, end }, { tipos: sel.tipos, numeros });
+          normTimbrado(t);
           msg = t.active && timbradoStatus(t) === "vencido" ? "Atención: con esa fecha de fin el timbrado activo queda vencido" : "Timbrado " + t.number + " guardado";
         } else {
-          const nt = { id: randomId(6), number, start, end, nextNumber: next, active: false, createdAt: new Date().toISOString() };
+          const next = parseInt(el.querySelector("#tNext").value.replace(/\D/g, ""), 10);
+          if (!(next >= 1 && next <= 9999999)) { toast("El número tiene que estar entre 1 y 9.999.999"); return; }
+          const numeros = {}; sel.tipos.forEach(c => numeros[c] = next);
+          const nt = normTimbrado({ id: randomId(6), number, start, end, tipos: sel.tipos, numeros, active: false, createdAt: new Date().toISOString() });
           const activate = el.querySelector("#tAct").checked;
           if (activate && timbradoStatus(nt) === "vencido") { toast("Ese timbrado ya está vencido: no se puede activar"); return; }
           if (activate) list.forEach(x => x.active = false);
@@ -201,6 +275,25 @@
         close(); o.onSave(list, msg);
       };
     });
+  }
+  // Tipos ya usados en documentos emitidos con un timbrado (no se pueden quitar)
+  const usedTiposOf = (docs, timbradoId) => Array.from(new Set(docs.filter(d => d.kude && d.kude.timbrado && d.kude.timbrado.id === timbradoId && d.status === "ok").map(d => String(d.deType || "1"))));
+  // Inutilización: rangos de números que no se van a usar. { id, timbradoId, timbrado, deType, est, point, desde, hasta, motivo, at, user }
+  function inutilizar(o) {
+    const { t, deTypeCode, desde, hasta, docs, inutils } = o; // o.prefix: "001-001-" (establecimiento y punto)
+    if (!t) return { ok: false, error: "Elegí un timbrado" };
+    if (!typeEnabled(t, deTypeCode)) return { ok: false, error: "Ese tipo no está habilitado en el timbrado" };
+    if (!(desde >= 1) || !(hasta >= desde) || hasta > 9999999) return { ok: false, error: "Revisá el rango: desde tiene que ser 1 o más y hasta, igual o mayor" };
+    if (hasta - desde > 9999) return { ok: false, error: "Un rango puede tener hasta 10.000 números" };
+    const numOf = d => parseInt(String(d.number || "").split("-").pop(), 10);
+    // Un número está usado si un documento no rechazado lo tiene: del mismo timbrado, o sin timbrado registrado (documentos viejos) con el mismo establecimiento y punto
+    const sameTim = d => d.kude && d.kude.timbrado ? d.kude.timbrado.id === t.id : !o.prefix || String(d.number || "").startsWith(o.prefix);
+    const taken = docs.find(d => sameTim(d) && String(d.deType || "1") === deTypeCode && d.status !== "bad" && numOf(d) >= desde && numOf(d) <= hasta);
+    if (taken) return { ok: false, error: "El número " + taken.number + " ya se usó en un documento" };
+    const overlap = (inutils || []).find(x => x.timbradoId === t.id && x.deType === deTypeCode && !(hasta < x.desde || desde > x.hasta));
+    if (overlap) return { ok: false, error: "Ese rango se superpone con una inutilización anterior (" + overlap.desde + " al " + overlap.hasta + ")" };
+    if (desde <= nextNum(t, deTypeCode) && hasta >= nextNum(t, deTypeCode)) { t.numeros[deTypeCode] = hasta + 1; normTimbrado(t); }
+    return { ok: true };
   }
   function activateTimbrado(list, id) {
     const t = list.find(x => x.id === id);
@@ -235,6 +328,7 @@
     else if (ts === "vencido") out.push({ level: "bad", kind: "timbrado", text: "Timbrado " + act.number + " vencido el " + isoToDmy(act.end) });
     else if (ts === "futuro") out.push({ level: "warn", kind: "timbrado", text: "Timbrado " + act.number + " empieza el " + isoToDmy(act.start) });
     else if (act.end && daysUntil(act.end) <= 30) out.push({ level: "warn", kind: "timbrado", text: "Timbrado " + act.number + " vence en " + daysUntil(act.end) + " día(s)" });
+    if (act && !typeEnabled(act, "5")) out.push({ level: "warn", kind: "timbrado", text: "El timbrado activo no habilita nota de crédito: no se podrán corregir facturas después de 48 h" });
     const cs = certStatus(emp.cert);
     if (cs.state === "none") out.push({ level: "warn", kind: "certificado", text: "Certificado sin cargar" });
     else if (cs.state === "expired") out.push({ level: "bad", kind: "certificado", text: "Certificado vencido (" + isoToDmy(emp.cert.vence) + ")" });
@@ -421,6 +515,8 @@
     listEmpresas, getEmpresa, saveEmpresa, activeId, setActive, storeFor, newEmpresa, ensureEmpresas,
     users, saveUsers, getUser, usersFor, empresasOf, accessTo, hashPin, verifyPin, sessionUser, setSession,
     audit, auditList, timbradoStatus, vigenciaText, timbradoListHTML, timbradoSheet, activateTimbrado,
+    DE_TYPES, deType, HABILITABLES, MOTIVOS_NC, MOTIVOS_ND, MOTIVOS_REM, MODOS_TRANSPORTE, CONSTANCIAS, labelOf,
+    normTimbrado, typeEnabled, nextNum, bumpNum, tiposFieldsHTML, readTipos, bindTipos, usedTiposOf, inutilizar,
     certStatus, PRESTADORES, queueFor, alertsFor, SEND_LIMIT_H, encodeCatalog, decodeCatalog, productSheet,
     Firmador, ONBOARDING, TEST_CHECKS, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
   };

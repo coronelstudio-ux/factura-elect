@@ -213,6 +213,45 @@ test("Pedido: el código de producto viaja en el QR", () => {
   assert.strictEqual(FE.decodePedido(FE.encodePedido(p)).pedido.items[0].code, "RES-A4");
 });
 
+// ---------- Tipos de documento y timbrado por tipo ----------
+test("Tipos: factura, notas, autofactura y remisión disponibles; recibo, retención y exportación no", () => {
+  assert.deepStrictEqual(T.HABILITABLES, ["1", "5", "6", "4", "7"]);
+  ["RD", "8", "2", "3"].forEach(c => { assert.strictEqual(T.deType(c).available, false); assert.ok(T.deType(c).reason); });
+});
+test("Timbrado viejo (solo nextNumber) pasa a factura con su numeración", () => {
+  const t = T.normTimbrado({ id: "x", nextNumber: 13 });
+  assert.deepStrictEqual(t.tipos, ["1"]); assert.strictEqual(T.nextNum(t, "1"), 13);
+  assert.ok(!T.typeEnabled(t, "5"));
+});
+test("Numeración propia por tipo", () => {
+  const t = T.normTimbrado({ id: "y", tipos: ["1", "5"], numeros: { "1": 20 } });
+  assert.strictEqual(T.nextNum(t, "5"), 1);
+  T.bumpNum(t, "5"); T.bumpNum(t, "5"); T.bumpNum(t, "1");
+  assert.strictEqual(T.nextNum(t, "5"), 3); assert.strictEqual(T.nextNum(t, "1"), 21); assert.strictEqual(t.nextNumber, 21);
+});
+test("Plazo de cancelación: 48 h; remisión 168 h", () => { assert.strictEqual(T.deType("1").cancelH, 48); assert.strictEqual(T.deType("5").cancelH, 48); assert.strictEqual(T.deType("7").cancelH, 168); });
+test("CDC lleva el tipo de documento", () => {
+  const c = FE.buildCdc({ deType: "5", ruc: "80012345", dv: "0", establishment: "001", point: "001", number: 1, date: new Date(2026, 10, 11) });
+  assert.strictEqual(c.slice(0, 2), "05"); assert.ok(FE.isValidCdc(c));
+});
+test("Inutilización: avanza la numeración, rechaza superpuestos y números usados", () => {
+  const t = T.normTimbrado({ id: "z", tipos: ["1"], numeros: { "1": 13 } });
+  const docs = [{ number: "001-001-0000009", status: "ok" }, { number: "001-001-0000011", status: "bad" }];
+  assert.ok(T.inutilizar({ t, deTypeCode: "1", desde: 13, hasta: 15, docs, inutils: [], prefix: "001-001-" }).ok);
+  assert.strictEqual(T.nextNum(t, "1"), 16);
+  const prev = [{ timbradoId: "z", deType: "1", desde: 13, hasta: 15 }];
+  assert.match(T.inutilizar({ t, deTypeCode: "1", desde: 15, hasta: 18, docs, inutils: prev, prefix: "001-001-" }).error, /superpone/);
+  assert.match(T.inutilizar({ t, deTypeCode: "1", desde: 9, hasta: 9, docs, inutils: prev, prefix: "001-001-" }).error, /ya se usó/);
+  assert.ok(T.inutilizar({ t, deTypeCode: "1", desde: 11, hasta: 11, docs, inutils: prev, prefix: "001-001-" }).ok); // el 11 fue rechazado: se puede inutilizar
+  assert.match(T.inutilizar({ t, deTypeCode: "5", desde: 1, hasta: 2, docs, inutils: prev }).error, /no está habilitado/);
+});
+test("Motivos y modos tienen etiqueta", () => {
+  assert.strictEqual(T.labelOf(T.MOTIVOS_NC, "2"), "Devolución");
+  assert.strictEqual(T.labelOf(T.MOTIVOS_REM, "7"), "Traslado entre locales de la empresa");
+  assert.strictEqual(T.labelOf(T.MODOS_TRANSPORTE, "1"), "Terrestre");
+});
+test("Producto sin precio (remisión) tiene total cero", () => assert.strictEqual(FE.calcItems([{ qty: 10, price: 0, tax: "E" }]).total, 0));
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);
