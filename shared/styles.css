@@ -369,3 +369,10 @@ body.in-flow .screen { padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 .receipt-amount-sub { color: var(--muted); }
 .receipt-card { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 16px; margin-top: 18px; }
 @media (max-width: 360px) { .flow-q { font-size: 24px; } .opt-grid { grid-template-columns: 1fr; } .opt { min-height: 0; } }
+.precio-row { display: grid; grid-template-columns: 1fr 118px; gap: 6px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.precio-row .pr-l { display: flex; flex-direction: column; grid-column: 1 / -1; }
+.precio-row select, .precio-row input:not([type=checkbox]) { min-height: 44px; padding: 8px 10px; font-size: 15px; }
+.precio-row select { grid-column: 1; } .precio-row input[data-pmonto] { grid-column: 2; }
+.precio-row input[data-tmonto] { grid-column: 1; }
+.precio-row .incl { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); font-weight: 600; grid-column: 2; }
+.precio-row .incl input { width: 20px; height: 20px; min-height: 20px; appearance: auto; flex: none; }

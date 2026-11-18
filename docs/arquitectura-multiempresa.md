@@ -130,7 +130,10 @@ Las pantallas no llaman a `localStorage` directamente: usan `FE.T` (`listEmpresa
 
 - `T.MODULES`: catálogo de módulos. `T.hasModule(empresa, clave)` dice si la empresa lo contrató (las empresas anteriores a los módulos los tienen todos). `T.userHas(usuario, empresa, clave)` también tiene en cuenta los módulos quitados al usuario (`usuario.sinModulos`).
 - `T.tarifas()` / `T.saveTarifas()`: tarifas del estudio (`fe_tarifas`).
-- `T.cargoDe(empresa, "AAAA-MM")`: líneas y total del mes: base, módulos, documentos extra, usuarios adicionales, alta y descuento. `T.cargoCerrado` congela los meses terminados (`fe_cierres`).
+- `T.CONCEPTS`: conceptos cobrables (base, documento extra, usuario adicional, alta y cada módulo). `tarifas.incl[clave]` marca un concepto como incluido para todos.
+- `T.precioDe(empresa, clave)`: `{ monto, incluido, especial }`. Lee `plan.precios[clave] = { modo: "general" | "propio" | "incluido", monto }`. `T.incluidosDe` usa `plan.incluidosPropio` si existe.
+- `T.descuentosDe(empresa)`: `plan.descuentos[]` con `{ tipo: "pct" | "monto", valor, aplica: "total" | clave, duracion: "siempre" | "meses" | "hasta", desde, meses, hasta, motivo, by, at }`. El `plan.descuento` antiguo (porcentaje) se lee como uno más. `T.descuentoVigente(d, periodo)` dice si aplica en un mes.
+- `T.cargoDe(empresa, "AAAA-MM")`: líneas `[texto, monto, { key, incluido, especial, descuento }]` y total del mes: base, módulos, documentos extra, usuarios adicionales, alta y descuentos (primero por concepto, después sobre el total; nunca negativo). `T.cargoCerrado` congela los meses terminados (`fe_cierres`).
 - `T.registrarPago()` / `T.pagosDe()`: pagos (`fe_pagos`), aplicados del mes más antiguo al más nuevo.
 - `T.cuenta(empresa)`: estado por mes (pagado, pendiente, vencido, suspendido) y estado general. El mes vence el día `venceDia` del mes siguiente y se suspende `graciaDias` después, salvo `plan.noSuspender`.
 
@@ -139,7 +142,9 @@ Tablas para el servidor:
 ```
 modulo_empresa (empresa_id, modulo, activo, desde)
 modulo_usuario_bloqueado (usuario_id, modulo)
-tarifa (estudio_id, concepto, monto, vigente_desde)
+tarifa (estudio_id, concepto, monto, incluido, vigente_desde)
+precio_empresa (empresa_id, concepto, modo, monto, desde)
+descuento (id, empresa_id, tipo, valor, aplica, duracion, desde, meses, hasta, motivo, usuario_id, creado)
 cargo_mensual (empresa_id, periodo, lineas_json, total, cerrado)
 pago (id, empresa_id, monto, medio, referencia, fecha, usuario_id)
 ```

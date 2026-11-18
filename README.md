@@ -32,7 +32,7 @@ Firma electrónica y servicio Firmador: [`docs/firma-electronica.md`](docs/firma
 ```
 index.html              Página de entrada con los enlaces para instalar cada app
 admin/                  App del estudio (index.html, app.js, manifest, sw.js, icons/)
-facturador/             App del principal (index.html, app.js, kude-pdf.js, manifest, sw.js, icons/)
+facturador/             App del principal (index.html, app.js, kude-pdf.js, xml-preview.js, manifest, sw.js, icons/)
 pedidos/                App del cargador (index.html, app.js, manifest, sw.js, icons/)
 shared/core.js          Cálculo de IVA, RUC (módulo 11), receptor, CDC, QR, cámara, compartir, respaldo
 shared/tenant.js        Multiempresa: empresas, usuarios y roles, auditoría, timbrados, alertas, catálogo, firma
@@ -97,13 +97,30 @@ Emitir un documento sigue el flujo de una transferencia bancaria, tomando como m
   - Si un módulo no está, **todo lo suyo desaparece** del Facturador: pestaña, botones, tipos, ajustes.
   - Pedidos, Remisión y Autofactura también se pueden quitar **por usuario**.
 - **Tarifas configurables** (Admin → Ajustes → Tarifas): plan base con documentos incluidos, documento extra, usuario adicional, precio de cada módulo, alta única, día de vencimiento y días de gracia. Los montos iniciales son un ejemplo.
+  - Cada concepto tiene su monto y la casilla **Incluido** (no se cobra a nadie).
+- **Precios por empresa** (botón "Cambiar precios de esta empresa"): para cada concepto, *tarifa general*, *monto propio* o *incluido*, y una cantidad propia de documentos incluidos por mes.
+- **Descuentos** (solo el admin maestro):
+  - porcentaje o monto fijo;
+  - sobre el total del mes o sobre un concepto (por ejemplo, solo el módulo Pedidos);
+  - duración: siempre, durante N meses o hasta un mes;
+  - con motivo; se pueden sumar varios. Primero se aplican los de cada concepto y después los del total. El total nunca queda negativo.
+  - Los meses cerrados no cambian si después se tocan precios o descuentos.
 - **Cada empresa tiene una sección Plan y cobros:**
   - módulos contratados y cargo del mes en curso;
   - estado de cuenta por mes (los meses cerrados quedan congelados);
   - registro de pagos (se aplican al mes más antiguo);
-  - descuento y "no suspender nunca".
+  - precios propios, descuentos, cobro del alta y "no suspender nunca".
 - **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
-- **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión.
+- **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión. Como una factura no admite ítems negativos, los descuentos se restan del precio del concepto (o de los ítems mayores, si son sobre el total) y los conceptos incluidos no aparecen.
+
+## XML del documento (solo admin maestro)
+
+En el detalle de cada documento, el admin maestro ve **Descargar XML (sin firma)**. Baja `DE_<CDC>_sin_firma.xml`:
+
+- Es el `rDE` con la estructura del Manual Técnico v150 (`DE`, `gOpeDE`, `gTimb`, `gDatGralOpe`, `gDtipDE`, `gTotSub`, `gCamDEAsoc`, `gCamFuFD/dCarQR`), con los campos propios de cada tipo: `gCamFE`, `gCamAE`, `gCamNCDE`, `gCamNRE` y `gTransp`.
+- **No tiene firma** (`Signature`) y no sirve para enviar a SIFEN: es para revisar los datos y contrastarlos con el XSD o el prevalidador de la DNIT. La firma la agregará el servidor.
+- Los códigos que la app todavía no guarda (departamento, ciudad, actividad económica, país del extranjero) quedan como comentario "a completar".
+- Montos en guaraníes sin decimales; en dólares, con hasta 2 decimales y el total en guaraníes (`dTotalGs`).
 
 ## KuDE simplificado
 

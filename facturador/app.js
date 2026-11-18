@@ -813,6 +813,8 @@
         ${isFac && ok && !canCancel(i) && docState("5").ok ? `<button class="btn primary" data-mkdoc="5">Emitir nota de crédito</button>` : `<button class="btn primary" data-go="new">Nuevo documento</button>`}
       </div>
       ${i.kude && i.status === "ok" ? `<button class="link ${mod("ticket") ? "" : "hidden"}" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}
+      ${i.kude && user && user.role === "maestro" && window.DEXml ? `<button class="link" data-xml="${esc(i.id)}" style="display:block;margin:4px auto 0">Descargar XML (sin firma)</button>
+        <div class="muted small" style="text-align:center">Vista previa para verificar los datos. No es válido para SIFEN: la firma la agrega el servidor.</div>` : ""}
       ${i.emailedTo ? `<div class="muted small" style="margin-top:8px">Enviada por correo a ${esc(i.emailedTo)} (simulado).</div>` : ""}
       <div class="muted small" style="margin-top:12px">${i.cancelled ? "Cancelada." : i.status === "ok"
         ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + cancelMs(i)).toISOString()) + " (" + hours + " horas desde la aprobación)."
@@ -1308,6 +1310,7 @@
     if (ds.pdf !== undefined) { downloadKudePdf(prefs.printFormat); return; }
     if (ds.respdf) { downloadKudePdf(prefs.printFormat, +ds.respdf); return; }
     if (ds.retry !== undefined) { const r = state.lastResult; if (r && r.kude) { state.draft = fixDraft(draftFromDoc(r.kude)); goStep(state.draft, "revision"); } go("new"); return; }
+    if (ds.xml !== undefined) { const d = invoices.find(x => String(x.id) === ds.xml); if (d && d.kude && user && user.role === "maestro") { DEXml.download(d.kude, company); log("XML descargado", d.number); toast("XML descargado"); } return; }
     if (ds.pdfalt !== undefined) { downloadKudePdf(prefs.printFormat === "ticket" ? "a4" : "ticket"); return; }
     if (ds.removeLogo !== undefined) { company.logo = null; save(); toast("Logo quitado"); render(); return; }
     if (ds.emit) { emit(); return; }

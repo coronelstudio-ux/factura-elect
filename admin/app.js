@@ -37,24 +37,105 @@
         ${cta.aFavor ? `<div class="kv"><span class="muted">Saldo a favor</span><span class="amount">${gs(cta.aFavor)}</span></div>` : ""}
         <div class="muted small" style="margin:6px 0 2px">${esc(cta.text)}${p.noSuspender ? " · nunca se suspende" : ""}</div>
         <div class="section-title" style="margin-top:14px">Módulos contratados</div>
-        <div class="muted small" style="margin:-4px 0 6px">Plan base: factura, notas de crédito y débito, historial, PDF y clientes (${gs(t.base)}/mes, hasta ${t.incluidos} documentos).</div>
+        <div class="muted small" style="margin:-4px 0 6px">Plan base: factura, notas de crédito y débito, historial, PDF y clientes (${precioTxt(e, "base")}/mes, hasta ${T.incluidosDe(e)} documentos).</div>
         ${T.MODULES.map(m => `<label class="mod-row"><input type="checkbox" data-modk="${m.key}" ${T.hasModule(e, m.key) ? "checked" : ""} ${editable ? "" : "disabled"}>
-          <span><b>${esc(m.label)}</b><br><span class="small muted">${esc(m.desc)}</span></span><span class="small" style="margin-left:auto;white-space:nowrap">${t.modulos[m.key] ? "+ " + gs(t.modulos[m.key]) : "Incluido"}</span></label>`).join("")}
+          <span><b>${esc(m.label)}</b><br><span class="small muted">${esc(m.desc)}</span></span><span class="small" style="margin-left:auto;white-space:nowrap;text-align:right">${precioTxt(e, m.key, true)}</span></label>`).join("")}
         ${editable ? `<button class="btn soft" data-savemods style="margin-top:10px">Guardar módulos</button>` : `<div class="muted small">Los módulos los cambia el admin maestro.</div>`}
         <div class="section-title" style="margin-top:16px">Cargo de ${esc(T.periodLabel(mes.period))} (en curso)</div>
-        ${mes.lines.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><span>${gs(v)}</span></div>`).join("")}
+        ${mes.lines.map(([k, v, m]) => `<div class="kv"><span>${esc(k)}${m && m.especial ? ' <span class="tag">precio especial</span>' : ""}</span><span${v < 0 ? ' style="color:var(--accent)"' : ""}>${m && m.incluido ? "Incluido" : gs(v)}</span></div>`).join("")}
         <div class="kv"><span><b>Total del mes</b><br><span class="small muted">${mes.docs} documento(s) emitidos este mes</span></span><span class="amount">${gs(mes.total)}</span></div>
         <div class="section-title" style="margin-top:16px">Estado de cuenta</div>
         ${cta.meses.slice().reverse().slice(0, 12).map(m => `<div class="kv"><span><b>${esc(T.periodLabel(m.period))}</b>${m.abierto ? " (en curso)" : ""}<br>
           <span class="small muted">Vence ${T.isoToDmy(m.vence)} · pagado ${gs(m.pagado)}${m.saldo > 0 ? " · saldo " + gs(m.saldo) : ""}</span></span><span style="text-align:right">${gs(m.total)}<br>${cobroChip(m.state)}</span></div>`).join("")}
         ${T.pagosDe(e.id).length ? `<div class="section-title" style="margin-top:16px">Pagos registrados</div>${T.pagosDe(e.id).slice(0, 8).map(x => `<div class="kv"><span>${esc(x.medio)}${x.referencia ? " · " + esc(x.referencia) : ""}<br><span class="small muted">${fmtDate(x.at)} · ${esc(x.user)}</span></span><span class="amount">${gs(x.monto)}</span></div>`).join("")}` : ""}
         ${editable ? `<div class="btn-row" style="margin-top:12px"><button class="btn primary" data-pago>Registrar pago</button><button class="btn soft" data-facserv>Facturar el servicio</button></div>
+          <div class="section-title" style="margin-top:16px">Precios de esta empresa</div>
+          ${T.CONCEPTS.filter(c => !c.module || T.hasModule(e, c.key)).map(c => { const pr = T.precioDe(e, c.key); return `<div class="kv"><span>${esc(c.label.replace(/^Módulo /, ""))}${pr.especial ? ' <span class="tag">especial</span>' : ""}</span><span>${precioTxt(e, c.key)}</span></div>`; }).join("")}
+          <div class="kv"><span>Documentos incluidos por mes</span><span>${T.incluidosDe(e)}${p.incluidosPropio != null && p.incluidosPropio !== "" ? ' <span class="tag">especial</span>' : ""}</span></div>
+          <button class="btn soft" data-precios style="margin-top:10px">Cambiar precios de esta empresa</button>
+          <div class="section-title" style="margin-top:16px">Descuentos</div>
+          ${T.descuentosDe(e).length ? T.descuentosDe(e).map(d => `<div class="kv"><span><b>${esc(T.descuentoTexto(d))}</b>${d.motivo ? `<br><span class="small muted">${esc(d.motivo)}${d.by ? " · " + esc(d.by) : ""}</span>` : ""}
+            <br>${T.descuentoVigente(d, T.periodOf(new Date().toISOString())) ? chip("ok", "Vigente este mes") : chip("neutral", "No vigente este mes")}</span>
+            <button class="link danger" data-deldesc="${esc(d.id)}">Quitar</button></div>`).join("") : `<div class="muted small">Sin descuentos.</div>`}
+          <button class="add" data-adddesc>+ Agregar descuento</button>
+          <div class="section-title" style="margin-top:16px">Condiciones</div>
           ${T.checkbox("plNoSusp", p.noSuspender, "No suspender nunca a esta empresa")}
-          <div class="grid2"><div><label for="plDesc">Descuento (%)</label><input id="plDesc" data-kb="decimal" value="${esc(p.descuento || 0)}"></div>
-            <div><label for="plDesde">Cobrar desde</label><input id="plDesde" type="month" value="${esc(p.desde)}"></div></div>
+          ${T.checkbox("plAlta", p.cobrarAlta, "Cobrar el alta en el primer mes")}
+          <label for="plDesde">Cobrar desde</label><input id="plDesde" type="month" value="${esc(p.desde)}">
           <button class="btn" data-saveplan style="margin-top:10px">Guardar condiciones</button>` : ""}
         <div class="muted small" style="margin-top:8px">Vence el día ${t.venceDia} del mes siguiente; ${t.graciaDias} días después se suspende la emisión de documentos nuevos. Lo ya emitido se sigue viendo y descargando.</div>
       </div>`);
+  }
+  // "Incluido", "Gs 35.000" o "+ Gs 35.000" (módulos), con el precio de esta empresa
+  function precioTxt(e, key, plus) {
+    const pr = T.precioDe(e, key), c = T.conceptOf(key);
+    if (pr.incluido) return "Incluido";
+    return (plus ? "+ " : "") + gs(pr.monto) + (c && c.unit ? " por " + c.unit : "");
+  }
+  function preciosSheet(e) {
+    const p = T.planOf(e), esp = p.precios || {}, t = T.tarifas();
+    const row = c => { const x = esp[c.key] || { modo: "general" }, gen = t.incl[c.key] ? "Incluido" : gs(T.generalMonto(t, c.key));
+      return `<div class="precio-row"><div class="pr-l"><b>${esc(c.label.replace(/^Módulo /, "Módulo: "))}</b><span class="small muted">General: ${gen}</span></div>
+        <select data-pmodo="${c.key}"><option value="general" ${x.modo === "general" ? "selected" : ""}>Tarifa general</option><option value="propio" ${x.modo === "propio" ? "selected" : ""}>Monto propio</option><option value="incluido" ${x.modo === "incluido" ? "selected" : ""}>Incluido</option></select>
+        <input data-pmonto="${c.key}" data-kb="money" placeholder="Monto" value="${x.modo === "propio" ? fmt(x.monto) : ""}" ${x.modo === "propio" ? "" : "hidden"}></div>`; };
+    sheet(`<h3>Precios de ${esc(e.name)}</h3>
+      <p class="muted small">Para cada concepto: la tarifa general, un monto propio para esta empresa, o incluido sin costo.</p>
+      ${T.CONCEPTS.map(row).join("")}
+      <label for="prInc">Documentos incluidos por mes (vacío = tarifa general: ${t.incluidos})</label>
+      <input id="prInc" data-kb="digits" value="${p.incluidosPropio != null ? esc(p.incluidosPropio) : ""}">
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
+      el.querySelectorAll("[data-pmodo]").forEach(sl => sl.onchange = () => { const i = el.querySelector(`[data-pmonto="${sl.dataset.pmodo}"]`); i.hidden = sl.value !== "propio"; if (!i.hidden) i.focus(); });
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const precios = {}, cambios = [];
+        for (const sl of el.querySelectorAll("[data-pmodo]")) {
+          const k = sl.dataset.pmodo, modo = sl.value;
+          if (modo === "general") continue;
+          const monto = FE.parseAmount(el.querySelector(`[data-pmonto="${k}"]`).value);
+          if (modo === "propio" && !(monto >= 0 && el.querySelector(`[data-pmonto="${k}"]`).value.trim())) { toast("Escribí el monto propio de " + T.conceptOf(k).label); return; }
+          precios[k] = modo === "propio" ? { modo, monto } : { modo };
+          cambios.push(T.conceptOf(k).label.replace(/^Módulo /, "") + ": " + (modo === "incluido" ? "incluido" : gs(monto)));
+        }
+        const inc = el.querySelector("#prInc").value.trim();
+        e.plan = Object.assign(T.planOf(e), { precios, incluidosPropio: inc === "" ? null : parseInt(inc, 10) });
+        T.saveEmpresa(e); log("Precios de la empresa", e.name + " · " + (cambios.join(", ") || "tarifa general") + (inc ? " · " + inc + " documentos" : ""), e.id);
+        close(); render(); toast("Precios guardados");
+      };
+    });
+  }
+  function descuentoSheet(e) {
+    const now = T.periodOf(new Date().toISOString()), concepts = T.CONCEPTS.filter(c => !c.module || T.hasModule(e, c.key));
+    sheet(`<h3>Agregar descuento</h3>
+      <div class="seg" style="margin-top:8px"><button data-dt="pct" class="on">Porcentaje</button><button data-dt="monto">Monto fijo</button></div>
+      <label for="dsVal" id="dsValLbl">Porcentaje (%)</label><input id="dsVal" data-kb="decimal" placeholder="Ej. 50">
+      <label for="dsApl">Se aplica a</label><select id="dsApl"><option value="total">Total del mes</option>${concepts.map(c => `<option value="${c.key}">${esc(c.label)}</option>`).join("")}</select>
+      <label for="dsDur">Duración</label><select id="dsDur"><option value="siempre">Siempre</option><option value="meses">Durante unos meses</option><option value="hasta">Hasta un mes</option></select>
+      <div class="grid2"><div><label for="dsDesde">Desde</label><input id="dsDesde" type="month" value="${now}"></div>
+        <div id="dsMesesW" hidden><label for="dsMeses">Cantidad de meses</label><input id="dsMeses" data-kb="digits" value="1"></div>
+        <div id="dsHastaW" hidden><label for="dsHasta">Hasta</label><input id="dsHasta" type="month" value="${now}"></div></div>
+      <label for="dsMot">Motivo</label><input id="dsMot" data-kb="sentence" placeholder="Ej. Promoción de lanzamiento">
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Agregar</button></div>`, (el, close) => {
+      let tipo = "pct";
+      el.querySelectorAll("[data-dt]").forEach(b => b.onclick = () => { tipo = b.dataset.dt; el.querySelectorAll("[data-dt]").forEach(x => x.classList.toggle("on", x === b));
+        const v = el.querySelector("#dsVal"); el.querySelector("#dsValLbl").textContent = tipo === "pct" ? "Porcentaje (%)" : "Monto (Gs)"; v.dataset.kb = tipo === "pct" ? "decimal" : "money"; v.removeAttribute("data-kind"); FE.enhance(el); v.value = ""; v.focus(); });
+      el.querySelector("#dsDur").onchange = ev => { el.querySelector("#dsMesesW").hidden = ev.target.value !== "meses"; el.querySelector("#dsHastaW").hidden = ev.target.value !== "hasta"; };
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const raw = el.querySelector("#dsVal").value, valor = tipo === "pct" ? parseFloat(raw.replace(",", ".")) : FE.parseAmount(raw);
+        const dur = el.querySelector("#dsDur").value, desde = el.querySelector("#dsDesde").value, hasta = el.querySelector("#dsHasta").value, meses = parseInt(el.querySelector("#dsMeses").value, 10);
+        const motivo = el.querySelector("#dsMot").value.trim();
+        if (!(valor > 0) || (tipo === "pct" && valor > 100)) { toast(tipo === "pct" ? "El porcentaje va de 1 a 100" : "Escribí el monto del descuento"); return; }
+        if (!desde) { toast("Elegí desde qué mes"); return; }
+        if (dur === "meses" && !(meses >= 1 && meses <= 60)) { toast("La cantidad de meses va de 1 a 60"); return; }
+        if (dur === "hasta" && (!hasta || hasta < desde)) { toast("El mes final no puede ser anterior al inicial"); return; }
+        if (!motivo) { toast("Escribí el motivo del descuento"); return; }
+        const d = { id: FE.randomId(6), tipo, valor, aplica: el.querySelector("#dsApl").value, duracion: dur, desde, motivo, by: user.name, at: new Date().toISOString() };
+        if (dur === "meses") d.meses = meses; if (dur === "hasta") d.hasta = hasta;
+        const lista = T.descuentosDe(e).filter(x => x.id !== "legacy").concat(T.descuentosDe(e).filter(x => x.id === "legacy").map(x => Object.assign({}, x, { id: FE.randomId(6) })));
+        e.plan = Object.assign(T.planOf(e), { descuentos: lista.concat([d]), descuento: 0 });
+        T.saveEmpresa(e); log("Descuento agregado", e.name + " · " + T.descuentoTexto(d) + " · " + motivo, e.id); close(); render(); toast("Descuento agregado");
+      };
+    });
   }
   function pagoSheet(e) {
     const cta = T.cuenta(e), deuda = cta.meses.reduce((a, m) => a + m.saldo, 0);
@@ -80,7 +161,15 @@
     if (est.id === e.id) { toast("Es la empresa del estudio"); return; }
     const cta = T.cuenta(e), m = cta.meses.slice().reverse().find(x => x.saldo > 0) || cta.meses[cta.meses.length - 1];
     if (!m) { toast("No hay cargos para facturar"); return; }
-    const items = m.lines.filter(l => l[1] > 0).map(([k, v]) => ({ desc: k + " · " + T.periodLabel(m.period), qty: 1, price: v, tax: "10", discount: 0 }));
+    // Una factura no admite ítems negativos: los descuentos se restan del precio del concepto (o de los mayores, si son sobre el total)
+    const pos = m.lines.filter(l => l[1] > 0).map(([k, v, o]) => ({ key: (o || {}).key, desc: k + " · " + T.periodLabel(m.period), price: v, desc0: false }));
+    m.lines.filter(l => l[1] < 0).forEach(([, v, o]) => {
+      let rest = -v; const key = (o || {}).key;
+      const targets = key && key !== "total" ? pos.filter(x => x.key === key) : pos.slice().sort((a, b) => b.price - a.price);
+      targets.forEach(x => { const q = Math.min(rest, x.price); if (q > 0) { x.price -= q; rest -= q; x.desc0 = true; } });
+    });
+    const items = pos.filter(x => x.price > 0).map(x => ({ desc: x.desc + (x.desc0 ? " (con descuento)" : ""), qty: 1, price: x.price, tax: "10", discount: 0 }));
+    if (!items.length) { toast("El mes no tiene montos a facturar"); return; }
     const st = T.storeFor(est.id);
     st.set("draft", { deType: "1", step: 0, goto: "revision", mode: "con", ruc: e.ruc + "-" + e.dv, name: e.name, doc: "", docType: "1", country: "", email: e.mail || "",
       condition: "contado", installments: 1, currency: "PYG", exchange: "", items });
@@ -89,29 +178,33 @@
   }
   function tarifasSheet() {
     const t = T.tarifas(), emps = T.listEmpresas();
-    const num = (id, label, v) => `<div><label for="${id}">${label}</label><input id="${id}" data-kb="money" value="${fmt(v)}"></div>`;
+    const row = c => `<div class="precio-row"><div class="pr-l"><b>${esc(c.label.replace(/^Módulo /, "Módulo: "))}</b>${c.unit ? `<span class="small muted">Por ${c.unit}</span>` : ""}</div>
+      <input data-tmonto="${c.key}" data-kb="money" value="${fmt(T.generalMonto(t, c.key))}" ${t.incl[c.key] ? "disabled" : ""} aria-label="Monto">
+      <label class="incl"><input type="checkbox" data-tincl="${c.key}" ${t.incl[c.key] ? "checked" : ""}> Incluido</label></div>`;
     sheet(`<h3>Tarifas del servicio</h3>
-      <p class="muted small">Montos mensuales en guaraníes. Los meses cerrados no cambian.</p>
-      <div class="grid2">${num("tfBase", "Plan base", t.base)}${num("tfInc", "Documentos incluidos", t.incluidos)}</div>
-      <div class="grid2">${num("tfExtra", "Documento extra", t.extraDoc)}${num("tfUser", "Usuario adicional", t.usuarioExtra)}</div>
-      <div class="grid2">${num("tfAlta", "Alta (única vez)", t.alta)}<div></div></div>
-      <div class="section-title" style="margin-top:14px">Módulos</div>
-      ${T.MODULES.map(m => `<div class="grid2"><div style="padding-top:22px">${esc(m.label)}</div>${num("tfM_" + m.key, "Por mes", t.modulos[m.key] || 0)}</div>`).join("")}
+      <p class="muted small">Montos mensuales en guaraníes. "Incluido" lo deja sin costo en el plan. Cada empresa puede tener precios propios. Los meses cerrados no cambian.</p>
+      ${T.CONCEPTS.map(row).join("")}
+      <div class="grid2"><div><label for="tfInc">Documentos incluidos</label><input id="tfInc" data-kb="digits" value="${t.incluidos}"></div><div></div></div>
       <div class="grid2"><div><label for="tfVence">Vence el día</label><input id="tfVence" data-kb="digits" value="${t.venceDia}"></div><div><label for="tfGracia">Días de gracia</label><input id="tfGracia" data-kb="digits" value="${t.graciaDias}"></div></div>
       <label for="tfEst">Empresa del estudio (emite tus facturas a los clientes)</label>
       <select id="tfEst"><option value="">Sin elegir</option>${emps.map(x => `<option value="${esc(x.id)}" ${t.estudioEmpresaId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
+      el.querySelectorAll("[data-tincl]").forEach(c => c.onchange = () => { el.querySelector(`[data-tmonto="${c.dataset.tincl}"]`).disabled = c.checked; });
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
-        const v = id => FE.parseAmount(el.querySelector("#" + id).value), dia = parseInt(el.querySelector("#tfVence").value, 10), gr = parseInt(el.querySelector("#tfGracia").value, 10);
+        const dia = parseInt(el.querySelector("#tfVence").value, 10), gr = parseInt(el.querySelector("#tfGracia").value, 10), inc = parseInt(el.querySelector("#tfInc").value, 10);
         if (!(dia >= 1 && dia <= 28)) { toast("El día de vencimiento tiene que estar entre 1 y 28"); return; }
         if (!(gr >= 0 && gr <= 60)) { toast("Los días de gracia van de 0 a 60"); return; }
-        const nt = { base: v("tfBase"), incluidos: v("tfInc"), extraDoc: v("tfExtra"), usuarioExtra: v("tfUser"), alta: v("tfAlta"), venceDia: dia, graciaDias: gr,
-          modulos: Object.fromEntries(T.MODULES.map(m => [m.key, v("tfM_" + m.key)])), estudioEmpresaId: el.querySelector("#tfEst").value };
-        T.saveTarifas(nt); log("Tarifas actualizadas", "Base " + gs(nt.base)); close(); render(); toast("Tarifas guardadas");
+        if (!(inc >= 0)) { toast("Escribí los documentos incluidos"); return; }
+        const m = k => FE.parseAmount(el.querySelector(`[data-tmonto="${k}"]`).value), incl = {};
+        el.querySelectorAll("[data-tincl]").forEach(c => { if (c.checked) incl[c.dataset.tincl] = true; });
+        const nt = { base: m("base"), incluidos: inc, extraDoc: m("extraDoc"), usuarioExtra: m("usuarioExtra"), alta: m("alta"), venceDia: dia, graciaDias: gr,
+          modulos: Object.fromEntries(T.MODULES.map(x => [x.key, m(x.key)])), incl, estudioEmpresaId: el.querySelector("#tfEst").value };
+        T.saveTarifas(nt); log("Tarifas actualizadas", "Base " + (incl.base ? "incluida" : gs(nt.base)) + " · incluidos: " + (Object.keys(incl).map(k => T.conceptOf(k).label.replace(/^Módulo /, "")).join(", ") || "ninguno")); close(); render(); toast("Tarifas guardadas");
       };
     });
   }
+
   function inutilSheet(e) {
     const st = T.storeFor(e.id), tims = st.get("timbrados", []).map(T.normTimbrado), act = tims.find(t => t.active) || tims[0];
     if (!act) { toast("La empresa no tiene timbrados"); return; }
@@ -269,7 +362,8 @@
           <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-mypin>Cambiar mi PIN</button><button class="btn" data-logout>Cerrar sesión</button></div>
         </div>`)}
       ${user.role === "maestro" ? section("Tarifas del servicio", `<div class="card">
-          ${(t => `<div class="kv"><span class="muted">Plan base</span><span>Gs ${fmt(t.base)} · ${t.incluidos} documentos</span></div>
+          ${(t => `<div class="kv"><span class="muted">Plan base</span><span>${t.incl.base ? "Incluido" : "Gs " + fmt(t.base)} · ${t.incluidos} documentos</span></div>
+          ${T.MODULES.map(m => `<div class="kv"><span class="muted">${esc(m.label)}</span><span>${t.incl[m.key] ? "Incluido" : "Gs " + fmt(t.modulos[m.key] || 0)}</span></div>`).join("")}
           <div class="kv"><span class="muted">Vencimiento y gracia</span><span>Día ${t.venceDia} · ${t.graciaDias} días</span></div>
           <div class="kv"><span class="muted">Empresa del estudio</span><span>${esc((T.getEmpresa(t.estudioEmpresaId) || {}).name || "Sin elegir")}</span></div>`)(T.tarifas())}
           <button class="btn soft" data-tarifas style="margin-top:10px">Editar tarifas</button></div>`) : ""}
@@ -581,12 +675,21 @@
       render(); toast("Módulos guardados"); return;
     }
     if (ds.saveplan !== undefined && emp && user.role === "maestro") {
-      const p = T.planOf(emp), d = parseFloat(String(document.getElementById("plDesc").value).replace(",", ".")) || 0, desde = document.getElementById("plDesde").value;
-      if (d < 0 || d > 100) { toast("El descuento va de 0 a 100"); return; }
-      emp.plan = Object.assign(p, { descuento: d, noSuspender: document.getElementById("plNoSusp").checked, desde: desde || p.desde });
-      T.saveEmpresa(emp); log("Condiciones del plan", emp.name + " · descuento " + d + "%" + (emp.plan.noSuspender ? " · sin suspensión" : ""), emp.id); render(); toast("Condiciones guardadas"); return;
+      const p = T.planOf(emp), desde = document.getElementById("plDesde").value;
+      emp.plan = Object.assign(p, { noSuspender: document.getElementById("plNoSusp").checked, cobrarAlta: document.getElementById("plAlta").checked, desde: desde || p.desde });
+      T.saveEmpresa(emp); log("Condiciones del plan", emp.name + (emp.plan.noSuspender ? " · sin suspensión" : "") + (emp.plan.cobrarAlta ? "" : " · sin cobro de alta") + " · desde " + T.periodLabel(emp.plan.desde), emp.id); render(); toast("Condiciones guardadas"); return;
     }
     if (ds.pago !== undefined && emp && user.role === "maestro") { pagoSheet(emp); return; }
+    if (ds.precios !== undefined && emp && user.role === "maestro") { preciosSheet(emp); return; }
+    if (ds.adddesc !== undefined && emp && user.role === "maestro") { descuentoSheet(emp); return; }
+    if (ds.deldesc && emp && user.role === "maestro") {
+      const d = T.descuentosDe(emp).find(x => x.id === ds.deldesc); if (!d) return;
+      confirmSheet("¿Quitar el descuento?", T.descuentoTexto(d) + ". Los meses ya cerrados no cambian.", "Quitar", () => {
+        emp.plan = Object.assign(T.planOf(emp), { descuentos: T.descuentosDe(emp).filter(x => x.id !== d.id), descuento: 0 });
+        T.saveEmpresa(emp); log("Descuento quitado", emp.name + " · " + T.descuentoTexto(d), emp.id); render(); toast("Descuento quitado");
+      }, true);
+      return;
+    }
     if (ds.facserv !== undefined && emp && user.role === "maestro") { facturarServicio(emp); return; }
     if (ds.tarifas !== undefined && user.role === "maestro") { tarifasSheet(); return; }
     if (ds.timact && emp) {

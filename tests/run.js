@@ -284,6 +284,71 @@ test("Estado de cuenta: pagos aplicados al mes más antiguo; vencido y suspendid
   assert.notStrictEqual(T.cuenta(T.getEmpresa(e.id)).state, "suspendido");
 });
 
+// ---------- Tarifas: incluido, precios propios y descuentos ----------
+test("Precio por empresa: incluido y monto propio; documentos incluidos propios", () => {
+  const per = T.periodOf(new Date().toISOString());
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Precios", ruc: "2345678", dv: "4", modulos: { pedidos: true, usd: true },
+    plan: { desde: "2020-01", precios: { pedidos: { modo: "incluido" }, base: { modo: "propio", monto: 50000 } }, incluidosPropio: 10 } }));
+  T.storeFor(e.id).set("invoices", Array.from({ length: 12 }, (_, i) => ({ id: i, status: "ok", date: new Date().toISOString() })));
+  const c = T.cargoDe(e, per), t = T.tarifas();
+  assert.strictEqual(T.precioDe(e, "pedidos").incluido, true);
+  assert.strictEqual(c.total, 50000 + t.modulos.usd + 2 * t.extraDoc);
+  assert.ok(c.lines.some(l => l[2].key === "pedidos" && l[2].incluido && l[1] === 0));
+});
+test("Descuentos: por concepto, sobre el total, por N meses y hasta un mes", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Desc", ruc: "3456789", dv: "0", modulos: { pedidos: true },
+    plan: { desde: "2020-01", descuentos: [
+      { id: "a", tipo: "pct", valor: 50, aplica: "pedidos", duracion: "meses", desde: "2030-01", meses: 2 },
+      { id: "b", tipo: "monto", valor: 9000, aplica: "total", duracion: "hasta", desde: "2030-01", hasta: "2030-01" }] } }));
+  const t = T.tarifas(), bruto = t.base + t.modulos.pedidos;
+  assert.strictEqual(T.cargoDe(e, "2030-01").total, bruto - Math.round(t.modulos.pedidos / 2) - 9000);
+  assert.strictEqual(T.cargoDe(e, "2030-02").total, bruto - Math.round(t.modulos.pedidos / 2));
+  assert.strictEqual(T.cargoDe(e, "2030-03").total, bruto);
+  assert.strictEqual(T.cargoDe(e, "2029-12").total, bruto);
+});
+test("Descuento nunca deja el total negativo", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Cero", ruc: "4567891", dv: "0", modulos: {},
+    plan: { desde: "2020-01", descuentos: [{ id: "x", tipo: "monto", valor: 99999999, aplica: "total", duracion: "siempre", desde: "2020-01" }] } }));
+  assert.strictEqual(T.cargoDe(e, "2030-05").total, 0);
+});
+
+// ---------- XML sin firma ----------
+require(path.join(__dirname, "..", "facturador", "xml-preview.js"));
+function wellFormed(xml) {
+  const body = xml.replace(/<\?xml[^>]*\?>/, "").replace(/<!--[\s\S]*?-->/g, ""), stack = [];
+  for (const m of body.matchAll(/<(\/?)([A-Za-z][\w:]*)[^>]*?(\/?)>/g)) {
+    if (m[3]) continue; if (!m[1]) stack.push(m[2]); else if (stack.pop() !== m[2]) return false;
+  }
+  return stack.length === 0 && !/&(?!amp;|lt;|gt;|quot;)/.test(body);
+}
+const empXml = { ruc: "80012345", dv: "0", name: "Empresa & Cía <Prueba>", fantasy: "Prueba", address: "Calle 1", city: "Asunción", phone: "021000000", mail: "a@b.c", activity: "Comercio", taxpayerType: "2" };
+const cdcXml = "0180012345000100100000122202611041417392850" + "1";
+const baseDoc = { number: "001-001-0000012", timbrado: { number: "12345678", start: "2026-01-01" }, issuedAt: "2026-11-04T10:00:00", cdc: cdcXml, qrUrl: "https://ekuatia.set.gov.py/consultas-test/qr?nVersion=150&Id=" + cdcXml + "&x=1",
+  currency: "PYG", receiver: { mode: "con", ruc: "4567890-1", name: "Cliente" }, operation: "B2B",
+  items: [{ desc: "Producto", qty: 2, price: 11000, tax: "10", discount: 0 }, { desc: "Libro", qty: 1, price: 5000, tax: "E" }],
+  totals: { exe: 5000, b5: 0, b10: 22000, iva5: 0, iva10: 2000, iva: 2000, total: 27000 } };
+test("XML factura: bien formado, sin firma, con CDC, IVA y QR", () => {
+  const x = DEXml.build(Object.assign({ deType: "1" }, baseDoc), empXml);
+  assert.ok(wellFormed(x)); assert.match(x, /SIN FIRMA/); assert.ok(!/<Signature/.test(x));
+  assert.match(x, new RegExp('<DE Id="' + cdcXml + '"')); assert.match(x, /<dDVId>1<\/dDVId>/);
+  assert.match(x, /<dTotGralOpe>27000<\/dTotGralOpe>/); assert.match(x, /<dIVA10>2000<\/dIVA10>/);
+  assert.match(x, /<dNomEmi>Empresa &amp; Cía &lt;Prueba&gt;<\/dNomEmi>/); assert.match(x, /<dCarQR>https:[^<]*&amp;x=1<\/dCarQR>/);
+  assert.match(x, /<gCamFE>/); assert.match(x, /<dRucRec>4567890<\/dRucRec>/);
+});
+test("XML por tipo: NC con documento asociado, autofactura y remisión", () => {
+  const nc = DEXml.build(Object.assign({}, baseDoc, { deType: "5", motivo: "2", motivoLabel: "Devolución", assoc: { cdc: cdcXml } }), empXml);
+  assert.ok(wellFormed(nc)); assert.match(nc, /<iTiDE>5<\/iTiDE>/); assert.match(nc, /<gCamNCDE>/); assert.match(nc, /<dCdCDERef>/);
+  const af = DEXml.build(Object.assign({}, baseDoc, { deType: "4", seller: { kind: "1", name: "Vendedor", docType: "1", doc: "1234567" }, constancia: { tipo: "1", numero: "1" } }), empXml);
+  assert.ok(wellFormed(af)); assert.match(af, /<gCamAE>/); assert.ok(!/<gCamIVA>/.test(af));
+  const nr = DEXml.build(Object.assign({}, baseDoc, { deType: "7", rem: { motivo: "1", modo: "1", inicio: "2026-11-04", salida: "A", entrega: "B", chapa: "abc 123" } }), empXml);
+  assert.ok(wellFormed(nr)); assert.match(nr, /<gTransp>/); assert.ok(!/<gTotSub>/.test(nr)); assert.match(nr, /ABC 123/);
+});
+test("XML en dólares: montos con decimales y total en guaraníes", () => {
+  const x = DEXml.build(Object.assign({}, baseDoc, { deType: "1", currency: "USD", exchange: "7300", items: [{ desc: "S", qty: 1, price: 12.5, tax: "10" }],
+    totals: { exe: 0, b5: 0, b10: 12.5, iva5: 0, iva10: 1.14, iva: 1.14, total: 12.5, totalPyg: 91250 } }), empXml);
+  assert.ok(wellFormed(x)); assert.match(x, /<dTotGralOpe>12.5<\/dTotGralOpe>/); assert.match(x, /<dTotalGs>91250<\/dTotalGs>/); assert.match(x, /<cMoneOpe>USD/);
+});
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);

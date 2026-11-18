@@ -146,34 +146,84 @@
   const userHas = (user, emp, key) => hasModule(emp, key) && !(user && moduleOf(key) && moduleOf(key).perUser && (user.sinModulos || []).includes(key));
 
   // ================= Planes y cobros del servicio =================
-  // Tarifas del estudio (ejemplo inicial, se editan en Admin → Ajustes → Tarifas)
+  // Tarifas del estudio (ejemplo inicial, se editan en Admin → Ajustes → Tarifas).
+  // incl[concepto] = true: el concepto figura como "Incluido en el plan" y no suma.
   const TARIFAS_DEF = { base: 89000, incluidos: 100, extraDoc: 500, usuarioExtra: 10000, alta: 150000, venceDia: 10, graciaDias: 10,
-    modulos: { pedidos: 35000, remision: 20000, autofactura: 15000, usuarios: 0, productos: 0, usd: 10000, correo: 10000, ticket: 10000 }, estudioEmpresaId: "" };
-  function tarifas() { const t = G.get("tarifas", {}); return Object.assign({}, TARIFAS_DEF, t, { modulos: Object.assign({}, TARIFAS_DEF.modulos, t.modulos || {}) }); }
+    modulos: { pedidos: 35000, remision: 20000, autofactura: 15000, usuarios: 0, productos: 0, usd: 10000, correo: 10000, ticket: 10000 },
+    incl: { usuarios: true, productos: true }, estudioEmpresaId: "" };
+  function tarifas() {
+    const t = G.get("tarifas", {});
+    return Object.assign({}, TARIFAS_DEF, t, { modulos: Object.assign({}, TARIFAS_DEF.modulos, t.modulos || {}), incl: Object.assign({}, t.incl ? {} : TARIFAS_DEF.incl, t.incl || {}) });
+  }
   const saveTarifas = t => G.set("tarifas", t);
+  // Conceptos que se cobran (los módulos usan su clave). unit: el monto es por unidad (documento o usuario).
+  const CONCEPTS = [{ key: "base", label: "Plan base" }, { key: "extraDoc", label: "Documento extra", unit: "documento" },
+    { key: "usuarioExtra", label: "Usuario adicional", unit: "usuario" }, { key: "alta", label: "Alta y habilitación (única vez)" }]
+    .concat(MODULES.map(m => ({ key: m.key, label: "Módulo " + m.label, module: true })));
+  const conceptOf = key => CONCEPTS.find(c => c.key === key);
+  const generalMonto = (t, key) => conceptOf(key) && conceptOf(key).module ? t.modulos[key] || 0 : t[key] || 0;
+  // Precio que paga una empresa por un concepto: tarifa general, monto propio o incluido
+  function precioDe(emp, key) {
+    const t = tarifas(), esp = (planOf(emp).precios || {})[key];
+    if (esp && esp.modo === "incluido") return { monto: 0, incluido: true, especial: true };
+    if (esp && esp.modo === "propio") return { monto: Number(esp.monto) || 0, incluido: false, especial: true };
+    return { monto: t.incl[key] ? 0 : generalMonto(t, key), incluido: !!t.incl[key], especial: false };
+  }
+  const incluidosDe = emp => { const p = planOf(emp); return p.incluidosPropio != null && p.incluidosPropio !== "" ? Number(p.incluidosPropio) : tarifas().incluidos; };
   const periodOf = iso => FE.localDayKey(iso).slice(0, 7);
   const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
   const periodLabel = p => MESES[+p.slice(5, 7) - 1] + " " + p.slice(0, 4);
   const nextPeriod = p => { let [y, m] = p.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return y + "-" + String(m).padStart(2, "0"); };
+  const addPeriods = (p, n) => { for (let i = 0; i < n; i++) p = nextPeriod(p); return p; };
   function planOf(emp) { return Object.assign({ activo: true, desde: periodOf(emp.createdAt || new Date().toISOString()), descuento: 0, noSuspender: false, cobrarAlta: true }, emp.plan || {}); }
   function periodsOf(emp) {
     const p = planOf(emp), now = periodOf(new Date().toISOString()), out = [];
     for (let x = p.desde; x <= now && out.length < 120; x = nextPeriod(x)) out.push(x);
     return out;
   }
-  // Cargo de un mes: plan base + módulos + documentos y usuarios extra (+ alta en el primer mes)
+  // Descuentos: { id, tipo: "pct"|"monto", valor, aplica: "total"|clave de concepto, duracion: "siempre"|"meses"|"hasta", meses, desde: "AAAA-MM", hasta: "AAAA-MM", motivo, by, at }
+  function descuentosDe(emp) {
+    const p = planOf(emp);
+    if (Array.isArray(p.descuentos)) return p.descuentos;
+    return p.descuento > 0 ? [{ id: "legacy", tipo: "pct", valor: p.descuento, aplica: "total", duracion: "siempre", desde: p.desde, motivo: "Descuento general" }] : [];
+  }
+  function descuentoVigente(d, period) {
+    if (period < d.desde) return false;
+    if (d.duracion === "meses") return period <= addPeriods(d.desde, Math.max(1, d.meses || 1) - 1);
+    if (d.duracion === "hasta") return !!d.hasta && period <= d.hasta;
+    return true;
+  }
+  function descuentoTexto(d) {
+    const que = d.aplica === "total" ? "total del mes" : (conceptOf(d.aplica) || { label: d.aplica }).label;
+    const cuanto = d.tipo === "pct" ? d.valor + "%" : "Gs " + FE.fmt(d.valor);
+    const dur = d.duracion === "meses" ? (d.meses || 1) + " mes(es) desde " + periodLabel(d.desde) : d.duracion === "hasta" ? "de " + periodLabel(d.desde) + " a " + periodLabel(d.hasta) : "desde " + periodLabel(d.desde) + ", sin fin";
+    return cuanto + " sobre " + que + " · " + dur;
+  }
+  // Cargo de un mes: plan base + módulos + documentos y usuarios extra (+ alta en el primer mes) − descuentos.
+  // Cada línea: [texto, monto, { key, incluido, especial, descuento }]
   function cargoDe(emp, period) {
-    const t = tarifas(), p = planOf(emp), lines = [];
+    const p = planOf(emp), lines = [], inc = incluidosDe(emp);
     const docs = storeFor(emp.id).get("invoices", []).filter(i => i.status === "ok" && i.date && periodOf(i.date) === period).length;
-    lines.push(["Plan base (hasta " + t.incluidos + " documentos)", t.base]);
-    MODULES.forEach(m => { const v = t.modulos[m.key] || 0; if (hasModule(emp, m.key) && v > 0) lines.push(["Módulo " + m.label, v]); });
-    if (docs > t.incluidos) lines.push([(docs - t.incluidos) + " documento(s) extra × Gs " + FE.fmt(t.extraDoc), (docs - t.incluidos) * t.extraDoc]);
+    const add = (key, text, mult) => { const pr = precioDe(emp, key); lines.push([text, Math.round(pr.monto * (mult || 1)), { key, incluido: pr.incluido, especial: pr.especial }]); };
+    add("base", "Plan base (hasta " + inc + " documentos)");
+    MODULES.forEach(m => { if (hasModule(emp, m.key)) add(m.key, "Módulo " + m.label); });
+    if (docs > inc) add("extraDoc", (docs - inc) + " documento(s) extra × Gs " + FE.fmt(precioDe(emp, "extraDoc").monto), docs - inc);
     const users = usersFor(emp.id).filter(u => !ROLES[u.role].estudio && u.active !== false).length;
-    if (hasModule(emp, "usuarios") && users > 1 && t.usuarioExtra > 0) lines.push([(users - 1) + " usuario(s) adicional(es)", (users - 1) * t.usuarioExtra]);
-    if (p.cobrarAlta && t.alta > 0 && period === p.desde) lines.push(["Alta y habilitación (única vez)", t.alta]);
-    const sub = lines.reduce((a, l) => a + l[1], 0), desc = Math.round(sub * (p.descuento || 0) / 100);
-    if (desc) lines.push(["Descuento " + p.descuento + "%", -desc]);
-    return { period, docs, lines, total: sub - desc };
+    if (hasModule(emp, "usuarios") && users > 1) add("usuarioExtra", (users - 1) + " usuario(s) adicional(es)", users - 1);
+    if (p.cobrarAlta && period === p.desde) add("alta", "Alta y habilitación (única vez)");
+    // Descuentos por concepto, después los del total
+    const ds = descuentosDe(emp).filter(d => descuentoVigente(d, period));
+    ds.filter(d => d.aplica !== "total").forEach(d => {
+      const base = lines.filter(l => l[2].key === d.aplica && !l[2].descuento).reduce((a, l) => a + l[1], 0); if (base <= 0) return;
+      const v = Math.min(base, d.tipo === "pct" ? Math.round(base * d.valor / 100) : d.valor);
+      if (v > 0) lines.push(["Descuento " + (d.tipo === "pct" ? d.valor + "% " : "") + "en " + conceptOf(d.aplica).label.replace(/^Módulo /, "") + (d.motivo ? " · " + d.motivo : ""), -v, { key: d.aplica, descuento: d.id }]);
+    });
+    let sub = lines.reduce((a, l) => a + l[1], 0);
+    ds.filter(d => d.aplica === "total").forEach(d => {
+      const v = Math.min(sub, d.tipo === "pct" ? Math.round(sub * d.valor / 100) : d.valor);
+      if (v > 0) { lines.push(["Descuento " + (d.tipo === "pct" ? d.valor + "% " : "") + "sobre el total" + (d.motivo ? " · " + d.motivo : ""), -v, { key: "total", descuento: d.id }]); sub -= v; }
+    });
+    return { period, docs, lines, total: Math.max(0, lines.reduce((a, l) => a + l[1], 0)) };
   }
   // Los meses cerrados quedan congelados con lo que se cobró (no cambian si después se tocan módulos o tarifas)
   function cargoCerrado(emp, period) {
@@ -609,6 +659,6 @@
     normTimbrado, typeEnabled, nextNum, bumpNum, tiposFieldsHTML, readTipos, bindTipos, usedTiposOf, inutilizar,
     certStatus, PRESTADORES, queueFor, alertsFor, SEND_LIMIT_H, encodeCatalog, decodeCatalog, productSheet,
     Firmador, ONBOARDING, TEST_CHECKS, MODULES, moduleOf, hasModule, userHas,
-    TARIFAS_DEF, tarifas, saveTarifas, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
+    TARIFAS_DEF, tarifas, saveTarifas, CONCEPTS, conceptOf, generalMonto, precioDe, incluidosDe, descuentosDe, descuentoVigente, descuentoTexto, addPeriods, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
   };
 })(window);
