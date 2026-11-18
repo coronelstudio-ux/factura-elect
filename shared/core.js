@@ -82,14 +82,14 @@
         valid: !needsDoc || hasDoc,
         why: needsDoc && !hasDoc
           ? "Desde Gs 7.000.000 no se permite innominado: identificá al comprador con su documento."
-          : hasDoc ? "Sin RUC: se factura como venta a consumidor, identificado por su documento." : "Sin RUC ni documento: se factura como venta a consumidor innominado."
+          : hasDoc ? "Sin RUC: identificado por su documento." : "Sin RUC ni documento: factura a consumidor final sin identificar."
       };
     }
     if (receiver.mode === "ext") {
       const ok = !!String(receiver.name || "").trim() && !!String(receiver.doc || "").trim();
       const dt = EXT_DOC_TYPES.includes(receiver.docType) ? receiver.docType : "2";
       return { mode: "ext", operation: "B2F", label: "Extranjero · " + DOC_SHORT[dt], docType: dt, valid: ok,
-        why: ok ? "Cliente del exterior: se factura como venta a extranjero." : "Para un cliente extranjero escribí el nombre y el número de documento." };
+        why: ok ? "Cliente del exterior." : "Para un cliente extranjero escribí el nombre y el número de documento." };
     }
     const parsed = parseRuc(receiver.ruc);
     if (!parsed) return { mode: "con", valid: false, label: "", why: "Escribí el RUC con su dígito verificador, por ejemplo 4567890-1." };
@@ -97,14 +97,14 @@
     const info = registry[parsed.full];
     if (!info) {
       return { mode: "con", valid: true, operation: "B2B", label: "Contribuyente", name: "",
-        why: "RUC válido. No aparece en la búsqueda de prueba: se factura como empresa a empresa." };
+        why: "RUC válido. No aparece en la búsqueda de prueba." };
     }
     if (info.oee) {
       return { mode: "con", valid: true, operation: "B2G", label: info.regime, name: info.name,
-        why: "Organismo del Estado: se factura como venta al Estado y necesita el código DNCP." };
+        why: "Organismo del Estado: la factura necesita el código de contratación (DNCP)." };
     }
     return { mode: "con", valid: true, operation: "B2B", label: `${info.type} · ${info.regime}`, name: info.name,
-      why: "Contribuyente con RUC: se factura como empresa a empresa. No tenés que elegirlo." };
+      why: "Contribuyente con RUC." };
   }
   const opName = { B2B: "Empresa a empresa", B2C: "Empresa a consumidor", B2G: "Empresa a Estado", B2F: "Empresa a extranjero" };
 
@@ -150,11 +150,11 @@
     }
     let detect = "";
     if (d.mode === "con" && String(d.ruc || "").trim()) {
-      detect = r.valid ? `<div class="detect"><div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div>
+      detect = r.valid ? `<div class="detect"><div class="kind">${esc(r.label)}</div>
           ${r.name ? `<div class="small" style="margin-top:2px">${esc(r.name)}</div>` : ""}${opts.why ? `<div class="why">${esc(r.why)}</div>` : ""}</div>`
         : `<div class="notice bad">${esc(r.why)}</div>`;
     } else if (d.mode !== "con") {
-      detect = `<div class="${r.valid ? "detect" : "notice bad"}"><div class="kind">${esc(r.label)} · ${opName[r.operation]} (${r.operation})</div><div class="why">${esc(r.why)}</div></div>`;
+      detect = `<div class="${r.valid ? "detect" : "notice bad"}"><div class="kind">${esc(r.label)}</div><div class="why">${esc(r.why)}</div></div>`;
     }
     return seg + fields + detect;
   }

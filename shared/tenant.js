@@ -65,7 +65,7 @@
   const storeFor = id => makeStore("fac_" + id + "_");
   function newEmpresa(data) {
     return Object.assign({ id: randomId(6), createdAt: new Date().toISOString(), env: "test", establishment: "001", point: "001",
-      taxpayerType: "2", csc: "0001", cscProd: "", cert: null, logo: null, status: "alta",
+      taxpayerType: "2", csc: "0001", cscProd: "", cert: null, logo: null, status: "alta", modulos: {},
       onboarding: { step: 1, checks: {}, habilitado: false } }, data || {});
   }
   // Primer uso: crea la empresa de ejemplo y mueve los datos que ya tenía el Facturador (versión de una sola empresa).
@@ -78,6 +78,7 @@
       emp.cert = { titular: emp.name, ruc: emp.ruc + "-" + emp.dv, prestador: "Ejemplo (ficticio)", tipo: "F1", serie: "", desde: "2026-03-15",
         vence: dmyToIso(emp.certExpires) || "2027-03-15", archivo: false };
       emp.onboarding = { step: 5, checks: {}, habilitado: false };
+      emp.modulos = Object.fromEntries(MODULES.map(m => [m.key, true])); // la empresa de ejemplo tiene todo
       saveEmpresa(emp);
       const st = storeFor(emp.id);
       ["invoices", "pedidos", "clients", "timbrados"].forEach(k => { const v = legacy.get(k, null); if (v != null) st.set(k, v); });
@@ -125,6 +126,89 @@
     G.set("audit", l.slice(0, 2000));
   }
   const auditList = () => G.get("audit", []);
+
+  // ================= Módulos contratables =================
+  // El plan base (factura, notas de crédito y débito, historial, PDF, cancelación, clientes) siempre está.
+  // perUser: además de la empresa, el admin del cliente puede habilitarlo por usuario.
+  const MODULES = [
+    { key: "pedidos", label: "Pedidos", desc: "Bandeja de pedidos por QR, app Pedidos para los cargadores y catálogo compartido", perUser: true },
+    { key: "remision", label: "Nota de remisión", desc: "Traslado de mercaderías desde factura o pedido", perUser: true },
+    { key: "autofactura", label: "Autofactura", desc: "Compras a no contribuyentes y extranjeros", perUser: true },
+    { key: "usuarios", label: "Usuarios múltiples", desc: "Varias personas con su PIN y su rol (se cobra por usuario adicional)" },
+    { key: "productos", label: "Productos frecuentes y catálogo", desc: "Lista de productos para elegir al facturar" },
+    { key: "usd", label: "Moneda extranjera (USD)", desc: "Facturas en dólares con tipo de cambio" },
+    { key: "correo", label: "Envío automático por correo", desc: "Manda la factura al cliente al aprobarse" },
+    { key: "ticket", label: "Formato ticket", desc: "PDF en ticket de 80 mm" }
+  ];
+  const moduleOf = key => MODULES.find(m => m.key === key);
+  // Empresas creadas antes de los módulos (sin el campo) conservan todo habilitado
+  const hasModule = (emp, key) => !emp || !emp.modulos ? true : !!emp.modulos[key];
+  const userHas = (user, emp, key) => hasModule(emp, key) && !(user && moduleOf(key) && moduleOf(key).perUser && (user.sinModulos || []).includes(key));
+
+  // ================= Planes y cobros del servicio =================
+  // Tarifas del estudio (ejemplo inicial, se editan en Admin → Ajustes → Tarifas)
+  const TARIFAS_DEF = { base: 89000, incluidos: 100, extraDoc: 500, usuarioExtra: 10000, alta: 150000, venceDia: 10, graciaDias: 10,
+    modulos: { pedidos: 35000, remision: 20000, autofactura: 15000, usuarios: 0, productos: 0, usd: 10000, correo: 10000, ticket: 10000 }, estudioEmpresaId: "" };
+  function tarifas() { const t = G.get("tarifas", {}); return Object.assign({}, TARIFAS_DEF, t, { modulos: Object.assign({}, TARIFAS_DEF.modulos, t.modulos || {}) }); }
+  const saveTarifas = t => G.set("tarifas", t);
+  const periodOf = iso => FE.localDayKey(iso).slice(0, 7);
+  const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const periodLabel = p => MESES[+p.slice(5, 7) - 1] + " " + p.slice(0, 4);
+  const nextPeriod = p => { let [y, m] = p.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return y + "-" + String(m).padStart(2, "0"); };
+  function planOf(emp) { return Object.assign({ activo: true, desde: periodOf(emp.createdAt || new Date().toISOString()), descuento: 0, noSuspender: false, cobrarAlta: true }, emp.plan || {}); }
+  function periodsOf(emp) {
+    const p = planOf(emp), now = periodOf(new Date().toISOString()), out = [];
+    for (let x = p.desde; x <= now && out.length < 120; x = nextPeriod(x)) out.push(x);
+    return out;
+  }
+  // Cargo de un mes: plan base + módulos + documentos y usuarios extra (+ alta en el primer mes)
+  function cargoDe(emp, period) {
+    const t = tarifas(), p = planOf(emp), lines = [];
+    const docs = storeFor(emp.id).get("invoices", []).filter(i => i.status === "ok" && i.date && periodOf(i.date) === period).length;
+    lines.push(["Plan base (hasta " + t.incluidos + " documentos)", t.base]);
+    MODULES.forEach(m => { const v = t.modulos[m.key] || 0; if (hasModule(emp, m.key) && v > 0) lines.push(["Módulo " + m.label, v]); });
+    if (docs > t.incluidos) lines.push([(docs - t.incluidos) + " documento(s) extra × Gs " + FE.fmt(t.extraDoc), (docs - t.incluidos) * t.extraDoc]);
+    const users = usersFor(emp.id).filter(u => !ROLES[u.role].estudio && u.active !== false).length;
+    if (hasModule(emp, "usuarios") && users > 1 && t.usuarioExtra > 0) lines.push([(users - 1) + " usuario(s) adicional(es)", (users - 1) * t.usuarioExtra]);
+    if (p.cobrarAlta && t.alta > 0 && period === p.desde) lines.push(["Alta y habilitación (única vez)", t.alta]);
+    const sub = lines.reduce((a, l) => a + l[1], 0), desc = Math.round(sub * (p.descuento || 0) / 100);
+    if (desc) lines.push(["Descuento " + p.descuento + "%", -desc]);
+    return { period, docs, lines, total: sub - desc };
+  }
+  // Los meses cerrados quedan congelados con lo que se cobró (no cambian si después se tocan módulos o tarifas)
+  function cargoCerrado(emp, period) {
+    const all = G.get("cierres", {}), mine = all[emp.id] || {};
+    if (mine[period]) return mine[period];
+    const c = cargoDe(emp, period);
+    if (period < periodOf(new Date().toISOString())) { mine[period] = c; all[emp.id] = mine; G.set("cierres", all); }
+    return c;
+  }
+  const pagosDe = empId => G.get("pagos", []).filter(x => x.empresaId === empId);
+  function registrarPago(o) {
+    const l = G.get("pagos", []);
+    l.unshift(Object.assign({ id: randomId(8), at: new Date().toISOString() }, o));
+    G.set("pagos", l);
+  }
+  // Estado de cuenta por mes y estado general. El mes P vence el día venceDia del mes siguiente; después de graciaDias se suspende la emisión.
+  function cuenta(emp) {
+    const t = tarifas(), p = planOf(emp), today = FE.todayKey(), pagos = pagosDe(emp.id);
+    if (!p.activo) return { meses: [], deuda: 0, state: "inactivo", text: "Sin plan activo" };
+    let credit = pagos.reduce((a, x) => a + (Number(x.monto) || 0), 0);
+    const meses = periodsOf(emp).map(per => {
+      const c = cargoCerrado(emp, per), vence = nextPeriod(per) + "-" + String(t.venceDia).padStart(2, "0");
+      const aplicado = Math.min(credit, c.total); credit -= aplicado;
+      const saldo = c.total - aplicado, d = new Date(vence + "T00:00:00"); d.setDate(d.getDate() + t.graciaDias);
+      const corte = FE.localDayKey(d.toISOString());
+      const st = saldo <= 0 ? "pagado" : today > corte && !p.noSuspender ? "suspendido" : today > vence ? "vencido" : "pendiente";
+      return Object.assign({}, c, { vence, corte, pagado: aplicado, saldo, state: st, abierto: per === periodOf(new Date().toISOString()) });
+    });
+    const deuda = meses.reduce((a, m) => a + (m.state === "vencido" || m.state === "suspendido" ? m.saldo : 0), 0);
+    const susp = meses.find(m => m.state === "suspendido"), venc = meses.find(m => m.state === "vencido");
+    const state = susp ? "suspendido" : venc ? "vencido" : "al_dia";
+    const text = susp ? "Emisión suspendida por falta de pago (" + periodLabel(susp.period) + ")"
+      : venc ? "Pago vencido de " + periodLabel(venc.period) + ": se suspende el " + isoToDmy(venc.corte) : "Al día";
+    return { meses, deuda, state, text, aFavor: credit };
+  }
 
   // ================= Tipos de documento electrónico (iTiDE) =================
   // code = tipo de documento del CDC (posiciones 1-2). available = SIFEN ya lo recibe; los demás se muestran deshabilitados con el motivo.
@@ -334,6 +418,9 @@
     else if (cs.state === "expired") out.push({ level: "bad", kind: "certificado", text: "Certificado vencido (" + isoToDmy(emp.cert.vence) + ")" });
     else if (cs.state === "warn") out.push({ level: "warn", kind: "certificado", text: "Certificado vence en " + cs.days + " día(s)" });
     if (emp.env !== "prod") out.push({ level: "info", kind: "ambiente", text: "En ambiente de prueba" });
+    const cta = cuenta(emp);
+    if (cta.state === "suspendido") out.push({ level: "bad", kind: "cobro", text: cta.text });
+    else if (cta.state === "vencido") out.push({ level: "warn", kind: "cobro", text: cta.text });
     const inv = st.get("invoices", []);
     const rejected = inv.filter(i => i.status === "bad" && !i.cancelled).length;
     if (rejected) out.push({ level: "bad", kind: "rechazadas", text: rejected + " factura(s) rechazada(s) por corregir" });
@@ -432,6 +519,8 @@
         <div class="card" style="padding:4px 14px">${o.empresas.length ? o.empresas.map(e => `<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--text);font-weight:500">
           <input type="checkbox" data-emp="${esc(e.id)}" ${(v.empresas || []).includes(e.id) ? "checked" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(e.name)}</label>`).join("")
           : `<div class="muted small" style="padding:8px 0">Todavía no hay empresas.</div>`}</div></div>`}
+      ${o.modulesFor ? `<label>Puede usar</label><div class="card" style="padding:4px 14px">${MODULES.filter(m => m.perUser && hasModule(o.modulesFor, m.key)).map(m => `<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--text);font-weight:500">
+          <input type="checkbox" data-umod="${m.key}" ${(v.sinModulos || []).includes(m.key) ? "" : "checked"} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(m.label)}</label>`).join("") || `<div class="muted small" style="padding:8px 0">La empresa no tiene módulos opcionales habilitados.</div>`}</div>` : ""}
       <label for="uPin">${u ? "PIN nuevo (dejalo vacío para no cambiarlo)" : "PIN (4 a 6 números)"}</label>
       <input id="uPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
       ${u ? checkbox("uActive", v.active !== false, "Usuario activo") : ""}
@@ -449,6 +538,7 @@
         if (role !== "maestro" && !emps.length) { toast("Elegí al menos una empresa"); return; }
         const target = u ? list.find(x => x.id === u.id) : { id: randomId(8), createdAt: new Date().toISOString() };
         Object.assign(target, { name, role, empresas: role === "maestro" ? [] : emps, active: u ? el.querySelector("#uActive").checked : true });
+        if (o.modulesFor) target.sinModulos = Array.from(el.querySelectorAll("[data-umod]")).filter(c => !c.checked).map(c => c.dataset.umod);
         if (pin) target.pin = await hashPin(pin, target.id);
         if (!u) list.push(target);
         saveUsers(list); close(); o.onSave(list, target);
@@ -518,6 +608,7 @@
     DE_TYPES, deType, HABILITABLES, MOTIVOS_NC, MOTIVOS_ND, MOTIVOS_REM, MODOS_TRANSPORTE, CONSTANCIAS, labelOf,
     normTimbrado, typeEnabled, nextNum, bumpNum, tiposFieldsHTML, readTipos, bindTipos, usedTiposOf, inutilizar,
     certStatus, PRESTADORES, queueFor, alertsFor, SEND_LIMIT_H, encodeCatalog, decodeCatalog, productSheet,
-    Firmador, ONBOARDING, TEST_CHECKS, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
+    Firmador, ONBOARDING, TEST_CHECKS, MODULES, moduleOf, hasModule, userHas,
+    TARIFAS_DEF, tarifas, saveTarifas, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
   };
 })(window);

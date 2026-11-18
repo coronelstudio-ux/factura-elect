@@ -86,7 +86,6 @@
       ["Moneda", isUSD ? "USD" + (inv.exchange ? " · Tipo de cambio " + inv.exchange : "") : "PYG - Guaraní"], ["Dirección / Correo", inv.receiverEmail || "-"],
       ["Tipo de transacción", "Venta de mercadería"]
     ];
-    if (!opts.pairs && inv.pedidoId) pairs.push(["Pedido", inv.pedidoId]);
     const rTop = y, colW = (CW - 9) / 2;
     let rowY = rTop + 3.5;
     for (let i = 0; i < pairs.length; i += 2) {
@@ -124,7 +123,7 @@
       const h = Math.max(1, dl.length) * lh(8) + 2.6;
       ensure(h);
       const by = y + 3.6;
-      cell(0, (it.code || "INF" + String(i + 1).padStart(3, "0")).slice(0, 9), by, { size: 8 });
+      cell(0, (it.code || "").slice(0, 9), by, { size: 8 });
       lines(dl, colX[1] + 1.2, by, 8);
       cell(2, "UNI", by, { size: 8 });
       cell(3, String(it.qty).replace(".", ","), by, { size: 8 });
@@ -146,7 +145,7 @@
     else {
       totalRow("SUBTOTAL", [[6, fmt(T.exe)], [7, fmt(T.b5)], [8, fmt(T.b10)]]);
       totalRow("TOTAL DE LA OPERACIÓN" + (isUSD ? " (USD)" : ""), [[8, fmt(T.total)]]);
-      totalRow("TOTAL EN GUARANÍES", [[8, isUSD ? fmtGs(T.totalPyg) : fmt(T.total)]]);
+      if (isUSD) totalRow("TOTAL EN GUARANÍES", [[8, fmtGs(T.totalPyg)]]);
       ensure(8);
       const liq = [["LIQUIDACIÓN IVA", M + 1.2, "left"], ["(5%) " + fmt(T.iva5), M + 85, "right"], ["(10%) " + fmt(T.iva10), M + 135, "right"], ["TOTAL IVA " + fmt(T.iva), M + CW - 1.2, "right"]];
       liq.forEach(([s, x, a]) => text(s, x, y + 4.5, { size: 8.5, bold: true, align: a }));
@@ -184,7 +183,7 @@
       ensure(fl.length * lh(8) + 6);
       y += lines(fl, M, y, 8) + 2;
     }
-    if (test) text("Prueba: IdCSC " + company.csc + " con CSC de prueba del manual · Datos ficticios, no es un documento tributario.", M, y, { size: 7, color: GREY });
+
 
     // ---------- Numeración de páginas ----------
     const pages = doc.getNumberOfPages();
@@ -257,7 +256,7 @@
     y += 1; center("ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA DE UN DOCUMENTO ELECTRÓNICO (XML)", 6.5, true);
     center("Si su documento electrónico presenta algún error, podrá solicitar la modificación dentro de las 72 horas siguientes a la emisión de este comprobante.", 6.5);
     if (opts.footerText) { y += 1; center(opts.footerText, 7); }
-    if (test) { y += 1; center("Datos ficticios · CSC de prueba · sin validez tributaria", 6.5, false, GREY); }
+
     return y + TM;
   }
   async function buildTicket(inv, company, opts) {

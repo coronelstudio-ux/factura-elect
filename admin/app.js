@@ -26,6 +26,92 @@
   const invoicesOf = e => T.storeFor(e.id).get("invoices", []);
   const timbradosOf = e => T.storeFor(e.id).get("timbrados", []);
   const inutilsOf = e => T.storeFor(e.id).get("inutilizaciones", []);
+  const gs = n => "Gs " + fmt(n);
+  const cobroChip = st => st === "pagado" ? chip("ok", "Pagado") : st === "suspendido" ? chip("bad", "Suspendido") : st === "vencido" ? chip("warn", "Vencido") : chip("neutral", "Pendiente");
+  function planSection(e) {
+    const t = T.tarifas(), p = T.planOf(e), cta = T.cuenta(e), editable = user.role === "maestro";
+    const mes = T.cargoDe(e, T.periodOf(new Date().toISOString()));
+    return section("Plan y cobros", `<div class="card">
+        <div class="kv"><span class="muted">Estado</span><span>${cta.state === "suspendido" ? chip("bad", "Suspendido") : cta.state === "vencido" ? chip("warn", "Vencido") : chip("ok", "Al día")}</span></div>
+        ${cta.deuda ? `<div class="kv"><span class="muted">Deuda vencida</span><span class="amount">${gs(cta.deuda)}</span></div>` : ""}
+        ${cta.aFavor ? `<div class="kv"><span class="muted">Saldo a favor</span><span class="amount">${gs(cta.aFavor)}</span></div>` : ""}
+        <div class="muted small" style="margin:6px 0 2px">${esc(cta.text)}${p.noSuspender ? " · nunca se suspende" : ""}</div>
+        <div class="section-title" style="margin-top:14px">Módulos contratados</div>
+        <div class="muted small" style="margin:-4px 0 6px">Plan base: factura, notas de crédito y débito, historial, PDF y clientes (${gs(t.base)}/mes, hasta ${t.incluidos} documentos).</div>
+        ${T.MODULES.map(m => `<label class="mod-row"><input type="checkbox" data-modk="${m.key}" ${T.hasModule(e, m.key) ? "checked" : ""} ${editable ? "" : "disabled"}>
+          <span><b>${esc(m.label)}</b><br><span class="small muted">${esc(m.desc)}</span></span><span class="small" style="margin-left:auto;white-space:nowrap">${t.modulos[m.key] ? "+ " + gs(t.modulos[m.key]) : "Incluido"}</span></label>`).join("")}
+        ${editable ? `<button class="btn soft" data-savemods style="margin-top:10px">Guardar módulos</button>` : `<div class="muted small">Los módulos los cambia el admin maestro.</div>`}
+        <div class="section-title" style="margin-top:16px">Cargo de ${esc(T.periodLabel(mes.period))} (en curso)</div>
+        ${mes.lines.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><span>${gs(v)}</span></div>`).join("")}
+        <div class="kv"><span><b>Total del mes</b><br><span class="small muted">${mes.docs} documento(s) emitidos este mes</span></span><span class="amount">${gs(mes.total)}</span></div>
+        <div class="section-title" style="margin-top:16px">Estado de cuenta</div>
+        ${cta.meses.slice().reverse().slice(0, 12).map(m => `<div class="kv"><span><b>${esc(T.periodLabel(m.period))}</b>${m.abierto ? " (en curso)" : ""}<br>
+          <span class="small muted">Vence ${T.isoToDmy(m.vence)} · pagado ${gs(m.pagado)}${m.saldo > 0 ? " · saldo " + gs(m.saldo) : ""}</span></span><span style="text-align:right">${gs(m.total)}<br>${cobroChip(m.state)}</span></div>`).join("")}
+        ${T.pagosDe(e.id).length ? `<div class="section-title" style="margin-top:16px">Pagos registrados</div>${T.pagosDe(e.id).slice(0, 8).map(x => `<div class="kv"><span>${esc(x.medio)}${x.referencia ? " · " + esc(x.referencia) : ""}<br><span class="small muted">${fmtDate(x.at)} · ${esc(x.user)}</span></span><span class="amount">${gs(x.monto)}</span></div>`).join("")}` : ""}
+        ${editable ? `<div class="btn-row" style="margin-top:12px"><button class="btn primary" data-pago>Registrar pago</button><button class="btn soft" data-facserv>Facturar el servicio</button></div>
+          ${T.checkbox("plNoSusp", p.noSuspender, "No suspender nunca a esta empresa")}
+          <div class="grid2"><div><label for="plDesc">Descuento (%)</label><input id="plDesc" data-kb="decimal" value="${esc(p.descuento || 0)}"></div>
+            <div><label for="plDesde">Cobrar desde</label><input id="plDesde" type="month" value="${esc(p.desde)}"></div></div>
+          <button class="btn" data-saveplan style="margin-top:10px">Guardar condiciones</button>` : ""}
+        <div class="muted small" style="margin-top:8px">Vence el día ${t.venceDia} del mes siguiente; ${t.graciaDias} días después se suspende la emisión de documentos nuevos. Lo ya emitido se sigue viendo y descargando.</div>
+      </div>`);
+  }
+  function pagoSheet(e) {
+    const cta = T.cuenta(e), deuda = cta.meses.reduce((a, m) => a + m.saldo, 0);
+    sheet(`<h3>Registrar pago</h3>
+      <p class="muted small">${esc(e.name)} · saldo total ${gs(deuda)}. El pago se aplica a los meses más antiguos primero.</p>
+      <label for="pgMonto">Monto (Gs)</label><input id="pgMonto" data-kb="money" value="${deuda > 0 ? fmt(deuda) : ""}">
+      <label for="pgMedio">Medio</label><select id="pgMedio">${["Transferencia bancaria", "QR bancario", "Efectivo", "Tarjeta", "Otro"].map(x => `<option>${x}</option>`).join("")}</select>
+      <label for="pgRef">Referencia o número de comprobante (opcional)</label><input id="pgRef" data-kb="code">
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Registrar</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const monto = FE.parseAmount(el.querySelector("#pgMonto").value);
+        if (!(monto > 0)) { toast("Escribí el monto"); return; }
+        T.registrarPago({ empresaId: e.id, monto, medio: el.querySelector("#pgMedio").value, referencia: el.querySelector("#pgRef").value.trim(), user: user.name });
+        log("Pago registrado", e.name + " · " + gs(monto), e.id); close(); render(); toast("Pago registrado");
+      };
+    });
+  }
+  // Prepara en el Facturador de la empresa del estudio una factura al cliente por el servicio del último mes con saldo
+  function facturarServicio(e) {
+    const t = T.tarifas(), est = T.getEmpresa(t.estudioEmpresaId);
+    if (!est) { toast("Elegí primero la empresa del estudio en Ajustes → Tarifas"); return; }
+    if (est.id === e.id) { toast("Es la empresa del estudio"); return; }
+    const cta = T.cuenta(e), m = cta.meses.slice().reverse().find(x => x.saldo > 0) || cta.meses[cta.meses.length - 1];
+    if (!m) { toast("No hay cargos para facturar"); return; }
+    const items = m.lines.filter(l => l[1] > 0).map(([k, v]) => ({ desc: k + " · " + T.periodLabel(m.period), qty: 1, price: v, tax: "10", discount: 0 }));
+    const st = T.storeFor(est.id);
+    st.set("draft", { deType: "1", step: 0, goto: "revision", mode: "con", ruc: e.ruc + "-" + e.dv, name: e.name, doc: "", docType: "1", country: "", email: e.mail || "",
+      condition: "contado", installments: 1, currency: "PYG", exchange: "", items });
+    T.setActive(est.id); log("Factura del servicio preparada", e.name + " · " + T.periodLabel(m.period), e.id);
+    location.href = "../facturador/";
+  }
+  function tarifasSheet() {
+    const t = T.tarifas(), emps = T.listEmpresas();
+    const num = (id, label, v) => `<div><label for="${id}">${label}</label><input id="${id}" data-kb="money" value="${fmt(v)}"></div>`;
+    sheet(`<h3>Tarifas del servicio</h3>
+      <p class="muted small">Montos mensuales en guaraníes. Los meses cerrados no cambian.</p>
+      <div class="grid2">${num("tfBase", "Plan base", t.base)}${num("tfInc", "Documentos incluidos", t.incluidos)}</div>
+      <div class="grid2">${num("tfExtra", "Documento extra", t.extraDoc)}${num("tfUser", "Usuario adicional", t.usuarioExtra)}</div>
+      <div class="grid2">${num("tfAlta", "Alta (única vez)", t.alta)}<div></div></div>
+      <div class="section-title" style="margin-top:14px">Módulos</div>
+      ${T.MODULES.map(m => `<div class="grid2"><div style="padding-top:22px">${esc(m.label)}</div>${num("tfM_" + m.key, "Por mes", t.modulos[m.key] || 0)}</div>`).join("")}
+      <div class="grid2"><div><label for="tfVence">Vence el día</label><input id="tfVence" data-kb="digits" value="${t.venceDia}"></div><div><label for="tfGracia">Días de gracia</label><input id="tfGracia" data-kb="digits" value="${t.graciaDias}"></div></div>
+      <label for="tfEst">Empresa del estudio (emite tus facturas a los clientes)</label>
+      <select id="tfEst"><option value="">Sin elegir</option>${emps.map(x => `<option value="${esc(x.id)}" ${t.estudioEmpresaId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const v = id => FE.parseAmount(el.querySelector("#" + id).value), dia = parseInt(el.querySelector("#tfVence").value, 10), gr = parseInt(el.querySelector("#tfGracia").value, 10);
+        if (!(dia >= 1 && dia <= 28)) { toast("El día de vencimiento tiene que estar entre 1 y 28"); return; }
+        if (!(gr >= 0 && gr <= 60)) { toast("Los días de gracia van de 0 a 60"); return; }
+        const nt = { base: v("tfBase"), incluidos: v("tfInc"), extraDoc: v("tfExtra"), usuarioExtra: v("tfUser"), alta: v("tfAlta"), venceDia: dia, graciaDias: gr,
+          modulos: Object.fromEntries(T.MODULES.map(m => [m.key, v("tfM_" + m.key)])), estudioEmpresaId: el.querySelector("#tfEst").value };
+        T.saveTarifas(nt); log("Tarifas actualizadas", "Base " + gs(nt.base)); close(); render(); toast("Tarifas guardadas");
+      };
+    });
+  }
   function inutilSheet(e) {
     const st = T.storeFor(e.id), tims = st.get("timbrados", []).map(T.normTimbrado), act = tims.find(t => t.active) || tims[0];
     if (!act) { toast("La empresa no tiene timbrados"); return; }
@@ -128,6 +214,7 @@
           ${can("empresa.ambiente") ? `<div class="seg" style="margin-top:8px"><button data-setenv="test" class="${e.env !== "prod" ? "on" : ""}">Prueba</button><button data-setenv="prod" class="${e.env === "prod" ? "on" : ""}">Producción</button></div>` : ""}
           ${can("empresa.tecnico") ? `<button class="btn soft" data-editcsc style="margin-top:10px">Editar IdCSC</button>` : ""}
         </div>`)}
+      ${planSection(e)}
       ${section("Inutilización de numeración", `<div class="card">
           ${inutilsOf(e).length ? inutilsOf(e).map(x => `<div class="kv"><span><b>${esc(T.deType(x.deType).short)} ${esc(x.est)}-${esc(x.point)} · ${String(x.desde).padStart(7, "0")} al ${String(x.hasta).padStart(7, "0")}</b>
             <br><span class="small muted">Timbrado ${esc(x.timbrado)} · ${esc(x.motivo)} · ${esc(x.user)}</span></span><span class="small muted">${fmtDate(x.at)}</span></div>`).join("")
@@ -181,6 +268,11 @@
           <div class="kv"><span class="muted">Usuario</span><span>${esc(user.name)} · ${esc(T.ROLES[user.role].label)}</span></div>
           <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-mypin>Cambiar mi PIN</button><button class="btn" data-logout>Cerrar sesión</button></div>
         </div>`)}
+      ${user.role === "maestro" ? section("Tarifas del servicio", `<div class="card">
+          ${(t => `<div class="kv"><span class="muted">Plan base</span><span>Gs ${fmt(t.base)} · ${t.incluidos} documentos</span></div>
+          <div class="kv"><span class="muted">Vencimiento y gracia</span><span>Día ${t.venceDia} · ${t.graciaDias} días</span></div>
+          <div class="kv"><span class="muted">Empresa del estudio</span><span>${esc((T.getEmpresa(t.estudioEmpresaId) || {}).name || "Sin elegir")}</span></div>`)(T.tarifas())}
+          <button class="btn soft" data-tarifas style="margin-top:10px">Editar tarifas</button></div>`) : ""}
       ${section("Apariencia", FE.themeHTML())}
       ${section("Instalar en este dispositivo", `<div class="card">${FE.installHTML("Admin")}</div>`)}
       ${user.role === "maestro" ? section("Respaldo completo", `<div class="card">
@@ -481,6 +573,22 @@
       return;
     }
     if (ds.inutil !== undefined && emp) { if (can("timbrados.editar")) inutilSheet(emp); return; }
+    if (ds.savemods !== undefined && emp && user.role === "maestro") {
+      const before = T.MODULES.filter(m => T.hasModule(emp, m.key)).map(m => m.label);
+      emp.modulos = Object.fromEntries(T.MODULES.map(m => [m.key, !!document.querySelector(`[data-modk="${m.key}"]`).checked]));
+      T.saveEmpresa(emp);
+      log("Módulos actualizados", emp.name + " · " + (T.MODULES.filter(m => emp.modulos[m.key]).map(m => m.label).join(", ") || "solo plan base") + " (antes: " + (before.join(", ") || "plan base") + ")", emp.id);
+      render(); toast("Módulos guardados"); return;
+    }
+    if (ds.saveplan !== undefined && emp && user.role === "maestro") {
+      const p = T.planOf(emp), d = parseFloat(String(document.getElementById("plDesc").value).replace(",", ".")) || 0, desde = document.getElementById("plDesde").value;
+      if (d < 0 || d > 100) { toast("El descuento va de 0 a 100"); return; }
+      emp.plan = Object.assign(p, { descuento: d, noSuspender: document.getElementById("plNoSusp").checked, desde: desde || p.desde });
+      T.saveEmpresa(emp); log("Condiciones del plan", emp.name + " · descuento " + d + "%" + (emp.plan.noSuspender ? " · sin suspensión" : ""), emp.id); render(); toast("Condiciones guardadas"); return;
+    }
+    if (ds.pago !== undefined && emp && user.role === "maestro") { pagoSheet(emp); return; }
+    if (ds.facserv !== undefined && emp && user.role === "maestro") { facturarServicio(emp); return; }
+    if (ds.tarifas !== undefined && user.role === "maestro") { tarifasSheet(); return; }
     if (ds.timact && emp) {
       if (!can("timbrados.editar")) return;
       const st = T.storeFor(emp.id), list = st.get("timbrados", []);
@@ -490,7 +598,7 @@
     }
     if ((ds.empuseradd !== undefined || ds.useredit) && emp) {
       const u = ds.useredit ? T.getUser(ds.useredit) : null;
-      T.userSheet({ user: u, roles: ["admincliente", "facturador", "cargador"], fixedEmpresa: emp.id, empresas: [],
+      T.userSheet({ user: u, roles: ["admincliente", "facturador", "cargador"], fixedEmpresa: emp.id, empresas: [], modulesFor: emp,
         onSave: (list, saved) => { log(u ? "Usuario editado" : "Usuario creado", saved.name + " · " + T.ROLES[saved.role].label, emp.id); render(); } });
       return;
     }

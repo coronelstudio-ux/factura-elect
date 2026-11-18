@@ -125,3 +125,21 @@ Las pantallas no llaman a `localStorage` directamente: usan `FE.T` (`listEmpresa
 1. Reemplazar esas funciones por llamadas a la API, con sesión por usuario.
 2. Mover la emisión al servidor: generar el XML, firmar, armar el QR con el `DigestValue` real, enviar a SIFEN y guardar la respuesta.
 3. Mantener `shared/core.js` (reglas y cálculos) para validar en la app y en el servidor con las mismas pruebas.
+
+## Módulos y cobros
+
+- `T.MODULES`: catálogo de módulos. `T.hasModule(empresa, clave)` dice si la empresa lo contrató (las empresas anteriores a los módulos los tienen todos). `T.userHas(usuario, empresa, clave)` también tiene en cuenta los módulos quitados al usuario (`usuario.sinModulos`).
+- `T.tarifas()` / `T.saveTarifas()`: tarifas del estudio (`fe_tarifas`).
+- `T.cargoDe(empresa, "AAAA-MM")`: líneas y total del mes: base, módulos, documentos extra, usuarios adicionales, alta y descuento. `T.cargoCerrado` congela los meses terminados (`fe_cierres`).
+- `T.registrarPago()` / `T.pagosDe()`: pagos (`fe_pagos`), aplicados del mes más antiguo al más nuevo.
+- `T.cuenta(empresa)`: estado por mes (pagado, pendiente, vencido, suspendido) y estado general. El mes vence el día `venceDia` del mes siguiente y se suspende `graciaDias` después, salvo `plan.noSuspender`.
+
+Tablas para el servidor:
+
+```
+modulo_empresa (empresa_id, modulo, activo, desde)
+modulo_usuario_bloqueado (usuario_id, modulo)
+tarifa (estudio_id, concepto, monto, vigente_desde)
+cargo_mensual (empresa_id, periodo, lineas_json, total, cerrado)
+pago (id, empresa_id, monto, medio, referencia, fecha, usuario_id)
+```

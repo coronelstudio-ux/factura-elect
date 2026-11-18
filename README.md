@@ -73,9 +73,53 @@ Para probar en la computadora: `python3 -m http.server 8080` y abrir `http://loc
 - **Cancelación** solo dentro de las 48 horas desde la aprobación; después, nota de crédito.
 - La respuesta de SIFEN sigue siendo simulada. El detalle de qué falta está en [`docs/informe-tecnico.md`](docs/informe-tecnico.md).
 
+## Emisión por pasos
+
+Emitir un documento sigue el flujo de una transferencia bancaria, tomando como modelo el de ueno según su centro de ayuda: una pregunta por pantalla, barra de progreso, flecha atrás, ✕ para salir (el borrador queda guardado) y un botón grande **Continuar** que se habilita cuando el paso está completo.
+
+| Tipo | Pasos |
+|---|---|
+| Factura | ¿Qué vas a emitir? → ¿A quién le facturás? → ¿Qué le vendés? → ¿Cómo te paga? → Revisá |
+| Nota de crédito / débito | ¿Qué vas a emitir? → ¿Sobre qué factura? → ¿Qué se acredita / debita? → ¿Por qué la emitís? → Revisá |
+| Autofactura | ¿Qué vas a emitir? → ¿A quién le compraste? → ¿Qué constancia tiene? → ¿Qué compraste? → Revisá |
+| Nota de remisión | ¿Qué vas a emitir? → ¿A quién le enviás la mercadería? → ¿De dónde a dónde? → ¿Cómo se traslada? → ¿Qué se traslada? → Revisá |
+
+- **Cliente:** se elige como el destino de una transferencia. Se busca entre los clientes frecuentes (aparecen como contactos), se escribe un RUC (se reconoce solo) o se usa "Cargar RUC", "Sin RUC" o "Extranjero".
+- **Productos:** el total se ve grande arriba y los productos frecuentes se agregan con un toque.
+- **Revisión:** resumen con el total y una fila por paso; tocar una fila vuelve a ese paso. El KuDE se despliega desde ahí.
+- **Confirmación con PIN** en un teclado propio y **comprobante final** con "Compartir PDF". Si SIFEN rechaza, "Revisar y volver a intentar" recarga los datos.
+- Si la empresa tiene un solo tipo habilitado, el paso "¿Qué vas a emitir?" no aparece.
+
+## Módulos y cobros (app Admin)
+
+- **Plan base:** factura, notas de crédito y débito, historial, PDF, cancelación y clientes.
+- **Módulos que se contratan por empresa:** Pedidos, Nota de remisión, Autofactura, Usuarios múltiples, Productos frecuentes, Moneda extranjera, Correo automático y Formato ticket.
+  - Si un módulo no está, **todo lo suyo desaparece** del Facturador: pestaña, botones, tipos, ajustes.
+  - Pedidos, Remisión y Autofactura también se pueden quitar **por usuario**.
+- **Tarifas configurables** (Admin → Ajustes → Tarifas): plan base con documentos incluidos, documento extra, usuario adicional, precio de cada módulo, alta única, día de vencimiento y días de gracia. Los montos iniciales son un ejemplo.
+- **Cada empresa tiene una sección Plan y cobros:**
+  - módulos contratados y cargo del mes en curso;
+  - estado de cuenta por mes (los meses cerrados quedan congelados);
+  - registro de pagos (se aplican al mes más antiguo);
+  - descuento y "no suspender nunca".
+- **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
+- **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión.
+
+## KuDE simplificado
+
+El KuDE y el PDF muestran solo lo que le sirve al contribuyente:
+- Sin códigos de control (B2B, B2C…).
+- Sin la nota interna del CSC de prueba.
+- Sin códigos automáticos de producto.
+- Sin la referencia interna al pedido.
+- Sin filas vacías.
+- El "Total en guaraníes" aparece solo si la factura está en dólares.
+
+Los datos que exige el KuDE se mantienen.
+
 ## Documentos electrónicos
 
-En **Nueva** hay un botón desplegable **Tipo de documento**. Muestra todos los tipos: los habilitados para elegir y, en gris y con el motivo, los que no se pueden usar.
+El primer paso de **Nueva** muestra todos los tipos: los habilitados para elegir y, en gris y con el motivo, los que no se pueden usar (no habilitados en el timbrado o próximamente). Los de un módulo no contratado no aparecen.
 
 | Tipo | Código | Qué permite |
 |---|---|---|

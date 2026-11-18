@@ -252,6 +252,38 @@ test("Motivos y modos tienen etiqueta", () => {
 });
 test("Producto sin precio (remisión) tiene total cero", () => assert.strictEqual(FE.calcItems([{ qty: 10, price: 0, tax: "E" }]).total, 0));
 
+// ---------- Módulos y cobros ----------
+test("Módulos: empresa sin el campo tiene todo; nueva solo el plan base", () => {
+  assert.ok(T.hasModule({}, "pedidos"));
+  const e = T.newEmpresa({ name: "N" }); assert.ok(!T.hasModule(e, "pedidos"));
+  e.modulos = { pedidos: true }; assert.ok(T.hasModule(e, "pedidos")); assert.ok(!T.hasModule(e, "remision"));
+});
+test("Módulos por usuario: se puede quitar pedidos a un usuario aunque la empresa lo tenga", () => {
+  const e = { modulos: { pedidos: true, productos: true } };
+  assert.ok(T.userHas({ role: "facturador" }, e, "pedidos"));
+  assert.ok(!T.userHas({ role: "facturador", sinModulos: ["pedidos"] }, e, "pedidos"));
+  assert.ok(T.userHas({ role: "facturador", sinModulos: ["productos"] }, e, "productos")); // productos no es por usuario
+  assert.ok(!T.userHas(null, e, "remision"));
+});
+test("Cargo del mes: base + módulos + documentos extra + alta en el primer mes, con descuento", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Cobro", ruc: "1234567", dv: "1", modulos: { pedidos: true, productos: true }, plan: { desde: T.periodOf(new Date().toISOString()), descuento: 10 } }));
+  const st = T.storeFor(e.id), now = new Date().toISOString();
+  st.set("invoices", Array.from({ length: 103 }, (_, i) => ({ id: i, status: "ok", date: now })));
+  const c = T.cargoDe(e, T.periodOf(now)), t = T.tarifas();
+  const esperado = t.base + t.modulos.pedidos + 3 * t.extraDoc + t.alta;
+  assert.strictEqual(c.docs, 103); assert.strictEqual(c.total, esperado - Math.round(esperado * 0.1));
+});
+test("Estado de cuenta: pagos aplicados al mes más antiguo; vencido y suspendido", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "Morosa", ruc: "7654321", dv: "0", plan: { desde: "2026-01", cobrarAlta: false } }));
+  let cta = T.cuenta(e);
+  assert.strictEqual(cta.state, "suspendido"); assert.strictEqual(cta.meses[0].period, "2026-01");
+  const deuda = cta.meses.filter(m => !m.abierto).reduce((a, m) => a + m.saldo, 0);
+  T.registrarPago({ empresaId: e.id, monto: deuda, medio: "Transferencia", user: "test" });
+  cta = T.cuenta(e); assert.strictEqual(cta.state, "al_dia"); assert.strictEqual(cta.deuda, 0);
+  e.plan.noSuspender = true; e.plan.desde = "2025-12"; T.saveEmpresa(e);
+  assert.notStrictEqual(T.cuenta(T.getEmpresa(e.id)).state, "suspendido");
+});
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);

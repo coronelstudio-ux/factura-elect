@@ -36,6 +36,11 @@
   let user = null;
   const can = perm => T.can(user, perm);
   const log = (action, detail) => T.audit(action, detail, company.id, user);
+  // Módulo contratado por la empresa y permitido al usuario (si no, todo lo del módulo desaparece)
+  const mod = key => T.userHas(user, company, key);
+  const MOD_OF_TYPE = { "4": "autofactura", "7": "remision" };
+  // Estado de cuenta del servicio: si está suspendido por falta de pago, no se emiten documentos nuevos (lo emitido se sigue viendo)
+  let billing = T.cuenta(company);
 
   // ================= Estado =================
   const state = { screen: "home", filter: "all", detailId: null, lastResult: null, draft: store.get("draft", null) || newDraft(), preview: null, q: "",
@@ -61,7 +66,9 @@
   // Si el tipo se puede emitir ahora: disponible en SIFEN, habilitado en el timbrado activo y timbrado vigente
   function docState(code) {
     const ty = T.deType(code), t = activeTimbrado();
+    if (MOD_OF_TYPE[ty.code] && !mod(MOD_OF_TYPE[ty.code])) return { ok: false, state: "hidden", why: "Módulo no habilitado" };
     if (!ty.available) return { ok: false, state: "soon", why: ty.reason };
+    if (billing.state === "suspendido") return { ok: false, state: "off", why: billing.text + ". Comunicate con el estudio. Tus documentos emitidos se siguen viendo y descargando." };
     if (!t || !timbradoOk()) return { ok: false, state: "off", why: timbradoProblem() || "No hay timbrado activo" };
     if (!T.typeEnabled(t, ty.code)) return { ok: false, state: "off", why: "No está habilitado en el timbrado " + t.number + ". " +
       (can("timbrados.editar") ? "Si lo habilitaste en Marangatu, agregalo en Ajustes → Timbrados." : "Si está habilitado en Marangatu, pedile al estudio que lo agregue.") };
@@ -89,7 +96,7 @@
     line.textContent = company.name + " · RUC " + company.ruc + "-" + company.dv + (multi ? "  ▾ cambiar" : "") + (user ? " · " + user.name : "");
     line.style.cursor = multi ? "pointer" : "";
     document.getElementById("envChip").textContent = company.env === "test" ? "Prueba" : "Producción";
-    const b = document.getElementById("pedBadge"), n = pendingCount();
+    const b = document.getElementById("pedBadge"), n = mod("pedidos") ? pendingCount() : 0;
     b.textContent = n; b.classList.toggle("hidden", !n);
   }
 
@@ -99,7 +106,7 @@
     const todays = invoices.filter(i => i.status === "ok" && !i.cancelled && String(i.deType || "1") === "1" && FE.localDayKey(i.date) === today);
     const pending = invoices.filter(i => i.status === "warn").length;
     const rejected = invoices.filter(i => i.status === "bad" && !i.cancelled).length;
-    const pp = pendingCount();
+    const pp = mod("pedidos") ? pendingCount() : 0;
     return `
       <div class="hero">
         <div class="label">Facturado hoy</div>
@@ -108,8 +115,10 @@
       </div>
       <div class="quick">
         <button class="btn primary" data-go="new">Nuevo documento</button>
-        <button class="btn soft" data-go="pedidos">Pedidos${pp ? " (" + pp + ")" : ""}</button>
+        ${mod("pedidos") ? `<button class="btn soft" data-go="pedidos">Pedidos${pp ? " (" + pp + ")" : ""}</button>` : `<button class="btn soft" data-go="history">Historial</button>`}
       </div>
+      ${billing.state === "suspendido" ? `<div class="notice bad"><b>Emisión suspendida</b>${esc(billing.text)}. Comunicate con el estudio para regularizar. Podés seguir viendo y descargando tus documentos.</div>`
+        : billing.state === "vencido" ? `<div class="notice warn"><b>Pago del servicio vencido</b>${esc(billing.text)}.</div>` : ""}
       ${timbradoNotice()}
       ${pp ? `<div class="notice warn"><b>Tenés ${pp} pedido(s) pendiente(s) de facturar</b>Abrí Pedidos para revisarlos y decidir.</div>` : ""}
       ${rejected ? `<div class="notice bad"><b>Hay ${rejected} factura(s) rechazada(s)</b>Abrila en el historial para ver el motivo y corregirla.</div>` : ""}
@@ -152,7 +161,7 @@
   // Desplegable con todos los tipos: los habilitados primero; los demás, en gris y con el motivo
   function docPickerSheet() {
     const order = { on: 0, off: 1, soon: 2 };
-    const list = T.DE_TYPES.map(ty => Object.assign({ ty }, docState(ty.code))).sort((a, b) => order[a.state] - order[b.state]);
+    const list = T.DE_TYPES.map(ty => Object.assign({ ty }, docState(ty.code))).filter(x => x.state !== "hidden").sort((a, b) => order[a.state] - order[b.state]);
     const chip = st => st === "on" ? '<span class="chip ok">Habilitado</span>' : st === "off" ? '<span class="chip bad">No habilitado</span>' : '<span class="chip neutral">Próximamente</span>';
     sheet(`<h3>Tipo de documento</h3>
       <p class="muted small" style="margin:2px 0 8px">Solo podés emitir los tipos habilitados en el timbrado activo.</p>
@@ -179,8 +188,8 @@
     if (["1", "7"].includes(code) && ["1", "7"].includes(old.deType)) ["mode", "ruc", "name", "doc", "docType", "country", "email", "pedidoId"].forEach(k => d[k] = old[k]);
     if (["1", "4", "7"].includes(code) && ["1", "4", "7"].includes(old.deType)) d.items = old.items.map(i => Object.assign({}, i, code === "4" ? { tax: "E" } : {}));
     if (code === "7" && old.deType === "1" && old.assoc) d.assoc = old.assoc;
-    state.draft = d; state.preview = null; render();
-    if (T.deType(code).assoc && !d.assoc) assocPicker();
+    d.step = stepsOf(d)[0] === "tipo" ? 1 : 0;
+    state.draft = d; state.preview = null; state.wq = ""; state.wmanual = false; render();
   }
 
   // Facturas aprobadas que se pueden asociar a una nota, con su saldo (total menos notas de crédito ya emitidas)
@@ -265,119 +274,259 @@
     return { ok: true, t };
   }
 
+  // ================= Emisión por pasos (flujo como una transferencia de ueno) =================
+  // Una pregunta por pantalla, "Continuar" abajo, revisión con edición por fila, confirmación con PIN y comprobante.
+  const STEP_Q = {
+    tipo: ["¿Qué vas a emitir?", "Elegí el documento. Los que no podés emitir aparecen en gris con el motivo."],
+    cliente: ["¿A quién le facturás?", "Buscalo en tus clientes, escribí su RUC o elegí otra opción."],
+    destinatario: ["¿A quién le enviás la mercadería?", "Buscalo en tus clientes o cargá sus datos."],
+    productos: ["¿Qué le vendés?", "Tocá un producto frecuente o agregá uno nuevo."],
+    pago: ["¿Cómo te paga?", "Condición de venta y moneda."],
+    asociada: ["¿Sobre qué factura?", "Elegí la factura aprobada a la que corresponde."],
+    motivo: ["¿Por qué la emitís?", "El motivo queda registrado en el documento."],
+    vendedor: ["¿A quién le compraste?", "Persona que no es contribuyente o extranjero."],
+    constancia: ["¿Qué constancia tiene?", "La constancia que respalda la compra."],
+    traslado: ["¿De dónde a dónde?", "Motivo, fechas y lugares del traslado."],
+    transporte: ["¿Cómo se traslada?", "Modalidad, vehículo y chofer."],
+    mercaderias: ["¿Qué se traslada?", "Solo cantidades: la remisión no lleva precios."],
+    revision: ["Revisá antes de emitir", "Tocá una fila para corregirla."]
+  };
+  const visibleTypes = () => T.DE_TYPES.map(ty => Object.assign({ ty }, docState(ty.code))).filter(x => x.state !== "hidden");
+  function stepsOf(d) {
+    const key = T.deType(d.deType).key;
+    const base = { factura: ["cliente", "productos", "pago"], nc: ["asociada", "productos", "motivo"], nd: ["asociada", "productos", "motivo"],
+      autofactura: ["vendedor", "constancia", "productos"], remision: ["destinatario", "traslado", "transporte", "mercaderias"] }[key] || ["cliente", "productos", "pago"];
+    return (visibleTypes().length > 1 ? ["tipo"] : []).concat(base, ["revision"]);
+  }
+  const stepKey = d => { const st = stepsOf(d); d.step = Math.max(0, Math.min(d.step || 0, st.length - 1)); return st[d.step]; };
+  const goStep = (d, key) => { const i = stepsOf(d).indexOf(key); if (i >= 0) d.step = i; };
+  // Validación de cada paso: { ok, why }
+  function stepCheck(d, key) {
+    const t = calcItems(d.items, d.currency), ty = T.deType(d.deType);
+    switch (key) {
+      case "tipo": return docState(d.deType);
+      case "cliente": case "destinatario": {
+        if (d.mode === "con" && !String(d.ruc || "").trim()) return { ok: false, why: "" }; // todavía no eligió a nadie
+        const r = classify(d, key === "cliente" ? pygOf(d, t) : 0); return { ok: r.valid, why: r.valid ? "" : r.why };
+      }
+      case "asociada": return d.assoc ? { ok: true } : { ok: false, why: "Elegí la factura" };
+      case "vendedor": return !d.seller.name.trim() ? { ok: false, why: "Escribí el nombre del vendedor" } : !d.seller.doc.trim() ? { ok: false, why: "Escribí su documento" } : { ok: true };
+      case "constancia": return d.constancia.numero.trim() ? { ok: true } : { ok: false, why: "Escribí el número de la constancia" };
+      case "productos": case "mercaderias": {
+        if (!d.items.length) return { ok: false, why: key === "mercaderias" ? "Agregá lo que se traslada" : "Agregá al menos un producto" };
+        if (ty.assoc) { const c = draftCheck(d); if (!c.ok && /saldo|cero/.test(c.why)) return { ok: false, why: c.why }; }
+        return { ok: true };
+      }
+      case "pago": return d.currency === "USD" && FE.pygTotal(t.total, "USD", d.exchange) == null ? { ok: false, why: "Escribí el tipo de cambio del día" } : { ok: true };
+      case "motivo": return { ok: !!d.motivo };
+      case "traslado": return !d.rem.inicio ? { ok: false, why: "Elegí la fecha de inicio" } : !d.rem.entrega.trim() ? { ok: false, why: "Escribí el punto de entrega" } : { ok: true };
+      case "transporte": {
+        const m = d.rem;
+        if (m.modo === "1" && (!String(m.chapa || "").trim() || !String(m.chofer || "").trim())) return { ok: false, why: "Escribí la chapa y el chofer" };
+        if (m.responsable === "tercero" && !FE.parseRuc(m.transportistaRuc)) return { ok: false, why: "Escribí el RUC del transportista" };
+        return { ok: true };
+      }
+      case "revision": { const c = draftCheck(d); return { ok: c.ok, why: c.why }; }
+    }
+    return { ok: true };
+  }
+  const initials = n => String(n || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "?";
+
   function screenNew() {
-    const d = state.draft, ty = T.deType(d.deType), ds = docState(d.deType);
-    const head = `${docPickerHTML(d)}
-      ${ds.ok ? "" : `<div class="notice bad"><b>No se puede emitir ${esc(ty.short.toLowerCase())}</b>${esc(ds.why)}
-        ${ds.state === "off" ? `<button class="link" data-go="settings" style="display:block;padding:4px 0 0;min-height:0">Ver timbrados</button>` : ""}</div>`}`;
-    const body = ty.key === "nc" || ty.key === "nd" ? newNota(d, ty) : ty.key === "autofactura" ? newAuto(d) : ty.key === "remision" ? newRemision(d) : newFactura(d);
-    return head + body;
-  }
-
-  function newFactura(d) {
-    const chk = draftCheck(d), t = chk.t, r = classify(d, pygOf(d, t)), hasItems = d.items.length > 0;
-    const ped = d.pedidoId ? inbox.find(p => p.id === d.pedidoId) : null;
+    // Si el tipo del borrador ya no está disponible (módulo quitado), se vuelve a factura
+    if (docState(state.draft.deType).state === "hidden") { state.draft = newDraft("1"); toast("Ese tipo de documento ya no está habilitado"); }
+    if (state.draft.goto) { goStep(state.draft, state.draft.goto); delete state.draft.goto; } // abrir en un paso (ej. factura del servicio)
+    const d = state.draft, steps = stepsOf(d), key = stepKey(d), n = steps.length, chk = stepCheck(d, key);
+    const [q, sub] = STEP_Q[key] || ["", ""];
+    const qq = key === "productos" ? ({ nc: ["¿Qué se acredita?", "Quitá lo que no corresponde o bajá cantidades."], nd: ["¿Qué se debita?", "Intereses, recargos o ajustes."],
+      autofactura: ["¿Qué compraste?", "Sin IVA: la autofactura no respalda crédito fiscal."] }[T.deType(d.deType).key] || [q, sub]) : [q, sub];
+    const body = { tipo: flowTipo, cliente: flowCliente, destinatario: flowCliente, productos: flowProductos, mercaderias: flowProductos, pago: flowPago,
+      asociada: flowAsociada, motivo: flowMotivo, vendedor: flowVendedor, constancia: flowConstancia, traslado: flowTraslado, transporte: flowTransporte, revision: flowRevision }[key](d);
+    const last = key === "revision", ty = T.deType(d.deType);
     return `
-      ${ped ? `<div class="notice ok"><b>Facturando el pedido ${esc(ped.id)}</b>Cargado por ${esc(ped.seller)}. Revisá los datos y emití.
-        <button class="link" data-unlinkped style="display:block;padding:4px 0 0;min-height:0">Quitar vínculo con el pedido</button></div>` : ""}
-      <div class="lead" style="margin-top:10px">Elegí el tipo de cliente. El tipo de operación se detecta solo.</div>
-      <div class="section">
-        ${sectionT(1, r.valid, "Cliente", `<button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button>`)}
-        ${FE.receiverBlock(d, r, t.total, { why: true })}
-        <label for="fEmail">Correo para enviar la factura (opcional)</label>
-        <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
-      </div>
-      <div class="section">${sectionT(2, hasItems, "Productos")}${itemsHTML(d)}</div>
-      <div class="section">
-        ${sectionT(3, false, "Condición de venta")}
-        <div class="seg">
-          <button data-cond="contado" class="${d.condition === "contado" ? "on" : ""}">Contado</button>
-          <button data-cond="credito" class="${d.condition === "credito" ? "on" : ""}">Crédito</button>
+      <div class="flow">
+        <div class="flow-head">
+          <button class="flow-ico" data-wback aria-label="Atrás">←</button>
+          <div class="flow-prog" aria-hidden="true"><div style="width:${Math.round((d.step + 1) / n * 100)}%"></div></div>
+          <button class="flow-ico" data-wexit aria-label="Salir">✕</button>
         </div>
-        <div class="grid2" style="margin-top:4px">
-          ${d.condition === "credito" ? `<div><label for="fCuotas">Cuotas</label><input id="fCuotas" value="${d.installments}"></div>` : `<div></div>`}
-          <div><label for="fCur">Moneda</label>
-            <select id="fCur"><option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select></div>
+        <div class="flow-step">${esc(ty.short)} · Paso ${d.step + 1} de ${n}</div>
+        <h2 class="flow-q">${esc(qq[0])}</h2>
+        <p class="flow-sub">${esc(qq[1])}</p>
+        ${body}
+        <div class="flow-foot">
+          <div class="flow-why" id="flowWhy">${chk.ok ? "" : esc(chk.why || "")}</div>
+          <button class="btn primary flow-btn" ${last ? "data-wemit" : "data-wnext"} ${chk.ok ? "" : "disabled"}>${last ? "Emitir " + esc(ty.short.toLowerCase()) : "Continuar"}</button>
         </div>
-        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
-      </div>
-      ${stickyHTML(countText(t.count), FE.money(t.total, d.currency), chk.ok, "Ver factura")}`;
+      </div>`;
   }
 
-  function newNota(d, ty) {
-    const chk = draftCheck(d), t = chk.t, fac = d.assoc ? invoices.find(x => x.id === d.assoc.id) : null, isNC = ty.key === "nc";
-    return `
-      <div class="lead" style="margin-top:10px">${isNC ? "Anula o reduce, total o parcialmente, una factura aprobada: devoluciones, descuentos o ajustes." : "Aumenta el monto de una factura aprobada: intereses, recargos o ajustes de precio."}</div>
-      <div class="section">
-        ${sectionT(1, !!fac, "Factura asociada")}
-        ${fac ? `<div class="card"><div class="kv"><span class="muted">Factura</span><span><b>${esc(fac.number)}</b></span></div>
-            <div class="kv"><span class="muted">Cliente</span><span>${esc(fac.client)}</span></div>
-            <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(fac.date)}</span></div>
-            <div class="kv"><span class="muted">Total</span><span>${FE.money(facTotalOp(fac), fac.currency)}</span></div>
-            ${isNC ? `<div class="kv"><span class="muted">Saldo para acreditar</span><span class="amount">${FE.money(saldoOf(fac), fac.currency)}</span></div>` : ""}
-            <button class="link" data-pickassoc>Cambiar factura</button></div>`
-          : `<button class="btn soft" data-pickassoc>Elegir la factura</button>`}
-        ${sel("Motivo de emisión", "motivo", isNC ? T.MOTIVOS_NC : T.MOTIVOS_ND)}
-      </div>
-      <div class="section">${sectionT(2, d.items.length > 0, isNC ? "Productos a acreditar" : "Conceptos a debitar")}
-        ${isNC && fac ? `<p class="muted small" style="margin:0 0 8px">Están los productos de la factura: quitá los que no corresponden o bajá las cantidades.</p>` : ""}
-        ${itemsHTML(d, { empty: fac ? "Agregá los conceptos." : "Primero elegí la factura.", addLabel: isNC ? "Agregar producto" : "Agregar concepto (ej. intereses)" })}</div>
-      ${!chk.ok && fac && d.items.length ? `<div class="notice warn">${esc(chk.why)}</div>` : ""}
-      ${stickyHTML(countText(t.count), FE.money(t.total, d.currency), chk.ok, isNC ? "Ver nota de crédito" : "Ver nota de débito")}`;
+  function flowTipo(d) {
+    const order = { on: 0, off: 1, soon: 2 };
+    const chip = st => st === "on" ? '<span class="chip ok">Habilitado</span>' : st === "off" ? '<span class="chip bad">No habilitado</span>' : '<span class="chip neutral">Próximamente</span>';
+    return `<div class="flow-list">${visibleTypes().sort((a, b) => order[a.state] - order[b.state]).map(x => `
+      <button class="doc-opt ${x.ok ? "" : "off"} ${x.ty.code === d.deType ? "on" : ""}" data-pickdoc="${x.ty.code}" ${x.ok ? "" : 'aria-disabled="true"'}>
+        <span class="abbr">${esc(x.ty.abbr)}</span>
+        <span><span class="t">${esc(x.ty.label)}</span><span class="w">${esc(x.ok ? DOC_HINT[x.ty.code] || "" : x.why)}</span></span>
+        <span class="state">${x.ty.code === d.deType && x.ok ? '<span class="chip ok">Elegido</span>' : chip(x.state)}</span></button>`).join("")}</div>`;
   }
-
-  function newAuto(d) {
-    const chk = draftCheck(d), t = chk.t, s = d.seller;
+  // Cliente: como elegir el destino de una transferencia (buscar, contactos frecuentes u otros datos)
+  function flowCliente(d) {
+    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t)), hasSel = r.valid && (d.mode !== "con" || d.ruc);
+    const qv = state.wq || "", list = clients.filter(c => FE.matches(qv, c.name, c.ruc, c.doc)).slice(0, qv ? 12 : 8);
+    const p = FE.parseRuc(qv), typedRuc = p && FE.dv11(p.base) === p.dv && !clients.some(c => c.ruc === p.full) ? p.full : "";
+    const reg = typedRuc ? FE.classify({ mode: "con", ruc: typedRuc }, 0) : null;
+    const contact = (c, i) => `<button class="contact" data-wclient="${esc(c.id)}"><span class="avatar">${esc(initials(c.name || c.ruc))}</span>
+      <span class="ct"><b>${esc(c.name || "Sin nombre")}</b><span>${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}</span></span><span class="go">›</span></button>`;
     return `
-      <div class="lead" style="margin-top:10px">Para compras a personas que no son contribuyentes. La emite el comprador (tu empresa), solo en guaraníes y no respalda crédito fiscal de IVA.</div>
-      <div class="section">
-        ${sectionT(1, !!(s.name && s.doc), "Vendedor")}
-        ${segf("seller.kind", [["1", "No contribuyente"], ["2", "Extranjero"]])}
-        ${fld("Nombre y apellido", "seller.name", "name")}
-        <div class="grid2">
-          <div>${sel("Tipo de documento", "seller.docType", [["1", "Cédula paraguaya"], ["2", "Pasaporte"], ["3", "Cédula extranjera"], ["4", "Carnet de residencia"], ["9", "Otro"]])}</div>
-          <div>${fld("Número", "seller.doc", s.docType === "1" ? "digits" : "code")}</div>
-        </div>
-        ${fld("Dirección (opcional)", "seller.address", "address")}
-        ${fld("Ciudad (opcional)", "seller.city", "city")}
-      </div>
-      <div class="section">
-        ${sectionT(2, !!d.constancia.numero, "Constancia")}
-        ${sel("Tipo de constancia", "constancia.tipo", T.CONSTANCIAS)}
-        ${fld("Número de la constancia", "constancia.numero", "code")}
-      </div>
-      <div class="section">${sectionT(3, d.items.length > 0, "Productos o servicios comprados")}${itemsHTML(d, { noTax: true })}</div>
-      ${stickyHTML(countText(t.count), FE.money(t.total, "PYG"), chk.ok, "Ver autofactura")}`;
+      ${hasSel && !state.wmanual ? `<div class="picked"><span class="avatar">${esc(initials(d.name || r.name || d.ruc))}</span>
+        <span class="ct"><b>${esc(d.name || r.name || (d.mode === "sin" ? "Consumidor final" : d.ruc))}</b><span>${esc(FE.receiverIdText(FE.receiverFromDraft(d, r)))}</span></span>
+        <button class="link" data-wchange>Cambiar</button></div>` : ""}
+      ${!hasSel || state.wmanual ? `
+        <input id="wSearch" data-kb="search" type="search" class="flow-search" placeholder="Buscá por nombre, RUC o documento" value="${esc(qv)}">
+        ${typedRuc ? `<button class="contact" data-wruc="${esc(typedRuc)}"><span class="avatar plus">+</span><span class="ct"><b>${esc(reg && reg.name || "Usar este RUC")}</b><span>RUC ${esc(typedRuc)}</span></span><span class="go">›</span></button>` : ""}
+        ${list.length ? `<div class="flow-label">${qv ? "Resultados" : "Frecuentes"}</div><div class="contacts">${list.map(contact).join("")}</div>`
+          : qv && !typedRuc ? `<div class="muted small" style="margin:10px 2px">Ningún cliente frecuente coincide.${/^\d/.test(qv) ? " Si es un RUC, escribilo con su dígito verificador." : ""}</div>` : ""}
+        <div class="flow-label">Otras opciones</div>
+        <div class="opt-grid">
+          <button class="opt" data-wmode="con"><b>Cargar RUC</b><span>Contribuyente</span></button>
+          <button class="opt" data-wmode="sin"><b>Sin RUC</b><span>Documento o consumidor final</span></button>
+          <button class="opt" data-wmode="ext"><b>Extranjero</b><span>Cliente del exterior</span></button>
+        </div>` : ""}
+      ${state.wmanual ? `<div class="card" style="margin-top:12px">${FE.receiverBlock(d, r, t.total, { why: true })}
+        ${d.deType === "1" ? `<label for="fEmail">Correo para enviar la factura (opcional)</label><input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">` : ""}</div>` : ""}`;
   }
-
-  function newRemision(d) {
-    const chk = draftCheck(d), r = classify(d, 0), m = d.rem, units = d.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
+  function flowProductos(d) {
+    const t = calcItems(d.items, d.currency), noPrice = d.deType === "7", ty = T.deType(d.deType);
+    const prods = mod("productos") ? products : [];
+    const fac = d.assoc ? invoices.find(x => x.id === d.assoc.id) : null;
+    const units = d.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
     return `
-      <div class="lead" style="margin-top:10px">Acompaña el traslado de mercaderías. Tiene que estar aprobada antes de salir.</div>
-      ${d.assoc ? `<div class="notice ok"><b>Remisión de la factura ${esc(d.assoc.number)}</b>${esc(d.assoc.client || "")}</div>` : ""}
-      <div class="section">
-        ${sectionT(1, r.valid, "Destinatario", `<button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button>`)}
-        ${FE.receiverBlock(d, r, 0)}
+      <div class="flow-amount">${noPrice ? FE.fmtQty(units) + " <small>unidades</small>" : esc(FE.money(t.total, d.currency))}</div>
+      <div class="flow-amount-sub">${d.items.length} ${noPrice ? "ítem(s)" : "producto(s)"}${ty.key === "nc" && fac ? " · saldo de la factura " + esc(FE.money(saldoOf(fac), fac.currency)) : ""}</div>
+      ${prods.length && !ty.assoc ? `<div class="flow-label">Productos frecuentes</div><div class="chips-grid">${prods.slice(0, 12).map((p, i) =>
+        `<button class="pchip" data-wprod="${i}"><b>${esc(p.desc)}</b>${noPrice ? "" : `<span>${esc(FE.money(p.price, "PYG"))}</span>`}</button>`).join("")}</div>` : ""}
+      ${itemsHTML(d, { noPrice, noTax: d.deType === "4", empty: noPrice ? "Agregá lo que se traslada." : "Todavía no agregaste productos.", addLabel: noPrice ? "Agregar mercadería" : ty.key === "nd" ? "Agregar concepto" : "Agregar producto o servicio" })}`;
+  }
+  function flowPago(d) {
+    return `
+      <div class="opt-big">
+        <button class="${d.condition === "contado" ? "on" : ""}" data-cond="contado"><b>Contado</b><span>Paga ahora</span></button>
+        <button class="${d.condition === "credito" ? "on" : ""}" data-cond="credito"><b>Crédito</b><span>Paga después o en cuotas</span></button>
       </div>
-      <div class="section">
-        ${sectionT(2, !!(m.inicio && m.entrega), "Traslado")}
-        ${sel("Motivo del traslado", "rem.motivo", T.MOTIVOS_REM)}
-        <div class="grid2 stack-sm"><div>${fld("Inicio del traslado", "rem.inicio", "", 'type="date"')}</div><div>${fld("Fin estimado (opcional)", "rem.fin", "", 'type="date"')}</div></div>
-        ${fld("Punto de salida", "rem.salida", "address")}
-        ${fld("Punto de entrega", "rem.entrega", "address", 'placeholder="Dirección y ciudad de entrega"')}
+      ${d.condition === "credito" ? `<label for="fCuotas">Cantidad de cuotas</label><input id="fCuotas" value="${d.installments}">` : ""}
+      ${mod("usd") ? `<label for="fCur">Moneda</label>
+        <select id="fCur"><option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select>
+        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio del día</label><input id="fTc" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}` : ""}`;
+  }
+  function flowAsociada(d) {
+    const qv = state.wq || "", facs = invoices.filter(i => isType(i, "1") && i.status === "ok" && !i.cancelled && i.kude && FE.matches(qv, i.client, i.number, i.ruc));
+    return `
+      <input id="wSearch" data-kb="search" type="search" class="flow-search" placeholder="Buscá por cliente, número o RUC" value="${esc(qv)}">
+      <div class="contacts">${facs.slice(0, 30).map(i => `<button class="contact ${d.assoc && d.assoc.id === i.id ? "sel" : ""}" data-wassoc="${i.id}"><span class="avatar">${esc(initials(i.client))}</span>
+        <span class="ct"><b>${esc(i.number)} · ${esc(i.client)}</b><span>${fmtDate(i.date)} · ${esc(FE.money(facTotalOp(i), i.currency))}${d.deType === "5" ? " · saldo " + esc(FE.money(saldoOf(i), i.currency)) : ""}</span></span><span class="go">›</span></button>`).join("")
+        || `<div class="muted small" style="margin:10px 2px">${qv ? "Ninguna factura coincide." : "Todavía no hay facturas aprobadas."}</div>`}</div>`;
+  }
+  function flowMotivo(d) {
+    const list = d.deType === "5" ? T.MOTIVOS_NC : T.MOTIVOS_ND;
+    return `<div class="flow-list">${list.map(([c, l]) => `<button class="radio-row ${String(d.motivo) === c ? "on" : ""}" data-setfield="motivo" data-value="${c}"><span class="dot"></span>${esc(l)}</button>`).join("")}</div>`;
+  }
+  function flowVendedor(d) {
+    const s = d.seller;
+    return `${segf("seller.kind", [["1", "No contribuyente"], ["2", "Extranjero"]])}
+      ${fld("Nombre y apellido", "seller.name", "name")}
+      <div class="grid2">
+        <div>${sel("Tipo de documento", "seller.docType", [["1", "Cédula paraguaya"], ["2", "Pasaporte"], ["3", "Cédula extranjera"], ["4", "Carnet de residencia"], ["9", "Otro"]])}</div>
+        <div>${fld("Número", "seller.doc", s.docType === "1" ? "digits" : "code")}</div>
       </div>
-      <div class="section">
-        ${sectionT(3, !!(m.chapa && m.chofer), "Transporte")}
-        ${sel("Modalidad", "rem.modo", T.MODOS_TRANSPORTE)}
-        <label>Responsable del transporte</label>
-        ${segf("rem.responsable", [["propio", "Propio"], ["tercero", "Transportista"]])}
-        ${m.responsable === "tercero" ? `<div class="grid2 stack-sm"><div>${fld("RUC del transportista", "rem.transportistaRuc", "ruc")}</div><div>${fld("Nombre o razón social", "rem.transportista", "org")}</div></div>` : ""}
-        <div class="grid2"><div>${fld("Marca del vehículo", "rem.marca", "name")}</div><div>${fld("Chapa", "rem.chapa", "code")}</div></div>
-        <div class="grid2"><div>${fld("Chofer", "rem.chofer", "name")}</div><div>${fld("Cédula del chofer", "rem.choferDoc", "digits")}</div></div>
+      ${fld("Dirección (opcional)", "seller.address", "address")}
+      ${fld("Ciudad (opcional)", "seller.city", "city")}`;
+  }
+  function flowConstancia(d) {
+    return `${sel("Tipo de constancia", "constancia.tipo", T.CONSTANCIAS)}${fld("Número de la constancia", "constancia.numero", "code")}`;
+  }
+  function flowTraslado(d) {
+    return `${sel("Motivo del traslado", "rem.motivo", T.MOTIVOS_REM)}
+      <div class="grid2 stack-sm"><div>${fld("Inicio del traslado", "rem.inicio", "", 'type="date"')}</div><div>${fld("Fin estimado (opcional)", "rem.fin", "", 'type="date"')}</div></div>
+      ${fld("Punto de salida", "rem.salida", "address")}
+      ${fld("Punto de entrega", "rem.entrega", "address", 'placeholder="Dirección y ciudad de entrega"')}`;
+  }
+  function flowTransporte(d) {
+    const m = d.rem;
+    return `${sel("Modalidad", "rem.modo", T.MODOS_TRANSPORTE)}
+      <label>Responsable del transporte</label>
+      ${segf("rem.responsable", [["propio", "Propio"], ["tercero", "Transportista"]])}
+      ${m.responsable === "tercero" ? `<div class="grid2 stack-sm"><div>${fld("RUC del transportista", "rem.transportistaRuc", "ruc")}</div><div>${fld("Nombre o razón social", "rem.transportista", "org")}</div></div>` : ""}
+      <div class="grid2"><div>${fld("Marca del vehículo", "rem.marca", "name")}</div><div>${fld("Chapa", "rem.chapa", "code")}</div></div>
+      <div class="grid2"><div>${fld("Chofer", "rem.chofer", "name")}</div><div>${fld("Cédula del chofer", "rem.choferDoc", "digits")}</div></div>`;
+  }
+  // Revisión: resumen grande + filas que llevan a su paso, y el KuDE desplegable
+  function flowRevision(d) {
+    const ty = T.deType(d.deType), chk = draftCheck(d);
+    if (chk.ok) state.preview = buildDoc(d);
+    const inv = state.preview, t = chk.t, r = classify(d, pygOf(d, t));
+    const row = (step, label, value) => `<button class="rev-row" data-gostep="${step}"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span><span class="go">›</span></button>`;
+    const who = d.name || r.name || (d.mode === "sin" ? "Consumidor final" : d.ruc);
+    const rows = [];
+    if (ty.key === "factura") rows.push(row("cliente", "Cliente", who + " · " + FE.receiverIdText(FE.receiverFromDraft(d, r))), row("productos", "Productos", d.items.length + " · " + FE.money(t.total, d.currency)),
+      row("pago", "Condición", (d.condition === "credito" ? "Crédito" + (d.installments > 1 ? " · " + d.installments + " cuotas" : "") : "Contado") + " · " + (d.currency === "USD" ? "USD · TC " + d.exchange : "Guaraníes")));
+    if (ty.assoc) rows.push(row("asociada", "Factura", d.assoc ? d.assoc.number + " · " + d.assoc.client : "-"), row("productos", ty.key === "nc" ? "Se acredita" : "Se debita", d.items.length + " · " + FE.money(t.total, d.currency)),
+      row("motivo", "Motivo", T.labelOf(ty.key === "nc" ? T.MOTIVOS_NC : T.MOTIVOS_ND, d.motivo)));
+    if (ty.key === "autofactura") rows.push(row("vendedor", "Vendedor", d.seller.name + " · " + (FE.DOC_SHORT[d.seller.docType] || "") + " " + d.seller.doc),
+      row("constancia", "Constancia", T.labelOf(T.CONSTANCIAS, d.constancia.tipo) + " Nº " + d.constancia.numero), row("productos", "Productos", d.items.length + " · " + FE.money(t.total, "PYG")));
+    if (ty.key === "remision") rows.push(row("destinatario", "Destinatario", who), row("traslado", "Traslado", T.labelOf(T.MOTIVOS_REM, d.rem.motivo) + " · " + d.rem.entrega),
+      row("transporte", "Transporte", T.labelOf(T.MODOS_TRANSPORTE, d.rem.modo) + (d.rem.chapa ? " · " + String(d.rem.chapa).toUpperCase() : "") + (d.rem.chofer ? " · " + d.rem.chofer : "")),
+      row("mercaderias", "Mercaderías", d.items.length + " ítem(s)"));
+    if (visibleTypes().length > 1) rows.push(row("tipo", "Documento", ty.short + " Nº " + nextNumberStr(ty.code)));
+    else rows.push(`<div class="rev-row static"><span class="k">Documento</span><span class="v">${esc(ty.short)} Nº ${esc(nextNumberStr(ty.code))}</span></div>`);
+    return `
+      <div class="rev-card">
+        <div class="rev-total">${ty.key === "remision" ? esc(d.items.length + " ítem(s)") : esc(FE.money(t.total, d.currency))}</div>
+        <div class="rev-total-sub">${esc(ty.label)}${d.currency === "USD" && t.total && FE.pygTotal(t.total, "USD", d.exchange) ? " · " + esc(FE.money(FE.pygTotal(t.total, "USD", d.exchange), "PYG")) : ""}</div>
+        ${rows.join("")}
       </div>
-      <div class="section">${sectionT(4, d.items.length > 0, "Mercaderías")}${itemsHTML(d, { noPrice: true, empty: "Agregá lo que se traslada.", addLabel: "Agregar mercadería" })}</div>
-      ${!chk.ok && d.items.length && docState("7").ok ? `<div class="notice warn">${esc(chk.why)}</div>` : ""}
-      ${stickyHTML(d.items.length + " ítem(s)", FE.fmtQty(units) + " unidades", chk.ok, "Ver nota de remisión")}`;
+      ${inv ? `<details class="rev-kude"><summary>Ver el documento (KuDE)</summary>${kudeHTML(inv)}
+        <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-pdf="1">Descargar PDF</button>${mod("ticket") ? `<button class="btn" data-pdfalt="1">PDF en ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}</div></details>` : ""}
+      <div class="muted small" style="margin-top:12px;text-align:center">${company.env === "test" ? "Ambiente de prueba · " : ""}Vas a confirmar con tu PIN. La aprobación de SIFEN es simulada.</div>`;
+  }
+  // Actualiza el botón "Continuar" y el monto sin redibujar (mientras se escribe)
+  function refreshFlow() {
+    const d = state.draft, key = stepKey(d), chk = stepCheck(d, key), btn = document.querySelector("[data-wnext], [data-wemit]"), why = document.getElementById("flowWhy");
+    if (btn) btn.disabled = !chk.ok;
+    if (why) why.textContent = chk.ok ? "" : chk.why || "";
+  }
+  // Confirmación con PIN en un teclado propio, como en las apps de bancos
+  function pinConfirm(onOk) {
+    const back = document.createElement("div");
+    back.className = "pinpad-back";
+    back.innerHTML = `<div class="pinpad" role="dialog" aria-modal="true" aria-label="Confirmá con tu PIN">
+      <button class="flow-ico pin-x" data-px aria-label="Cancelar">✕</button>
+      <div class="pin-title">Confirmá con tu PIN</div>
+      <div class="pin-sub">${user ? esc(user.name) : "PIN de este dispositivo"}</div>
+      <div class="pin-dots" aria-live="polite"></div>
+      <div class="pin-err" id="pinErr"></div>
+      <div class="pin-keys">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => `<button data-pk="${k}">${k}</button>`).join("")}
+        <button data-pdel aria-label="Borrar">⌫</button><button data-pk="0">0</button><button data-pok aria-label="Confirmar" class="ok">✓</button></div>
+    </div>`;
+    document.body.appendChild(back);
+    let pin = "";
+    const dots = back.querySelector(".pin-dots"), err = back.querySelector("#pinErr");
+    const draw = () => { dots.innerHTML = Array.from({ length: Math.max(4, pin.length) }, (_, i) => `<span class="${i < pin.length ? "on" : ""}"></span>`).join(""); back.querySelector("[data-pok]").disabled = pin.length < 4; };
+    const submit = async () => {
+      if (pin.length < 4) return;
+      const good = user ? await T.verifyPin(user, pin) : await Lock.check(pin);
+      if (good) { back.remove(); onOk(); }
+      else { err.textContent = "PIN incorrecto"; pin = ""; draw(); back.querySelector(".pinpad").classList.add("shake"); setTimeout(() => back.querySelector(".pinpad") && back.querySelector(".pinpad").classList.remove("shake"), 400); FE.buzz(80); }
+    };
+    back.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.px !== undefined) { back.remove(); return; }
+      if (b.dataset.pk !== undefined && pin.length < 6) { pin += b.dataset.pk; err.textContent = ""; draw(); if (pin.length === 6) submit(); return; }
+      if (b.dataset.pdel !== undefined) { pin = pin.slice(0, -1); draw(); return; }
+      if (b.dataset.pok !== undefined) submit();
+    });
+    back.addEventListener("keydown", e => { if (/^\d$/.test(e.key) && pin.length < 6) { pin += e.key; draw(); } else if (e.key === "Backspace") { pin = pin.slice(0, -1); draw(); } else if (e.key === "Enter") submit(); else if (e.key === "Escape") back.remove(); });
+    draw(); back.tabIndex = -1; back.focus();
   }
 
   // ----- KuDE: mismo diseño que el PDF de prueba -----
@@ -393,7 +542,9 @@
   // Datos del encabezado del KuDE según el tipo (los usan la pantalla y el PDF)
   const condText = inv => inv.condition === "credito" ? "[ ] Contado   [X] Crédito" + (inv.installments > 1 ? " · " + inv.installments + " cuotas" : "") : "[X] Contado   [ ] Crédito";
   const curText = inv => inv.currency === "USD" ? "USD" + (inv.exchange ? " · TC " + inv.exchange : "") : "PYG";
-  function docInfoPairs(inv) {
+  // Solo datos para el contribuyente: sin códigos de control y sin filas vacías
+  function docInfoPairs(inv) { return docInfoPairsAll(inv).filter(([, v]) => v != null && String(v).trim() && String(v).trim() !== "-"); }
+  function docInfoPairsAll(inv) {
     const code = String(inv.deType || "1"), p = [["Fecha y hora de emisión", inv.dateLabel]];
     if (code === "4") {
       const s = inv.seller || {}, docName = (FE.DOC_SHORT[s.docType] || "Doc.") + " " + (s.doc || "");
@@ -422,7 +573,6 @@
         ["Motivo de emisión", inv.motivoLabel || "-"]);
     } else {
       p.push(["Dirección / Correo", inv.receiverEmail || "-"], ["Tipo de transacción", "Venta de mercadería"]);
-      if (inv.pedidoId) p.push(["Pedido", inv.pedidoId]);
     }
     return p;
   }
@@ -431,7 +581,7 @@
     const cdcFmt = inv.cdc ? FE.formatCdc(inv.cdc) : "Pendiente de aprobación";
     const isUSD = inv.currency === "USD", test = company.env === "test";
     const label = inv.typeLabel || "Factura electrónica", title = inv.typeTitle || "FACTURA ELECTRÓNICA";
-    const codeOf = (it, i) => esc(it.code || "INF" + String(i + 1).padStart(3, "0"));
+    const codeOf = it => esc(it.code || "");
     const table = noPrice ? `
         <table>
           <colgroup><col style="width:15%"><col style="width:55%"><col style="width:12%"><col style="width:18%"></colgroup>
@@ -450,7 +600,7 @@
               <td class="n">${it.tax === "E" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "5" ? fm(c.total) : "0"}</td><td class="n">${it.tax === "10" ? fm(c.total) : "0"}</td></tr>`; }).join("")}
             <tr class="tot-row"><td colspan="6">SUBTOTAL</td><td class="n">${fm(T2.exe)}</td><td class="n">${fm(T2.b5)}</td><td class="n">${fm(T2.b10)}</td></tr>
             <tr class="tot-row"><td colspan="8">TOTAL DE LA OPERACIÓN</td><td class="n">${fm(T2.total)}</td></tr>
-            <tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(isUSD ? T2.totalPyg : T2.total)}</td></tr>
+            ${isUSD ? `<tr class="tot-row"><td colspan="8">TOTAL EN GUARANÍES</td><td class="n">${fmt(T2.totalPyg)}</td></tr>` : ""}
           </tbody>
         </table>
         <div class="klist">
@@ -463,7 +613,7 @@
           <div class="kt"><span>Subtotal 5%</span><span>${fm(T2.b5)}</span></div>
           <div class="kt"><span>Subtotal 10%</span><span>${fm(T2.b10)}</span></div>
           <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T2.total)}</span></div>
-          <div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(isUSD ? T2.totalPyg : T2.total)}</span></div>
+          ${isUSD ? `<div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(T2.totalPyg)}</span></div>` : ""}
         </div>`;
     return `
     <div class="kude" id="kudeBody">
@@ -498,7 +648,6 @@
         </div>
       </div></div>
       ${prefs.footerText ? `<div class="legal" style="white-space:pre-line;margin:2px 0 6px">${esc(prefs.footerText)}</div>` : ""}
-      ${test ? `<div class="note">Prueba: IdCSC ${esc(company.csc)} con CSC de prueba del manual · Datos ficticios, no es un documento tributario.</div>` : ""}
     </div>`;
   }
 
@@ -562,37 +711,40 @@
         <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar logo<input type="file" id="logoFile" accept="image/*" hidden></label>
         <button class="btn" data-pdf="1">Descargar PDF</button>
       </div>
-      <button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>
+      <button class="link ${mod("ticket") ? "" : "hidden"}" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>
       <button class="btn primary" data-emit="1" style="margin-top:10px">Emitir ${esc(short)}</button>
       <div class="muted small" style="margin-top:10px;text-align:center">${company.env === "test" ? "Se usa el ambiente de prueba. " : ""}La aprobación de SIFEN es simulada.</div>`;
   }
 
+  // Comprobante: como el final de una transferencia
   function screenResult() {
     const r = state.lastResult;
     if (!r) return screenHome();
     const ok = r.status === "ok", ty = T.deType(r.deType), isRem = ty.key === "remision";
+    const rows = [["Para", r.client], [ty.short, r.number], ["Fecha", fmtDate(r.date)]];
+    if (r.assocNumber) rows.push(["Factura asociada", r.assocNumber]);
+    if (r.emailedTo) rows.push(["Enviada a", r.emailedTo + " (simulado)"]);
+    if (r.pedidoId) rows.push(["Pedido", r.pedidoId + (ok && ty.code === "1" ? " · facturado" : "")]);
     return `
-      <div class="card" style="margin-top:6px;text-align:left;padding:18px">
-        <div>${ok ? '<span class="chip ok">Aprobada</span>' : '<span class="chip bad">Rechazada</span>'}</div>
-        <h2 style="margin-top:10px">${ok ? esc(ty.short) + " emitida" : "No se pudo aprobar"}</h2>
-        <div class="small muted">${esc(ty.short)} ${esc(r.number)} · ${esc(r.client)}</div>
-        ${isRem ? "" : `<div class="amount" style="font-size:22px;margin-top:6px">${r.currency === "USD" ? FE.money(r.totalOp, "USD") + " · " : ""}Gs ${fmt(r.total)}</div>`}
-        ${r.assocNumber ? `<div class="small" style="margin-top:6px">Asociada a la factura ${esc(r.assocNumber)}</div>` : ""}
-        ${r.emailedTo ? `<div class="small" style="margin-top:6px">Enviada por correo a ${esc(r.emailedTo)} (simulado)</div>` : ""}
-        ${r.pedidoId ? `<div class="small" style="margin-top:6px">Pedido ${esc(r.pedidoId)}: ${ok ? (ty.code === "1" ? "marcado como facturado" : "documento emitido") : "sigue pendiente"}</div>` : ""}
-        ${ok ? `<div class="small" style="margin-top:12px">CDC</div><div class="small cdc-text" style="margin-top:2px">${esc(FE.formatCdc(r.cdc))}</div>`
-          : `<div class="notice bad" style="margin-top:12px"><b>Motivo</b>${esc(r.reason)}<br>Corregí el dato y volvé a emitir.</div>`}
+      <div class="receipt ${ok ? "" : "fail"}">
+        <div class="receipt-ico">${ok ? "✓" : "!"}</div>
+        <div class="receipt-title">${ok ? "¡Listo!" : "No se pudo emitir"}</div>
+        <div class="receipt-sub">${ok ? esc(ty.short) + " emitida y aprobada" : "SIFEN la rechazó"}</div>
+        ${isRem ? "" : `<div class="receipt-amount">${r.currency === "USD" ? esc(FE.money(r.totalOp, "USD")) : "Gs " + fmt(r.total)}</div>
+          ${r.currency === "USD" ? `<div class="receipt-amount-sub">Gs ${fmt(r.total)}</div>` : ""}`}
+        <div class="receipt-card">
+          ${rows.map(([k, v]) => `<div class="kv"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}
+          ${ok ? `<div class="kv" style="display:block"><span class="muted">CDC</span><div class="small cdc-text" style="margin-top:4px">${esc(FE.formatCdc(r.cdc))}</div></div>`
+            : `<div class="notice bad" style="margin:8px 0 0"><b>Motivo</b>${esc(r.reason)}</div>`}
+        </div>
       </div>
-      ${ok ? `
-        <div class="section"><div class="section-title">Enviar</div>
-          <div class="btn-row">
-            <button class="btn soft" data-open="${r.id}">Ver y descargar PDF</button>
-            <button class="btn primary" data-share="mail">Enviar por correo</button>
-          </div>
-        </div>` : ""}
-      <div class="btn-row" style="margin-top:18px">
-        <button class="btn" data-go="${r.pedidoId ? "pedidos" : "history"}">${r.pedidoId ? "Ver pedidos" : "Ver historial"}</button>
-        <button class="btn primary" data-go="new">Nuevo documento</button>
+      ${ok ? `<div class="btn-row" style="margin-top:16px">
+          <button class="btn primary" data-respdf="${r.id}">Compartir PDF</button>
+          <button class="btn soft" data-open="${r.id}">Ver documento</button>
+        </div>` : `<button class="btn primary" data-retry style="margin-top:16px">Revisar y volver a intentar</button>`}
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn" data-go="home">Ir al inicio</button>
+        <button class="btn soft" data-go="new">Nuevo documento</button>
       </div>`;
   }
 
@@ -625,7 +777,7 @@
     const assoc = i.assocId ? invoices.find(x => x.id === i.assocId) : null;
     const hours = ty.cancelH;
     const action = (code, label) => { const st = docState(code); return `<button class="btn soft" data-mkdoc="${code}" ${st.ok ? "" : "disabled"} title="${esc(st.why)}">${label}</button>`; };
-    const off = isFac && ok ? ["5", "6", "7"].filter(c => !docState(c).ok) : [];
+    const off = isFac && ok ? ["5", "6", "7"].filter(c => !docState(c).ok && docState(c).state !== "hidden") : [];
     return `
       <button class="link" data-back="history">← Historial</button>
       <h2>${esc(ty.short)} ${esc(i.number)}</h2>
@@ -633,7 +785,6 @@
       <div class="card">
         <div class="kv"><span class="muted">${ty.key === "autofactura" ? "Vendedor" : ty.key === "remision" ? "Destinatario" : "Cliente"}</span><span>${esc(ty.key === "autofactura" ? (k.seller || {}).name || i.client : i.client)}</span></div>
         ${ty.key === "autofactura" ? "" : `<div class="kv"><span class="muted">RUC / documento</span><span>${esc(i.ruc || "Sin identificar")}</span></div>`}
-        ${i.operation && isFac ? `<div class="kv"><span class="muted">Operación</span><span>${esc(opName[i.operation] || "")} (${esc(i.operation)})</span></div>` : ""}
         <div class="kv"><span class="muted">Fecha</span><span>${fmtDate(i.date)}</span></div>
         ${assoc ? `<div class="kv"><span class="muted">Factura asociada</span><span><button class="link" data-open="${assoc.id}" style="min-height:0;padding:0">${esc(assoc.number)}</button></span></div>` : ""}
         ${k.motivoLabel ? `<div class="kv"><span class="muted">Motivo</span><span>${esc(k.motivoLabel)}</span></div>` : ""}
@@ -648,7 +799,7 @@
       </div>
       ${related.length ? `<div class="section"><div class="section-title">Documentos asociados</div><div class="card">${related.map(rowInvoice).join("")}</div></div>` : ""}
       ${isFac && ok ? `<div class="section"><div class="section-title">Emitir a partir de esta factura</div>
-        <div class="btn-row three">${action("5", "Nota de crédito")}${action("6", "Nota de débito")}${action("7", "Remisión")}</div>
+        <div class="btn-row ${docState("7").state === "hidden" ? "" : "three"}">${action("5", "Nota de crédito")}${action("6", "Nota de débito")}${docState("7").state === "hidden" ? "" : action("7", "Remisión")}</div>
         ${off.length ? `<div class="muted small" style="margin-top:6px">${off.map(c => esc(T.deType(c).short) + ": " + esc(docState(c).why)).join("<br>")}</div>` : ""}</div>` : ""}
       ${isInnominada(i) && ok && !i.nominacion ? `<button class="btn soft" data-nominar="${i.id}" style="margin-top:12px">Nominar: identificar al comprador</button>
         <div class="muted small" style="margin-top:6px">Se emitió sin identificar al comprador. La nominación se puede hacer una sola vez.</div>` : ""}
@@ -661,7 +812,7 @@
         <button class="btn" data-cancel="${i.id}" ${canCancel(i) ? "" : "disabled"}>Cancelar ${esc(ty.short.toLowerCase())}</button>
         ${isFac && ok && !canCancel(i) && docState("5").ok ? `<button class="btn primary" data-mkdoc="5">Emitir nota de crédito</button>` : `<button class="btn primary" data-go="new">Nuevo documento</button>`}
       </div>
-      ${i.kude && i.status === "ok" ? `<button class="link" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}
+      ${i.kude && i.status === "ok" ? `<button class="link ${mod("ticket") ? "" : "hidden"}" data-pdfalt="1" style="display:block;margin:4px auto 0">Descargar en formato ${prefs.printFormat === "ticket" ? "A4" : "ticket"}</button>` : ""}
       ${i.emailedTo ? `<div class="muted small" style="margin-top:8px">Enviada por correo a ${esc(i.emailedTo)} (simulado).</div>` : ""}
       <div class="muted small" style="margin-top:12px">${i.cancelled ? "Cancelada." : i.status === "ok"
         ? (canCancel(i) ? "Podés cancelarla hasta el " + fmtDate(new Date(Date.parse(i.date) + cancelMs(i)).toISOString()) + " (" + hours + " horas desde la aprobación)."
@@ -713,7 +864,6 @@
       <div class="card">
         <div class="kv"><span class="muted">Cliente</span><span>${esc(pedClient(p))}</span></div>
         <div class="kv"><span class="muted">${FE.receiverIdLabel(p.client)}</span><span>${esc(FE.receiverIdText(p.client))}</span></div>
-        ${r.valid ? `<div class="kv"><span class="muted">Operación</span><span>${esc(opName[r.operation])} (${r.operation})</span></div>` : ""}
         ${p.client.email ? `<div class="kv"><span class="muted">Correo</span><span>${esc(p.client.email)}</span></div>` : ""}
         <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
         <div class="kv"><span class="muted">Vendedor</span><span>${esc(p.seller)}</span></div>
@@ -731,8 +881,8 @@
           <button class="btn" data-rejectped="${esc(p.id)}" style="color:var(--bad)">Rechazar</button>
           <button class="btn primary" data-invoiceped="${esc(p.id)}">Facturar</button>
         </div>
-        <button class="btn soft" data-remped="${esc(p.id)}" style="margin-top:10px" ${docState("7").ok ? "" : "disabled"}>Emitir nota de remisión${p.remisionNumber ? " (ya emitida: " + esc(p.remisionNumber) + ")" : ""}</button>
-        ${docState("7").ok ? "" : `<div class="muted small" style="margin-top:4px">Nota de remisión: ${esc(docState("7").why)}</div>`}` : ""}
+        ${docState("7").state === "hidden" ? "" : `<button class="btn soft" data-remped="${esc(p.id)}" style="margin-top:10px" ${docState("7").ok ? "" : "disabled"}>Emitir nota de remisión${p.remisionNumber ? " (ya emitida: " + esc(p.remisionNumber) + ")" : ""}</button>
+        ${docState("7").ok ? "" : `<div class="muted small" style="margin-top:4px">Nota de remisión: ${esc(docState("7").why)}</div>`}`}` : ""}
       ${p.status === "rechazado" ? `
         <div class="btn-row" style="margin-top:16px">
           <button class="btn" data-delped="${esc(p.id)}" style="color:var(--bad)">Eliminar</button>
@@ -764,13 +914,13 @@
           <div class="muted small" style="margin-top:6px">Los datos de la empresa, el certificado y el ambiente los configura el estudio en la app Admin.</div>
         </div>`)}
       ${section("Timbrados", `<div class="card">${T.timbradoListHTML(timbrados, { editable: can("timbrados.editar") })}</div>`)}
-      ${section("Productos frecuentes", `<div class="card">
+      ${!mod("productos") ? "" : section("Productos frecuentes", `<div class="card">
           ${products.length ? products.map(p => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(p.desc)}</div>
             <div class="sub">${p.code ? esc(p.code) + " · " : ""}Gs ${fmt(p.price)} · ${taxLabel(p.tax)}</div></div>
             ${editCfg ? `<span style="display:flex;gap:12px"><button class="link" data-prodedit="${esc(p.id)}">Editar</button><button class="link" data-proddel="${esc(p.id)}" style="color:var(--bad)">Quitar</button></span>` : ""}</div>`).join("")
             : `<div class="muted small">Cargá los productos que más vendés: al facturar los elegís de una lista.</div>`}
           ${editCfg ? `<button class="add" data-prodadd>+ Agregar producto</button>` : ""}
-          ${products.length ? `<button class="btn soft" data-catshare style="margin-top:10px">Compartir catálogo con la app Pedidos</button>` : ""}
+          ${products.length && mod("pedidos") ? `<button class="btn soft" data-catshare style="margin-top:10px">Compartir catálogo con la app Pedidos</button>` : ""}
         </div>`)}
       ${editCfg ? section("Preferencias", `<div class="card">
           <label style="margin-top:0">Condición de venta por defecto</label>
@@ -781,22 +931,22 @@
           </div>
           <label for="prFooter">Texto fijo al pie del KuDE (cuentas, condiciones…)</label>
           <textarea id="prFooter" placeholder="Ej. Transferencias: Banco Ejemplo, cuenta 123456">${esc(prefs.footerText)}</textarea>
-          <label>Formato de impresión</label>
-          <div class="seg"><button data-prefformat="a4" class="${prefs.printFormat === "a4" ? "on" : ""}">Hoja A4</button><button data-prefformat="ticket" class="${prefs.printFormat === "ticket" ? "on" : ""}">Ticket 80 mm</button></div>
-          ${T.checkbox("prAutoEmail", prefs.autoEmail, "Enviar la factura por correo al cliente al aprobarse")}
-          <div class="muted small" style="margin-top:4px">El envío real del correo lo hará el servidor; por ahora se simula.</div>
-          <div class="section-title" style="margin-top:18px">Nota de remisión</div>
+          ${mod("ticket") ? `<label>Formato de impresión</label>
+          <div class="seg"><button data-prefformat="a4" class="${prefs.printFormat === "a4" ? "on" : ""}">Hoja A4</button><button data-prefformat="ticket" class="${prefs.printFormat === "ticket" ? "on" : ""}">Ticket 80 mm</button></div>` : ""}
+          ${mod("correo") ? `${T.checkbox("prAutoEmail", prefs.autoEmail, "Enviar la factura por correo al cliente al aprobarse")}
+          <div class="muted small" style="margin-top:4px">El envío real del correo lo hará el servidor; por ahora se simula.</div>` : ""}
+          ${mod("remision") ? `<div class="section-title" style="margin-top:18px">Nota de remisión</div>
           <label for="prRemSalida" style="margin-top:0">Punto de salida por defecto</label><input id="prRemSalida" data-kb="address" value="${esc(prefs.remSalida)}" placeholder="${esc([company.address, company.city].filter(Boolean).join(", "))}">
           <label for="prRemModo">Modalidad de transporte</label><select id="prRemModo">${T.MODOS_TRANSPORTE.map(([c, l]) => `<option value="${c}" ${prefs.remModo === c ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
           <div class="grid2"><div><label for="prRemMarca">Marca del vehículo</label><input id="prRemMarca" data-kb="name" value="${esc(prefs.remMarca)}"></div>
             <div><label for="prRemChapa">Chapa</label><input id="prRemChapa" data-kb="code" value="${esc(prefs.remChapa)}"></div></div>
           <div class="grid2"><div><label for="prRemChofer">Chofer</label><input id="prRemChofer" data-kb="name" value="${esc(prefs.remChofer)}"></div>
-            <div><label for="prRemChoferDoc">Cédula del chofer</label><input id="prRemChoferDoc" data-kb="digits" value="${esc(prefs.remChoferDoc)}"></div></div>
-          <div class="section-title" style="margin-top:18px">Autofactura</div>
-          <label for="prAfConst" style="margin-top:0">Tipo de constancia más usado</label><select id="prAfConst">${T.CONSTANCIAS.map(([c, l]) => `<option value="${c}" ${prefs.afConstancia === c ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+            <div><label for="prRemChoferDoc">Cédula del chofer</label><input id="prRemChoferDoc" data-kb="digits" value="${esc(prefs.remChoferDoc)}"></div></div>` : ""}
+          ${mod("autofactura") ? `<div class="section-title" style="margin-top:18px">Autofactura</div>
+          <label for="prAfConst" style="margin-top:0">Tipo de constancia más usado</label><select id="prAfConst">${T.CONSTANCIAS.map(([c, l]) => `<option value="${c}" ${prefs.afConstancia === c ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : ""}
           <button class="btn soft" data-saveprefs style="margin-top:12px">Guardar preferencias</button>
         </div>`) : ""}
-      ${can("usuarios.empresa") ? section("Usuarios de la empresa", `<div class="card">
+      ${can("usuarios.empresa") && mod("usuarios") ? section("Usuarios de la empresa", `<div class="card">
           ${empUsers.length ? empUsers.map(u => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(u.name)}${u.active === false ? " (inactivo)" : ""}</div>
             <div class="sub">${esc(T.ROLES[u.role].label)}</div></div><button class="link" data-useredit="${esc(u.id)}">Editar</button></div>`).join("")
             : `<div class="muted small">Sin usuarios. Si agregás uno, cada persona entra con su propio PIN.</div>`}
@@ -833,7 +983,7 @@
     const ex = g("prExch").value.trim();
     prefs.exchange = ex; prefs.exchangeDate = ex ? FE.todayKey() : "";
     prefs.footerText = g("prFooter").value.trim().slice(0, 400);
-    prefs.autoEmail = g("prAutoEmail").checked;
+    if (g("prAutoEmail")) prefs.autoEmail = g("prAutoEmail").checked;
     [["prRemSalida", "remSalida"], ["prRemModo", "remModo"], ["prRemMarca", "remMarca"], ["prRemChapa", "remChapa"], ["prRemChofer", "remChofer"],
       ["prRemChoferDoc", "remChoferDoc"], ["prAfConst", "afConstancia"]].forEach(([id, k]) => { if (g(id)) prefs[k] = g(id).value.trim(); });
   }
@@ -866,21 +1016,29 @@
   const titles = { home: "Inicio", new: "Nuevo documento", preview: "Vista previa", result: "Resultado", history: "Historial", detail: "Comprobante",
     settings: "Ajustes", pedidos: "Pedidos", pedido: "Pedido" };
   function render() {
+    billing = T.cuenta(company);
     const s = state.screen;
-    const map = { home: screenHome, new: screenNew, preview: screenPreview, result: screenResult, history: screenHistory, detail: screenDetail,
+    if (s === "preview") { goStep(state.draft, "revision"); state.screen = "new"; }
+    const map = { home: screenHome, new: screenNew, preview: screenNew, result: screenResult, history: screenHistory, detail: screenDetail,
       settings: screenSettings, pedidos: screenPedidos, pedido: screenPedido };
     document.getElementById("screen").innerHTML = (map[s] || screenHome)();
     FE.enhance(document.getElementById("screen"));
     document.getElementById("title").textContent = titles[s] || "Inicio";
+    const pedTab = document.querySelector('.tab[data-go="pedidos"]');
+    if (pedTab) { pedTab.style.display = mod("pedidos") ? "" : "none"; document.querySelector(".tabbar").style.setProperty("--tabs", mod("pedidos") ? 5 : 4); }
     document.querySelectorAll(".tab").forEach(t => {
       const k = t.dataset.go;
       t.classList.toggle("on", s === k || (k === "history" && s === "detail") || (k === "new" && s === "preview") || (k === "pedidos" && s === "pedido"));
     });
-    document.getElementById("screen").style.paddingBottom = s === "new" ? "170px" : "130px";
+    document.body.classList.toggle("in-flow", s === "new");
+    document.getElementById("screen").style.paddingBottom = s === "new" ? "150px" : "130px";
     store.set("draft", state.draft); // el borrador sobrevive si se cierra la app
     companyLine(); window.scrollTo(0, 0);
   }
-  function go(s) { if (s !== state.screen) state.q = ""; state.screen = s; render(); }
+  function go(s) {
+    if ((s === "pedidos" || s === "pedido") && !mod("pedidos")) s = "home";
+    if (s !== state.screen) state.q = ""; state.screen = s; render();
+  }
 
   function syncFields() {
     const d = state.draft, g = id => document.getElementById(id);
@@ -891,7 +1049,7 @@
     if (g("fCur")) d.currency = g("fCur").value;
     if (g("fTc")) d.exchange = g("fTc").value;
   }
-  function refreshTotal() {
+  function refreshTotalOld() {
     const bar = document.querySelector(".sticky-total"); if (!bar) return;
     const d = state.draft, chk = draftCheck(d);
     if (d.deType !== "7") bar.querySelector(".big").textContent = FE.money(chk.t.total, d.currency);
@@ -959,6 +1117,20 @@
       docType: p.client.docType || "", country: p.client.country || "",
       condition: p.condition, installments: p.installments || 1, currency: p.currency, exchange: p.exchange || "", items: p.items.map(i => Object.assign({}, i)) };
   }
+  // Elige un cliente frecuente sin redibujar (lo hace quien llama)
+  function draftFromDoc(k) {
+    const d = newDraft(k.deType), r = k.receiver || {};
+    Object.assign(d, { mode: r.mode || "con", ruc: r.ruc || "", name: r.name || "", doc: r.doc || "", docType: r.docType || "1", country: r.country || "", email: k.receiverEmail || "",
+      items: k.items.map(i => Object.assign({}, i)), currency: k.currency || "PYG", exchange: k.exchange || "", condition: k.condition || "contado", installments: k.installments || 1,
+      pedidoId: k.pedidoId || null });
+    if (k.assoc) d.assoc = { id: k.assoc.id, number: k.assoc.number, cdc: k.assoc.cdc, date: k.assoc.date, currency: k.currency, client: k.receiverName };
+    if (k.motivo) d.motivo = k.motivo; if (k.seller) d.seller = Object.assign({}, k.seller); if (k.constancia) d.constancia = Object.assign({}, k.constancia); if (k.rem) d.rem = Object.assign({}, d.rem, k.rem);
+    return d;
+  }
+  function useClientQuiet(c) {
+    const d = state.draft;
+    Object.assign(d, { mode: c.mode, ruc: c.ruc || "", doc: c.doc || "", name: c.name || "", email: c.email || "", docType: c.docType || "", country: c.country || "" });
+  }
   function useClient(c) {
     const d = state.draft;
     d.mode = c.mode; d.ruc = c.ruc || ""; d.doc = c.doc || ""; d.name = c.name || ""; d.email = c.email || "";
@@ -1007,7 +1179,7 @@
       invoices.unshift(result);
       if (approved) {
         T.bumpNum(tim, ty.code);
-        if (prefs.autoEmail && inv.receiverEmail && ty.key !== "autofactura") result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
+        if (mod("correo") && prefs.autoEmail && inv.receiverEmail && ty.key !== "autofactura") result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
         if (isFac || ty.key === "remision") clients = upsertClient(clients, inv.receiver);
         if (isFac && inv.pedidoId) {
           const p = inbox.find(x => x.id === inv.pedidoId);
@@ -1028,14 +1200,14 @@
   // Inicia un documento a partir de una factura (notas o remisión) o de un pedido (remisión)
   function startFromInvoice(code, fac) {
     const st = docState(code); if (!st.ok) { toast(st.why); return; }
-    state.draft = newDraft(code); state.preview = null; setAssoc(fac); go("new");
+    state.draft = newDraft(code); state.preview = null; setAssoc(fac); goStep(state.draft, "productos"); go("new");
   }
   function startRemisionFromPedido(p) {
     const st = docState("7"); if (!st.ok) { toast(st.why); return; }
     const d = newDraft("7"), c = p.client;
     Object.assign(d, { pedidoId: p.id, mode: c.mode, ruc: c.ruc || "", name: c.name || "", doc: c.doc || "", docType: c.docType || "1", country: c.country || "", email: c.email || "" });
     d.items = p.items.map(i => ({ desc: i.desc, qty: i.qty, price: 0, tax: "E", discount: 0, code: i.code }));
-    state.draft = d; state.preview = null; go("new");
+    goStep(d, "traslado"); state.draft = d; state.preview = null; go("new");
   }
   // Nominación: identificar al comprador de una factura emitida sin identificar (una sola vez)
   function nominarSheet(inv) {
@@ -1068,9 +1240,47 @@
     if (ds.go) { go(ds.go); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
-    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, products, state.draft.currency, itemOpts()); return; }
-    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], products, state.draft.currency, itemOpts()); return; }
+    if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, mod("productos") ? products : [], state.draft.currency, itemOpts()); return; }
+    if (ds.edititem !== undefined) { syncFields(); const i = +ds.edititem; itemSheet(it => { state.draft.items[i] = it; render(); }, state.draft.items[i], mod("productos") ? products : [], state.draft.currency, itemOpts()); return; }
     if (ds.docpick !== undefined) { syncFields(); docPickerSheet(); return; }
+    // ---- flujo por pasos ----
+    if (ds.wnext !== undefined) {
+      syncFields(); const d = state.draft, chk = stepCheck(d, stepKey(d));
+      if (!chk.ok) { toast(chk.why); return; }
+      d.step++; state.wq = ""; state.wmanual = false; render(); return;
+    }
+    if (ds.wback !== undefined) { syncFields(); state.wq = ""; state.wmanual = false; if (state.draft.step > 0) { state.draft.step--; render(); } else go("home"); return; }
+    if (ds.wexit !== undefined) {
+      syncFields(); const d = state.draft;
+      if (!d.items.length && !d.ruc && !d.name && !d.assoc) { state.draft = newDraft(); go("home"); return; }
+      confirmSheet("¿Salir sin emitir?", "El borrador queda guardado para seguir después.", "Salir", () => go("home"));
+      return;
+    }
+    if (ds.gostep) { syncFields(); goStep(state.draft, ds.gostep); state.wmanual = state.draft.mode !== "con" && ["cliente", "destinatario"].includes(ds.gostep); render(); return; }
+    if (ds.wemit !== undefined) {
+      syncFields(); const c = draftCheck(state.draft);
+      if (!c.ok) { toast(c.why); return; }
+      state.preview = buildDoc(state.draft); pinConfirm(() => emit()); return;
+    }
+    if (ds.pickdoc) {
+      const st = docState(ds.pickdoc);
+      if (!st.ok) { toast(st.why); return; }
+      if (ds.pickdoc === state.draft.deType) { syncFields(); state.draft.step = 1; render(); return; }
+      switchDocType(ds.pickdoc); return;
+    }
+    if (ds.wclient) { const c = clients.find(x => x.id === ds.wclient); if (!c) return; useClientQuiet(c); state.draft.step++; state.wq = ""; render(); return; }
+    if (ds.wruc) { const d = state.draft, r = FE.classify({ mode: "con", ruc: ds.wruc }, 0); Object.assign(d, { mode: "con", ruc: ds.wruc, name: r.name || "", doc: "", email: "" }); state.wq = ""; state.wmanual = !r.name; if (r.name) d.step++; render(); return; }
+    if (ds.wchange !== undefined) { const d = state.draft; Object.assign(d, { ruc: "", name: "", doc: "", email: "", country: "" }); state.wmanual = false; render(); return; }
+    if (ds.wmode) { const d = state.draft; Object.assign(d, { mode: ds.wmode, ruc: "", name: "", doc: "", docType: ds.wmode === "ext" ? "2" : "1", country: "" }); state.wmanual = true; render(); return; }
+    if (ds.wassoc) { const fac = invoices.find(x => x.id === +ds.wassoc); if (fac) { setAssoc(fac); goStep(state.draft, "productos"); state.wq = ""; render(); } return; }
+    if (ds.wprod !== undefined) {
+      syncFields(); const p = products[+ds.wprod]; if (!p) return;
+      const d = state.draft, same = d.items.find(i => (p.code && i.code === p.code) || i.desc === p.desc);
+      if (same) same.qty = Math.round((same.qty + 1) * 1000) / 1000;
+      else d.items.push(Object.assign({ desc: p.desc, qty: 1, discount: 0 }, d.deType === "7" ? { price: 0, tax: "E" } : { price: d.currency === "USD" ? 0 : p.price, tax: d.deType === "4" ? "E" : p.tax }, p.code ? { code: p.code } : {}));
+      if (d.currency === "USD" && !same) { toast("Escribí el precio en dólares"); const idx = d.items.length - 1; render(); itemSheet(it => { d.items[idx] = it; render(); }, d.items[idx], [], d.currency, itemOpts()); return; }
+      FE.buzz(15); render(); return;
+    }
     if (ds.pickassoc !== undefined) { syncFields(); assocPicker(); return; }
     if (ds.setfield) { syncFields(); setPath(state.draft, ds.setfield, ds.value); render(); return; }
     if (ds.mkdoc) { const fac = invoices.find(x => x.id === state.detailId); if (fac) startFromInvoice(ds.mkdoc, fac); return; }
@@ -1096,6 +1306,8 @@
     }
     if (ds.back) { go(ds.back); return; }
     if (ds.pdf !== undefined) { downloadKudePdf(prefs.printFormat); return; }
+    if (ds.respdf) { downloadKudePdf(prefs.printFormat, +ds.respdf); return; }
+    if (ds.retry !== undefined) { const r = state.lastResult; if (r && r.kude) { state.draft = fixDraft(draftFromDoc(r.kude)); goStep(state.draft, "revision"); } go("new"); return; }
     if (ds.pdfalt !== undefined) { downloadKudePdf(prefs.printFormat === "ticket" ? "a4" : "ticket"); return; }
     if (ds.removeLogo !== undefined) { company.logo = null; save(); toast("Logo quitado"); render(); return; }
     if (ds.emit) { emit(); return; }
@@ -1128,7 +1340,7 @@
     if (ds.invoiceped) {
       const p = inbox.find(x => x.id === ds.invoiceped); if (!p) return;
       if (!docState("1").ok) { toast(docState("1").why); return; }
-      state.draft = fixDraft(draftFromPedido(p)); state.preview = null; go("new"); return;
+      state.draft = fixDraft(draftFromPedido(p)); goStep(state.draft, "productos"); state.preview = null; go("new"); return;
     }
     // Ajustes
     if (ds.timadd !== undefined) { timbradoSheet(null); return; }
@@ -1158,7 +1370,7 @@
     // Usuarios de la empresa
     if (ds.useradd !== undefined || ds.useredit) {
       const u = ds.useredit ? T.getUser(ds.useredit) : null;
-      T.userSheet({ user: u, roles: ["facturador", "cargador", "admincliente"], fixedEmpresa: company.id, empresas: [],
+      T.userSheet({ user: u, roles: ["facturador", "cargador", "admincliente"], fixedEmpresa: company.id, empresas: [], modulesFor: company,
         onSave: (list, saved) => { log(u ? "Usuario editado" : "Usuario creado", saved.name + " · " + T.ROLES[saved.role].label); render(); } });
       return;
     }
@@ -1168,6 +1380,12 @@
   });
 
   screenEl.addEventListener("input", e => {
+    if (e.target.id === "wSearch") {
+      state.wq = e.target.value; const pos = e.target.selectionStart;
+      render(); const el = document.getElementById("wSearch");
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
+      return;
+    }
     if (e.target.id === "hSearch") {
       state.q = e.target.value; const pos = e.target.selectionStart;
       render(); const el = document.getElementById("hSearch");
@@ -1183,7 +1401,7 @@
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
-    } else refreshTotal();
+    } else refreshFlow();
   });
   screenEl.addEventListener("change", e => {
     const id = e.target.id;
@@ -1213,14 +1431,14 @@
   }
 
   // PDF del KuDE con texto real (seleccionable y buscable), dibujado con jsPDF a partir de los datos.
-  async function downloadKudePdf(format) {
-    const inv = state.screen === "preview" ? state.preview : ((invoices.find(x => x.id === state.detailId) || {}).kude);
+  async function downloadKudePdf(format, docId) {
+    const inv = docId ? (invoices.find(x => x.id === docId) || {}).kude : state.screen === "new" || state.screen === "preview" ? state.preview : ((invoices.find(x => x.id === state.detailId) || {}).kude);
     if (!inv) { toast("No hay datos para generar el PDF"); return; }
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
       await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv), pairs: docInfoPairs(inv),
-        footerText: prefs.footerText, format: format || prefs.printFormat });
+        footerText: prefs.footerText, format: mod("ticket") ? format || prefs.printFormat : "a4" });
       toast("PDF descargado");
     } catch (err) {
       console.error(err);
@@ -1230,6 +1448,8 @@
   }
 
   document.querySelector(".tabbar").addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });
+  // Tecla Escape o atrás del navegador dentro del flujo: un paso atrás
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && state.screen === "new" && !document.querySelector(".sheet-back, .pinpad-back, .lock")) { const b = document.querySelector("[data-wback]"); if (b) b.click(); } });
   screenEl.addEventListener("keydown", e => {
     if (e.key === "Enter" && e.target.dataset && (e.target.dataset.open || e.target.dataset.openped)) { e.preventDefault(); e.target.click(); }
   });
@@ -1306,7 +1526,7 @@
         };
       });
     }
-    return { init, lockNow, change };
+    return { init, lockNow, change, check };
   })();
 
   // ================= Acceso: usuarios con PIN o PIN del dispositivo =================
