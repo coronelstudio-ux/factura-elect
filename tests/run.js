@@ -380,6 +380,14 @@ test("Boleta de pago: se registra, aparece como nueva y se marca vista", () => {
   T.marcarBoletaVista(T.boletasDe(e.id)[0].id); assert.strictEqual(T.boletaNueva(e.id), null);
 });
 
+test("Nota de pedido: el QR lleva dirección y teléfono, y sigue leyendo los QR anteriores", () => {
+  const base = { id: "AB12-0001", rev: 1, seller: "Ana", createdAt: "2026-11-19T10:00:00Z", condition: "contado", currency: "PYG", items: [{ desc: "Resma", qty: 2, price: 45000, tax: "10" }] };
+  const con = FE.decodePedido(FE.encodePedido(Object.assign({}, base, { client: { mode: "con", ruc: "80098765-9", name: "Norte", address: "Ruta 2 km 20", phone: "0981 222 333" } })));
+  assert.ok(con.ok); assert.strictEqual(con.pedido.client.address, "Ruta 2 km 20"); assert.strictEqual(con.pedido.client.phone, "0981 222 333");
+  const sin = FE.decodePedido(FE.encodePedido(Object.assign({}, base, { client: { mode: "con", ruc: "80098765-9", name: "Norte" } })));
+  assert.ok(sin.ok); assert.strictEqual(sin.pedido.client.address, "");
+});
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);

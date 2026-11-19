@@ -1,4 +1,5 @@
-/* App Pedidos: el cargador crea pedidos y los comparte como QR. No ve ni genera facturas. */
+/* App Pedidos: el vendedor crea notas de pedido por pasos, le envía el PDF al cliente y las comparte por QR con el facturador.
+   No ve ni genera facturas. */
 (function () {
   "use strict";
   const { fmt, esc, fmtDate, classify, opName, calcItem, calcItems, taxLabel, toast, sheet, confirmSheet, itemSheet,
@@ -14,70 +15,137 @@
   let catalog = store.get("catalog", { empresa: "", products: [], loadedAt: "" });
   const save = () => { store.set("pedidos", pedidos); store.set("clients", clients); store.set("settings", settings); store.set("catalog", catalog); };
 
-  const state = { screen: "new", detailId: null, filter: "all", draft: store.get("draft", null) || newDraft() };
+  const state = { screen: "new", detailId: null, filter: "all", wq: "", wmanual: false, draft: Object.assign(newDraft(), store.get("draft", null) || {}) };
   // Total en guaraníes para el límite de innominado (en dólares, con el tipo de cambio si lo cargó)
   const pygOf = (d, t) => { const v = FE.pygTotal(t.total, d.currency, d.exchange); return v == null ? 0 : v; };
   function newDraft() {
-    return { editId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", condition: "contado", installments: 1,
-      currency: "PYG", exchange: "", note: "", items: [] };
+    return { editId: null, step: 0, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", address: "", phone: "",
+      condition: "contado", installments: 1, currency: "PYG", exchange: "", note: "", items: [] };
   }
   const saveDraft = () => store.set("draft", state.draft);
 
   // ================= Pantallas =================
+  // Nota de pedido por pasos, como la emisión del Facturador: cliente → productos → condición y nota → revisión
+  const STEPS = ["cliente", "productos", "pago", "revision"];
+  const STEP_Q = {
+    cliente: ["¿A quién le vendés?", "Buscalo en tus clientes, escribí su RUC o elegí otra opción."],
+    productos: ["¿Qué te pide?", "Tocá un producto del catálogo o agregá uno nuevo."],
+    pago: ["¿Cómo paga?", "Condición, moneda y una nota para el facturador."],
+    revision: ["Revisá la nota de pedido", "Tocá una línea para corregirla. Al guardar podés enviarle el PDF al cliente."]
+  };
+  const stepKey = d => STEPS[Math.min(Math.max(d.step || 0, 0), STEPS.length - 1)];
+  const initials = n => String(n || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "?";
+  function stepCheck(d, key) {
+    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
+    const cli = r.valid && (d.mode !== "con" || String(d.ruc || "").trim()) ? { ok: true } : { ok: false, why: d.mode === "con" && !String(d.ruc || "").trim() ? "Elegí o cargá el cliente" : r.why };
+    if (key === "cliente") return cli;
+    const prod = d.items.length ? { ok: true } : { ok: false, why: "Agregá al menos un producto" };
+    if (key === "productos") return prod;
+    const pago = d.currency === "USD" && FE.pygTotal(t.total, "USD", d.exchange) == null ? { ok: false, why: "Escribí el tipo de cambio" } : { ok: true };
+    if (key === "pago") return pago;
+    return !cli.ok ? cli : !prod.ok ? prod : pago;
+  }
   function screenNew() {
-    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    const hasItems = d.items.length > 0;
-    const canSave = r.valid && hasItems;
+    const d = state.draft, key = stepKey(d), n = STEPS.length, chk = stepCheck(d, key), last = key === "revision";
+    const body = { cliente: flowCliente, productos: flowProductos, pago: flowPago, revision: flowRevision }[key](d);
     return `
-      ${d.editId ? `<div class="notice warn" style="margin-top:0"><b>Editando el pedido ${esc(d.editId)}</b>Al guardar, volvé a compartir el QR nuevo.</div>` : ""}
-      <div class="lead">Cargá el pedido. Al guardarlo se genera un QR para enviar por WhatsApp.</div>
-      <div class="section">
-        <div class="section-title"><span class="num ${r.valid ? "done" : ""}">1</span>Cliente
-          <button class="link" data-pickclient style="margin-left:auto;font-size:14px">Clientes frecuentes</button></div>
-        ${FE.receiverBlock(d, r, t.total)}
-        <label for="fEmail">Correo del cliente (opcional)</label>
-        <input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
-      </div>
-
-      <div class="section">
-        <div class="section-title"><span class="num ${hasItems ? "done" : ""}">2</span>Productos</div>
-        <div class="card">
-          ${!hasItems ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos o servicios.</div>` :
-            d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
-              <div class="desc">${esc(it.desc)}</div><div class="amount">${FE.money(c.total, d.currency)}</div>
-              <div class="calc">${FE.fmtQty(it.qty)} × ${FE.money(it.price, d.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}
-</div>
-              <div class="item-actions">
-                <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
-                <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
-              </div></div>`; }).join("")}
-          <button class="add" data-add="1">+ Agregar producto o servicio</button>
+      <div class="flow">
+        <div class="flow-head">
+          <button class="flow-ico" data-wback aria-label="Atrás">←</button>
+          <div class="flow-prog" aria-hidden="true"><div style="width:${Math.round((d.step + 1) / n * 100)}%"></div></div>
+          <button class="flow-ico" data-wexit aria-label="Salir">✕</button>
         </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title"><span class="num">3</span>Condición y nota</div>
-        <div class="seg">
-          <button data-cond="contado" class="${d.condition === "contado" ? "on" : ""}">Contado</button>
-          <button data-cond="credito" class="${d.condition === "credito" ? "on" : ""}">Crédito</button>
+        <div class="flow-step">${d.editId ? "Editando " + esc(d.editId) : "Nota de pedido"} · Paso ${d.step + 1} de ${n}</div>
+        <h2 class="flow-q">${esc(STEP_Q[key][0])}</h2>
+        <p class="flow-sub">${esc(STEP_Q[key][1])}</p>
+        ${body}
+        <div class="flow-foot">
+          <div class="flow-why" id="flowWhy">${chk.ok ? "" : esc(chk.why || "")}</div>
+          <button class="btn primary flow-btn" ${last ? "data-savepedido" : "data-wnext"} ${chk.ok ? "" : "disabled"}>${last ? (d.editId ? "Guardar cambios" : "Guardar nota de pedido") : "Continuar"}</button>
         </div>
-        <div class="grid2" style="margin-top:4px">
-          ${d.condition === "credito" ? `<div><label for="fCuotas">Cuotas</label><input id="fCuotas" inputmode="numeric" value="${d.installments}"></div>` : `<div></div>`}
-          <div><label for="fCur">Moneda</label><select id="fCur">
-            <option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option>
-            <option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select></div>
-        </div>
-        ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" inputmode="numeric" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
-        <label for="fNote">Nota para el facturador (opcional)</label>
-        <textarea id="fNote" placeholder="Ej. Entregar el lunes">${esc(d.note)}</textarea>
-        ${d.editId || hasItems ? `<button class="link" data-clear style="margin-top:6px">${d.editId ? "Cancelar edición" : "Vaciar formulario"}</button>` : ""}
-      </div>
-
-      <div class="sticky-total">
-        <div class="line"><span class="muted">${t.count ? t.count + (t.count === 1 ? " producto" : " productos") : "Total"}</span>
-          <span class="big">${FE.money(t.total, d.currency)}</span></div>
-        <button class="btn primary" data-savepedido ${canSave ? "" : "disabled"}>${d.editId ? "Guardar cambios y generar QR" : "Guardar pedido y generar QR"}</button>
       </div>`;
+  }
+  function flowCliente(d) {
+    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t)), hasSel = r.valid && (d.mode !== "con" || d.ruc);
+    const qv = state.wq || "", list = clients.filter(c => FE.matches(qv, c.name, c.ruc, c.doc)).slice(0, qv ? 12 : 8);
+    const p = parseRuc(qv), typedRuc = p && FE.dv11(p.base) === p.dv && !clients.some(c => c.ruc === p.full) ? p.full : "";
+    const reg = typedRuc ? classify({ mode: "con", ruc: typedRuc }, 0) : null;
+    const contact = c => `<button class="contact" data-wclient="${esc(c.id)}"><span class="avatar">${esc(initials(c.name || c.ruc))}</span>
+      <span class="ct"><b>${esc(c.name || "Sin nombre")}</b><span>${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}</span></span><span class="go">›</span></button>`;
+    return `
+      ${hasSel && !state.wmanual ? `<div class="picked"><span class="avatar">${esc(initials(d.name || r.name || d.ruc))}</span>
+        <span class="ct"><b>${esc(d.name || r.name || (d.mode === "sin" ? "Consumidor final" : d.ruc))}</b><span>${esc(FE.receiverIdText(FE.receiverFromDraft(d, r)))}</span></span>
+        <button class="link" data-wedit>Editar</button><button class="link" data-wchange>Cambiar</button></div>` : ""}
+      ${!hasSel || state.wmanual ? `
+        ${state.wmanual ? "" : `<input id="wSearch" data-kb="search" type="search" class="flow-search" placeholder="Buscá por nombre, RUC o documento" value="${esc(qv)}">
+        ${typedRuc ? `<button class="contact" data-wruc="${esc(typedRuc)}"><span class="avatar plus">+</span><span class="ct"><b>${esc(reg && reg.name || "Usar este RUC")}</b><span>RUC ${esc(typedRuc)}</span></span><span class="go">›</span></button>` : ""}
+        ${list.length ? `<div class="flow-label">${qv ? "Resultados" : "Frecuentes"}</div><div class="contacts">${list.map(contact).join("")}</div>`
+          : qv && !typedRuc ? `<div class="muted small" style="margin:10px 2px">Ningún cliente frecuente coincide.${/^\d/.test(qv) ? " Si es un RUC, escribilo con su dígito verificador." : ""}</div>` : ""}`}
+        <div class="flow-label">Otras opciones</div>
+        <div class="opt-grid">
+          <button class="opt ${state.wmanual && d.mode === "con" ? "on" : ""}" data-wmode="con"><b>Cargar RUC</b><span>Contribuyente</span></button>
+          <button class="opt ${state.wmanual && d.mode === "sin" ? "on" : ""}" data-wmode="sin"><b>Sin RUC</b><span>Documento o consumidor final</span></button>
+          <button class="opt ${state.wmanual && d.mode === "ext" ? "on" : ""}" data-wmode="ext"><b>Extranjero</b><span>Cliente del exterior</span></button>
+        </div>` : ""}
+      ${state.wmanual ? `<div class="card" style="margin-top:12px">${FE.receiverBlock(d, r, t.total, { why: true })}
+        <label for="fEmail">Correo del cliente (opcional)</label><input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">
+        <details class="more-data" ${d.address || d.phone ? "open" : ""}><summary>Dirección y teléfono <span class="muted">(opcional)</span></summary>
+          <label for="fAddr">Dirección</label><input id="fAddr" data-kb="address" placeholder="Calle, número y ciudad" value="${esc(d.address)}">
+          <label for="fTel">Teléfono</label><input id="fTel" data-kb="tel" placeholder="0981 000 000" value="${esc(d.phone)}">
+        </details></div>` : ""}`;
+  }
+  function flowProductos(d) {
+    const t = calcItems(d.items, d.currency), prods = catalog.products || [];
+    return `
+      <div class="flow-amount">${esc(FE.money(t.total, d.currency))}</div>
+      <div class="flow-amount-sub">${d.items.length} producto(s)</div>
+      ${prods.length ? `<div class="flow-label">Catálogo${catalog.empresa ? " · " + esc(catalog.empresa) : ""}</div><div class="chips-grid">${prods.slice(0, 12).map((p, i) =>
+        `<button class="pchip" data-wprod="${i}"><b>${esc(p.desc)}</b><span>${esc(FE.money(p.price, "PYG"))}</span></button>`).join("")}</div>` : ""}
+      <div class="card">
+        ${!d.items.length ? `<div class="muted small" style="padding:4px 0 2px">Todavía no agregaste productos.</div>` :
+          d.items.map((it, idx) => { const c = calcItem(it, d.currency); return `<div class="item">
+            <div class="desc">${esc(it.desc)}</div><div class="amount">${FE.money(c.total, d.currency)}</div>
+            <div class="calc">${FE.fmtQty(it.qty)} × ${FE.money(it.price, d.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</div>
+            <div class="item-actions">
+              <span class="stepper"><button data-qtyminus="${idx}" aria-label="Uno menos" ${it.qty <= 1 ? "disabled" : ""}>−</button><b>${FE.fmtQty(it.qty)}</b><button data-qtyplus="${idx}" aria-label="Uno más">+</button></span>
+              <span><button class="link" data-edititem="${idx}">Editar</button><button class="link danger" data-del="${idx}">Quitar</button></span>
+            </div></div>`; }).join("")}
+        <button class="add" data-add="1">+ Agregar producto o servicio</button>
+      </div>`;
+  }
+  function flowPago(d) {
+    return `
+      <div class="opt-big">
+        <button class="${d.condition === "contado" ? "on" : ""}" data-cond="contado"><b>Contado</b><span>Paga al recibir</span></button>
+        <button class="${d.condition === "credito" ? "on" : ""}" data-cond="credito"><b>Crédito</b><span>Paga después o en cuotas</span></button>
+      </div>
+      ${d.condition === "credito" ? `<label for="fCuotas">Cantidad de cuotas</label><input id="fCuotas" inputmode="numeric" value="${d.installments}">` : ""}
+      <label for="fCur">Moneda</label>
+      <select id="fCur"><option value="PYG" ${d.currency === "PYG" ? "selected" : ""}>Guaraníes</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>Dólares</option></select>
+      ${d.currency === "USD" ? `<label for="fTc">Tipo de cambio</label><input id="fTc" inputmode="numeric" placeholder="Ej. 7.800" value="${esc(d.exchange)}">` : ""}
+      <label for="fNote">Nota (opcional)</label>
+      <textarea id="fNote" placeholder="Ej. Entregar el lunes">${esc(d.note)}</textarea>`;
+  }
+  function flowRevision(d) {
+    const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
+    const row = (step, label, value) => `<button class="rev-row" data-gostep="${step}"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span><span class="go">›</span></button>`;
+    const who = d.name || r.name || (d.mode === "sin" ? "Consumidor final" : d.ruc);
+    return `
+      <div class="rev-card">
+        <div class="rev-total">${esc(FE.money(t.total, d.currency))}</div>
+        <div class="rev-total-sub">Nota de pedido${d.currency === "USD" && FE.pygTotal(t.total, "USD", d.exchange) ? " · " + esc(FE.money(FE.pygTotal(t.total, "USD", d.exchange), "PYG")) : ""}</div>
+        ${row("cliente", "Cliente", who + " · " + FE.receiverIdText(FE.receiverFromDraft(d, r)))}
+        ${row("productos", "Productos", d.items.length + " · " + FE.money(t.total, d.currency))}
+        ${row("pago", "Condición", (d.condition === "credito" ? "Crédito" + (d.installments > 1 ? " · " + d.installments + " cuotas" : "") : "Contado") + " · " + (d.currency === "USD" ? "USD · TC " + d.exchange : "Guaraníes"))}
+        ${d.note ? row("pago", "Nota", d.note) : ""}
+        <div class="rev-row static"><span class="k">Vendedor</span><span class="v">${esc(settings.seller || "Sin nombre")}</span></div>
+      </div>
+      <div class="muted small" style="margin-top:12px;text-align:center">No es un comprobante fiscal: la factura la emite el facturador.</div>`;
+  }
+  function refreshFlow() {
+    const d = state.draft, chk = stepCheck(d, stepKey(d)), btn = document.querySelector("[data-wnext], [data-savepedido]"), why = document.getElementById("flowWhy");
+    if (btn) btn.disabled = !chk.ok;
+    if (why) why.textContent = chk.ok ? "" : chk.why || "";
   }
 
   const pedidoTotal = p => calcItems(p.items, p.currency).total;
@@ -89,36 +157,45 @@
     const count = k => k === "all" ? pedidos.length : pedidos.filter(p => k === "shared" ? !!p.sharedAt : !p.sharedAt).length;
     const seg = (k, l) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${l} · ${count(k)}</button>`;
     return `
-      <h2>Mis pedidos</h2>
+      <h2>Mis notas de pedido</h2>
       <div class="seg">${seg("all", "Todos")}${seg("pending", "Sin compartir")}${seg("shared", "Compartidos")}</div>
       ${pedidos.length > 3 || state.q ? FE.searchBox(state.q, "Buscar por cliente, número o RUC") : ""}
       <div class="card" style="margin-top:12px">
         ${list.length ? list.map(p => `<div class="row" data-open="${esc(p.id)}" role="button" tabindex="0">
           <div class="main"><div class="title">${esc(clientName(p))}</div><div class="sub">${esc(p.id)} · ${fmtDate(p.updatedAt || p.createdAt)}</div></div>
           <div style="text-align:right"><div class="amount">${FE.money(pedidoTotal(p), p.currency)}</div><div style="margin-top:4px">${shareChip(p)}</div></div>
-        </div>`).join("") : `<div class="muted small">No hay pedidos en este filtro.</div>`}
+        </div>`).join("") : `<div class="muted small">No hay notas de pedido en este filtro.</div>`}
       </div>
-      <button class="btn primary" data-go="new" style="margin-top:14px">Nuevo pedido</button>`;
+      <button class="btn primary" data-go="new" style="margin-top:14px">Nueva nota de pedido</button>`;
   }
 
   function screenDetail() {
     const p = pedidos.find(x => x.id === state.detailId);
     if (!p) return screenList();
-    const t = calcItems(p.items, p.currency);
+    const t = calcItems(p.items, p.currency), c = p.client || {};
     return `
-      <button class="link" data-go="list">← Mis pedidos</button>
-      <h2>Pedido ${esc(p.id)}</h2>
-      <div style="margin-bottom:12px">${shareChip(p)} ${p.rev > 1 ? `<span class="chip neutral">Versión ${p.rev}</span>` : ""}</div>
-      <div class="qrbox" id="qrHolder"></div>
-      <div class="btn-row" style="margin-top:12px">
-        <button class="btn primary" data-share="${esc(p.id)}">Compartir por WhatsApp</button>
-        <button class="btn soft" data-copy="${esc(p.id)}">Copiar código</button>
-      </div>
-      <div class="muted small" style="margin-top:8px">El facturador lee este QR desde su app y el pedido se carga completo.</div>
+      <button class="link" data-go="list">← Mis notas de pedido</button>
+      <h2>Nota de pedido ${esc(p.id)}</h2>
+      <div style="margin-bottom:12px">${shareChip(p)} ${p.pdfAt ? '<span class="chip ok">PDF enviado</span>' : ""} ${p.rev > 1 ? `<span class="chip neutral">Versión ${p.rev}</span>` : ""}</div>
+      <div class="section"><div class="section-title">Para el cliente</div>
+        <div class="card">
+          <p class="small muted" style="margin-top:0">El PDF de la nota de pedido es el comprobante del vendedor. No es una factura.</p>
+          <button class="btn primary" data-pdfshare="${esc(p.id)}">Enviar PDF por WhatsApp</button>
+          <button class="link" data-pdfdown="${esc(p.id)}" style="display:block;margin:6px auto 0">Descargar PDF</button>
+        </div></div>
+      <div class="section"><div class="section-title">Para el facturador</div>
+        <div class="qrbox" id="qrHolder"></div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn soft" data-share="${esc(p.id)}">Compartir QR</button>
+          <button class="btn soft" data-copy="${esc(p.id)}">Copiar código</button>
+        </div>
+        <div class="muted small" style="margin-top:8px">El facturador lee este QR desde su app y la nota se carga completa.</div></div>
       <div class="section"><div class="section-title">Detalle</div>
         <div class="card">
           <div class="kv"><span class="muted">Cliente</span><span>${esc(clientName(p))}</span></div>
-          <div class="kv"><span class="muted">${FE.receiverIdLabel(p.client)}</span><span>${esc(FE.receiverIdText(p.client))}</span></div>
+          <div class="kv"><span class="muted">${FE.receiverIdLabel(c)}</span><span>${esc(FE.receiverIdText(c))}</span></div>
+          ${c.address ? `<div class="kv"><span class="muted">Dirección</span><span>${esc(c.address)}</span></div>` : ""}
+          ${c.phone ? `<div class="kv"><span class="muted">Teléfono</span><span>${esc(c.phone)}</span></div>` : ""}
           <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
           <div class="kv"><span class="muted">Vendedor</span><span>${esc(p.seller)}</span></div>
           ${p.note ? `<div class="kv"><span class="muted">Nota</span><span>${esc(p.note)}</span></div>` : ""}
@@ -129,13 +206,13 @@
         <button class="btn" data-edit="${esc(p.id)}">Editar</button>
         <button class="btn" data-delete="${esc(p.id)}" style="color:var(--bad)">Eliminar</button>
       </div>
-      <div class="muted small" style="margin-top:10px">Eliminá solo pedidos que todavía no se facturaron. El control de «facturado» llegará con la base de datos.</div>`;
+      <div class="muted small" style="margin-top:10px">Eliminá solo notas que todavía no se facturaron. El control de «facturado» llegará con la base de datos.</div>`;
   }
 
   function screenClients() {
     return `
       <h2>Clientes frecuentes</h2>
-      <p class="lead">Se guardan solos al crear un pedido. También podés agregarlos aquí.</p>
+      <p class="lead">Se guardan solos al crear una nota de pedido. También podés agregarlos aquí.</p>
       <div class="card">
         ${clients.length ? clients.map(c => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(c.name || "Sin nombre")}</div>
           <div class="sub">${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}${c.email ? " · " + esc(c.email) : ""}</div></div>
@@ -162,7 +239,7 @@
         </div></div>
       <div class="section"><div class="section-title">Vendedor</div>
         <div class="card">
-          <label for="sSeller" style="margin-top:0">Tu nombre (aparece en cada pedido)</label>
+          <label for="sSeller" style="margin-top:0">Tu nombre (aparece en cada nota de pedido)</label>
           <input id="sSeller" value="${esc(settings.seller)}" placeholder="Ej. Ana Benítez">
           <button class="btn soft" data-saveseller style="margin-top:10px">Guardar nombre</button>
           <div class="kv" style="margin-top:8px"><span class="muted">Código de este dispositivo</span><span>${esc(settings.deviceId)}</span></div>
@@ -171,17 +248,17 @@
         <div class="card">${FE.installHTML("Pedidos")}</div></div>
       <div class="section"><div class="section-title">Respaldo</div>
         <div class="card">
-          <p class="small muted" style="margin-top:0">Los pedidos se guardan solo en este dispositivo. Descargá un respaldo de vez en cuando.</p>
+          <p class="small muted" style="margin-top:0">Las notas de pedido se guardan solo en este dispositivo. Descargá un respaldo de vez en cuando.</p>
           <div class="btn-row">
             <button class="btn soft" data-backup>Descargar respaldo</button>
             <label class="btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Restaurar<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
           </div>
         </div></div>
-      <div class="muted small" style="margin-top:16px">Esta app solo carga pedidos. Las facturas las emite el principal desde la app Facturador.</div>`;
+      <div class="muted small" style="margin-top:16px">Esta app solo carga notas de pedido. Las facturas las emite el principal desde la app Facturador.</div>`;
   }
 
   // ================= Render =================
-  const titles = { new: "Nuevo pedido", list: "Mis pedidos", detail: "Pedido", clients: "Clientes", settings: "Ajustes" };
+  const titles = { new: "Nueva nota de pedido", list: "Notas de pedido", detail: "Nota de pedido", clients: "Clientes", settings: "Ajustes" };
   function render() {
     const s = state.screen;
     const map = { new: screenNew, list: screenList, detail: screenDetail, clients: screenClients, settings: screenSettings };
@@ -190,7 +267,8 @@
     document.getElementById("title").textContent = titles[s] || "Pedidos";
     document.getElementById("companyLine").textContent = settings.seller ? "Vendedor: " + settings.seller : "Configurá tu nombre en Ajustes";
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.go === s || (t.dataset.go === "list" && s === "detail")));
-    document.getElementById("screen").style.paddingBottom = s === "new" ? "170px" : "130px";
+    document.body.classList.toggle("in-flow", s === "new");
+    document.getElementById("screen").style.paddingBottom = s === "new" ? "150px" : "130px";
     if (s === "detail") drawQr();
     window.scrollTo(0, 0);
   }
@@ -198,7 +276,7 @@
 
   function qrFor(p) {
     const t = calcItems(p.items, p.currency);
-    return qrCanvas(encodePedido(p), ["Pedido " + p.id, clientName(p) + " · " + FE.money(t.total, p.currency), "Vendedor: " + p.seller]);
+    return qrCanvas(encodePedido(p), ["Nota de pedido " + p.id, clientName(p) + " · " + FE.money(t.total, p.currency), "Vendedor: " + p.seller]);
   }
   function drawQr() {
     const p = pedidos.find(x => x.id === state.detailId), holder = document.getElementById("qrHolder");
@@ -212,21 +290,16 @@
     const d = state.draft, g = id => document.getElementById(id);
     if (state.screen === "new") FE.syncReceiver(d);
     if (g("fEmail")) d.email = g("fEmail").value;
+    if (g("fAddr")) d.address = g("fAddr").value;
+    if (g("fTel")) d.phone = g("fTel").value;
     if (g("fCuotas")) d.installments = Math.max(1, parseInt(g("fCuotas").value, 10) || 1);
     if (g("fCur")) d.currency = g("fCur").value;
     if (g("fTc")) d.exchange = g("fTc").value;
     if (g("fNote")) d.note = g("fNote").value;
     saveDraft();
   }
-  function refreshTotal() {
-    const bar = document.querySelector(".sticky-total"); if (!bar) return;
-    const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    bar.querySelector(".big").textContent = FE.money(t.total, d.currency);
-    bar.querySelector("[data-savepedido]").disabled = !(r.valid && d.items.length > 0);
-  }
-
   function askSeller(then) {
-    sheet(`<h3>¿Cómo te llamás?</h3><p class="muted small">Tu nombre va en cada pedido para que el facturador sepa quién lo cargó.</p>
+    sheet(`<h3>¿Cómo te llamás?</h3><p class="muted small">Tu nombre va en cada nota de pedido: lo ven el cliente y el facturador.</p>
       <input id="aSeller" placeholder="Ej. Ana Benítez" value="${esc(settings.seller)}">
       <button class="btn primary" id="aOk" style="margin-top:14px">Continuar</button>`, (el, close) => {
       el.querySelector("#aOk").onclick = () => {
@@ -241,8 +314,8 @@
   function savePedido() {
     syncFields();
     const d = state.draft, t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    if (!r.valid) { toast(r.why); return; }
-    if (!d.items.length) { toast("Agregá al menos un producto"); return; }
+    const chk = stepCheck(d, "revision");
+    if (!chk.ok) { toast(chk.why); return; }
     if (!settings.seller) { askSeller(savePedido); return; }
     const now = new Date().toISOString();
     const client = FE.receiverFromDraft(d, r);
@@ -257,11 +330,11 @@
         note: d.note.trim(), items: d.items.slice(), sharedAt: null };
       pedidos.unshift(p);
     }
-    if (!qrFor(p)) toast("El pedido es demasiado grande para un QR. Quitá productos.");
+    if (!qrFor(p)) toast("La nota es demasiado grande para un QR. Quitá productos.");
     clients = upsertClient(clients, client);
     save(); state.draft = newDraft(); saveDraft();
-    state.detailId = p.id; go("detail");
-    toast("Pedido guardado");
+    state.wq = ""; state.wmanual = false; state.detailId = p.id; go("detail");
+    toast("Nota de pedido guardada");
   }
 
   function importCatalog(text) {
@@ -302,8 +375,9 @@
   function useClient(c) {
     const d = state.draft;
     d.mode = c.mode; d.ruc = c.ruc || ""; d.doc = c.doc || ""; d.name = c.name || ""; d.email = c.email || "";
-    d.docType = c.docType || ""; d.country = c.country || "";
-    saveDraft(); go("new");
+    d.docType = c.docType || ""; d.country = c.country || ""; d.address = c.address || ""; d.phone = c.phone || "";
+    if (stepKey(d) === "cliente") d.step = 1;
+    state.wmanual = false; saveDraft(); go("new");
   }
 
   // ================= Eventos =================
@@ -312,6 +386,43 @@
     const t = e.target.closest("button, [data-open]"); if (!t) return;
     const ds = t.dataset;
     if (ds.go) { go(ds.go); return; }
+    // ---- flujo por pasos ----
+    if (ds.wnext !== undefined) {
+      syncFields(); const d = state.draft, chk = stepCheck(d, stepKey(d));
+      if (!chk.ok) { toast(chk.why); return; }
+      d.step++; state.wq = ""; state.wmanual = false; saveDraft(); render(); return;
+    }
+    if (ds.wback !== undefined) { syncFields(); state.wq = ""; state.wmanual = false; if (state.draft.step > 0) { state.draft.step--; saveDraft(); render(); } else go("list"); return; }
+    if (ds.wexit !== undefined) {
+      syncFields(); const d = state.draft;
+      if (!d.items.length && !d.ruc && !d.name && !d.doc && !d.editId) { state.draft = newDraft(); saveDraft(); go("list"); return; }
+      confirmSheet("¿Salir de la nota de pedido?", "El borrador queda guardado para seguir después.", "Salir", () => go("list"));
+      return;
+    }
+    if (ds.gostep) { syncFields(); state.draft.step = Math.max(0, STEPS.indexOf(ds.gostep)); state.wq = ""; state.wmanual = false; saveDraft(); render(); return; }
+    if (ds.wclient) { const c = clients.find(x => x.id === ds.wclient); if (c) useClient(c); return; }
+    if (ds.wruc) { const d = state.draft, r = classify({ mode: "con", ruc: ds.wruc }, 0); Object.assign(d, { mode: "con", ruc: ds.wruc, name: r.name || "", doc: "", email: "", address: "", phone: "" }); state.wq = ""; state.wmanual = true; saveDraft(); render(); return; }
+    if (ds.wchange !== undefined) { Object.assign(state.draft, { ruc: "", name: "", doc: "", email: "", country: "", address: "", phone: "" }); state.wmanual = false; saveDraft(); render(); return; }
+    if (ds.wedit !== undefined) { state.wmanual = true; render(); return; }
+    if (ds.wmode) { Object.assign(state.draft, { mode: ds.wmode, ruc: "", name: "", doc: "", docType: ds.wmode === "ext" ? "2" : "1", country: "", address: "", phone: "", email: "" }); state.wmanual = true; saveDraft(); render(); return; }
+    if (ds.wprod !== undefined) {
+      syncFields(); const pr = catalog.products[+ds.wprod]; if (!pr) return;
+      const d = state.draft, ex = d.items.find(i => i.desc === pr.desc && (i.code || "") === (pr.code || ""));
+      if (ex) ex.qty = Math.round((ex.qty + 1) * 1000) / 1000;
+      else d.items.push({ desc: pr.desc, code: pr.code || "", qty: 1, price: pr.price, tax: pr.tax || "10", discount: 0 });
+      saveDraft(); render(); FE.buzz(15); return;
+    }
+    if (ds.pdfshare || ds.pdfdown) {
+      const p = pedidos.find(x => x.id === (ds.pdfshare || ds.pdfdown)); if (!p) return;
+      if (!window.NotaPedidoPdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF"); return; }
+      if (ds.pdfdown) { FE.downloadBlob(NotaPedidoPdf.build(p).output("blob"), NotaPedidoPdf.fileName(p)); toast("PDF descargado"); return; }
+      NotaPedidoPdf.share(p).then(r => {
+        if (r === "cancelled") return;
+        if (r === "downloaded") toast("PDF descargado. Envialo por WhatsApp desde tus archivos.");
+        p.pdfAt = new Date().toISOString(); save(); render();
+      }).catch(err => { console.error(err); toast("No se pudo generar el PDF"); });
+      return;
+    }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; saveDraft(); render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; saveDraft(); render(); return; }
     if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); saveDraft(); render(); }, null, catalog.products, state.draft.currency); return; }
@@ -327,33 +438,32 @@
     }
     if (ds.del !== undefined) { syncFields(); state.draft.items.splice(+ds.del, 1); saveDraft(); render(); return; }
     if (ds.pickclient !== undefined) { syncFields(); clientPicker(clients, useClient); return; }
-    if (ds.clear !== undefined) { state.draft = newDraft(); saveDraft(); render(); return; }
     if (ds.savepedido !== undefined) { savePedido(); return; }
     if (ds.open) { state.detailId = ds.open; go("detail"); return; }
     if (ds.filter) { state.filter = ds.filter; render(); return; }
     if (ds.share) {
       const p = pedidos.find(x => x.id === ds.share), cv = p && qrFor(p);
       if (!cv) { toast("No se pudo generar el QR"); return; }
-      shareCanvas(cv, "pedido-" + p.id + ".png", "Pedido " + p.id + " · " + clientName(p)).then(ok => {
+      shareCanvas(cv, "nota-pedido-" + p.id + ".png", "Nota de pedido " + p.id + " · " + clientName(p)).then(ok => {
         if (ok) { p.sharedAt = new Date().toISOString(); save(); render(); }
       });
       return;
     }
     if (ds.copy) {
       const p = pedidos.find(x => x.id === ds.copy); if (!p) return;
-      copyText("Pedido " + p.id + " · " + clientName(p) + "\n" + encodePedido(p)).then(ok => { if (ok && !p.sharedAt) { p.sharedAt = new Date().toISOString(); save(); render(); } });
+      copyText("Nota de pedido " + p.id + " · " + clientName(p) + "\n" + encodePedido(p)).then(ok => { if (ok && !p.sharedAt) { p.sharedAt = new Date().toISOString(); save(); render(); } });
       return;
     }
     if (ds.edit) {
       const p = pedidos.find(x => x.id === ds.edit); if (!p) return;
-      state.draft = { editId: p.id, mode: p.client.mode, ruc: p.client.ruc, name: p.client.name, doc: p.client.doc, email: p.client.email,
-        docType: p.client.docType || "", country: p.client.country || "",
+      state.draft = { editId: p.id, step: STEPS.indexOf("revision"), mode: p.client.mode, ruc: p.client.ruc, name: p.client.name, doc: p.client.doc, email: p.client.email,
+        docType: p.client.docType || "", country: p.client.country || "", address: p.client.address || "", phone: p.client.phone || "",
         condition: p.condition, installments: p.installments, currency: p.currency, exchange: p.exchange, note: p.note, items: p.items.map(i => Object.assign({}, i)) };
-      saveDraft(); go("new"); return;
+      state.wq = ""; state.wmanual = false; saveDraft(); go("new"); return;
     }
     if (ds.delete) {
-      confirmSheet("¿Eliminar este pedido?", "Hacelo solo si todavía no se facturó. Esta acción no se puede deshacer.", "Eliminar", () => {
-        pedidos = pedidos.filter(x => x.id !== ds.delete); save(); go("list"); toast("Pedido eliminado");
+      confirmSheet("¿Eliminar esta nota de pedido?", "Hacelo solo si todavía no se facturó. Esta acción no se puede deshacer.", "Eliminar", () => {
+        pedidos = pedidos.filter(x => x.id !== ds.delete); save(); go("list"); toast("Nota de pedido eliminada");
       }, true);
       return;
     }
@@ -370,6 +480,12 @@
     if (ds.backup !== undefined) { FE.exportBackup(store, "pedidos"); return; }
   });
   screenEl.addEventListener("input", e => {
+    if (e.target.id === "wSearch") {
+      state.wq = e.target.value; const pos = e.target.selectionStart;
+      render(); const el = document.getElementById("wSearch");
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
+      return;
+    }
     if (e.target.id === "hSearch") {
       state.q = e.target.value; const pos = e.target.selectionStart;
       render(); const el = document.getElementById("hSearch");
@@ -385,7 +501,7 @@
       render();
       const el = document.getElementById(id);
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (_) {} }
-    } else refreshTotal();
+    } else refreshFlow();
   });
   screenEl.addEventListener("change", e => {
     if (e.target.id === "catFile") {
@@ -400,9 +516,10 @@
       if (f) FE.importBackup(store, "pedidos", f, () => location.reload());
       return;
     }
-    if (state.screen === "new") { syncFields(); if (e.target.id === "fCur" && state.draft.items.length) toast("Cambiaste la moneda: revisá los precios de los productos"); if (e.target.tagName === "SELECT") render(); }
+    if (state.screen === "new") { syncFields(); if (e.target.id === "fCur" && state.draft.items.length) toast("Cambiaste la moneda: revisá los precios de los productos"); if (e.target.tagName === "SELECT") render(); else refreshFlow(); }
   });
   screenEl.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && e.target.dataset.open) { e.preventDefault(); e.target.click(); } });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && state.screen === "new" && !document.querySelector(".sheet-back")) { const b = document.querySelector("[data-wback]"); if (b) b.click(); } });
   document.querySelector(".tabbar").addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });
 
   render();

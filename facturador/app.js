@@ -1,4 +1,4 @@
-/* App Facturador (principal): factura, recibe pedidos por QR y decide si facturarlos.
+/* App Facturador (principal): factura, recibe notas de pedido por QR y decide si facturarlas.
    Basada en facturador-prueba-local.html. Todo se guarda en este dispositivo. */
 (function () {
   "use strict";
@@ -121,7 +121,7 @@
       ${billing.state === "suspendido" ? `<div class="notice bad"><b>Emisión suspendida</b>${esc(billing.text)}. Comunicate con el estudio para regularizar. Podés seguir viendo y descargando tus documentos.</div>`
         : billing.state === "vencido" ? `<div class="notice warn"><b>Pago del servicio vencido</b>${esc(billing.text)}.</div>` : ""}
       ${timbradoNotice()}
-      ${pp ? `<div class="notice warn"><b>Tenés ${pp} pedido(s) pendiente(s) de facturar</b>Abrí Pedidos para revisarlos y decidir.</div>` : ""}
+      ${pp ? `<div class="notice warn"><b>Tenés ${pp} nota(s) de pedido pendiente(s) de facturar</b>Abrí Pedidos para revisarlas y decidir.</div>` : ""}
       ${rejected ? `<div class="notice bad"><b>Hay ${rejected} factura(s) rechazada(s)</b>Abrila en el historial para ver el motivo y corregirla.</div>` : ""}
       <div class="section">
         <div class="section-title">Últimos comprobantes</div>
@@ -840,8 +840,8 @@
     const count = k => k === "all" ? bySeller.length : bySeller.filter(p => p.status === k).length;
     const seg = (k, l) => `<button data-pedfilter="${k}" class="${state.pedFilter === k ? "on" : ""}">${l} · ${count(k)}</button>`;
     return `
-      <h2>Pedidos</h2>
-      <p class="lead">Leé el QR que te mandó el vendedor. El pedido se carga entero y queda pendiente de facturar.</p>
+      <h2>Notas de pedido</h2>
+      <p class="lead">Leé el QR que te mandó el vendedor. La nota de pedido se carga entera y queda pendiente de facturar.</p>
       <button class="btn primary" data-scan>Escanear QR con la cámara</button>
       <div class="btn-row" style="margin-top:10px">
         <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Elegir imagen<input type="file" id="qrFile" accept="image/*" hidden></label>
@@ -856,7 +856,7 @@
           ${list.length ? list.map(p => `<div class="row" data-openped="${esc(p.id)}" role="button" tabindex="0">
             <div class="main"><div class="title">${esc(pedClient(p))}</div><div class="sub">${esc(p.id)} · ${esc(p.seller)} · ${fmtDate(p.updatedAt || p.createdAt)}</div></div>
             <div style="text-align:right"><div class="amount">${FE.money(calcItems(p.items, p.currency).total, p.currency)}</div><div style="margin-top:4px">${pedChip(p.status)}</div></div>
-          </div>`).join("") : `<div class="muted small">No hay pedidos en este filtro.</div>`}
+          </div>`).join("") : `<div class="muted small">No hay notas de pedido en este filtro.</div>`}
         </div>
       </div>`;
   }
@@ -867,7 +867,7 @@
     const t = calcItems(p.items, p.currency), r = classify(p.client, pygOf(p, t));
     return `
       <button class="link" data-go="pedidos">← Pedidos</button>
-      <h2>Pedido ${esc(p.id)}</h2>
+      <h2>Nota de pedido ${esc(p.id)}</h2>
       <div style="margin-bottom:12px">${pedChip(p.status)} ${p.rev > 1 ? `<span class="chip neutral">Versión ${p.rev}</span>` : ""}</div>
       ${p.status === "rechazado" ? `<div class="notice bad" style="margin-top:0"><b>Motivo del rechazo</b>${esc(p.reason)}</div>` : ""}
       ${p.status === "facturado" ? `<div class="notice ok" style="margin-top:0"><b>Facturado</b>Factura ${esc(p.invoiceNumber)} · ${fmtDate(p.invoicedAt)}</div>` : ""}
@@ -876,12 +876,15 @@
         <div class="kv"><span class="muted">Cliente</span><span>${esc(pedClient(p))}</span></div>
         <div class="kv"><span class="muted">${FE.receiverIdLabel(p.client)}</span><span>${esc(FE.receiverIdText(p.client))}</span></div>
         ${p.client.email ? `<div class="kv"><span class="muted">Correo</span><span>${esc(p.client.email)}</span></div>` : ""}
+        ${p.client.address ? `<div class="kv"><span class="muted">Dirección</span><span>${esc(p.client.address)}</span></div>` : ""}
+        ${p.client.phone ? `<div class="kv"><span class="muted">Teléfono</span><span>${esc(p.client.phone)}</span></div>` : ""}
         <div class="kv"><span class="muted">Condición</span><span>${p.condition === "credito" ? "Crédito" + (p.installments > 1 ? " · " + p.installments + " cuotas" : "") : "Contado"}</span></div>
         <div class="kv"><span class="muted">Vendedor</span><span>${esc(p.seller)}</span></div>
         <div class="kv"><span class="muted">Cargado</span><span>${fmtDate(p.createdAt)}</span></div>
         <div class="kv"><span class="muted">Recibido</span><span>${fmtDate(p.receivedAt)}</span></div>
         ${p.note ? `<div class="kv"><span class="muted">Nota</span><span>${esc(p.note)}</span></div>` : ""}
       </div>
+      <button class="btn soft" data-pedpdf="${esc(p.id)}" style="margin-top:10px">Descargar PDF de la nota</button>
       <div class="section"><div class="section-title">Productos</div>
         <div class="card">
           ${p.items.map(it => `<div class="kv"><span>${esc(it.desc)}<br><span class="small muted">${FE.fmtQty(it.qty)} × ${fmt(it.price, p.currency)}${it.discount ? " − " + it.discount + "%" : ""} · ${taxLabel(it.tax)}</span></span><span class="amount">${fmt(calcItem(it, p.currency).total, p.currency)}</span></div>`).join("")}
@@ -1034,7 +1037,7 @@
 
   // ================= Render y eventos =================
   const titles = { home: "Inicio", new: "Nuevo documento", preview: "Vista previa", result: "Resultado", history: "Historial", detail: "Comprobante",
-    settings: "Ajustes", pedidos: "Pedidos", pedido: "Pedido" };
+    settings: "Ajustes", pedidos: "Notas de pedido", pedido: "Nota de pedido" };
   function render() {
     billing = T.cuenta(company);
     const s = state.screen;
@@ -1097,32 +1100,32 @@
     const existing = inbox.find(x => x.id === p.id);
     if (!existing) {
       inbox.push(Object.assign(p, { status: "pendiente", receivedAt: now }));
-      save(); log("Pedido recibido", p.id + " · " + p.seller); FE.buzz(); state.pedidoId = p.id; go("pedido"); toast("Pedido cargado: pendiente de facturar");
+      save(); log("Pedido recibido", p.id + " · " + p.seller); FE.buzz(); state.pedidoId = p.id; go("pedido"); toast("Nota de pedido cargada: pendiente de facturar");
       return;
     }
     if (p.rev > (existing.rev || 1)) {
       if (existing.status === "facturado") {
-        toast("Ese pedido ya está facturado. La versión nueva no se aplicó.");
+        toast("Esa nota de pedido ya está facturada. La versión nueva no se aplicó.");
       } else {
         Object.assign(existing, p, { status: "pendiente", reason: "", receivedAt: now });
-        save(); toast("Pedido actualizado a la versión " + p.rev);
+        save(); toast("Nota de pedido actualizada a la versión " + p.rev);
       }
     } else {
-      toast("Este pedido ya estaba cargado");
+      toast("Esta nota de pedido ya estaba cargada");
     }
     state.pedidoId = existing.id; go("pedido");
   }
   function pasteSheet() {
-    sheet(`<h3>Pegar código del pedido</h3><p class="muted small">Si el vendedor te mandó el código como texto, pegalo aquí.</p>
+    sheet(`<h3>Pegar código de la nota de pedido</h3><p class="muted small">Si el vendedor te mandó el código como texto, pegalo aquí.</p>
       <textarea id="pCode" placeholder="FEP1.…"></textarea>
-      <div class="btn-row" style="margin-top:14px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Cargar pedido</button></div>`, (el, close) => {
+      <div class="btn-row" style="margin-top:14px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Cargar nota</button></div>`, (el, close) => {
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => { const v = el.querySelector("#pCode").value; close(); importPedidoText(v); };
       setTimeout(() => el.querySelector("#pCode").focus(), 60);
     });
   }
   function rejectSheet(id) {
-    sheet(`<h3>Rechazar pedido</h3><p class="muted small">Escribí el motivo. Queda guardado en el pedido.</p>
+    sheet(`<h3>Rechazar nota de pedido</h3><p class="muted small">Escribí el motivo. Queda guardado en la nota.</p>
       <textarea id="rWhy" placeholder="Ej. Sin stock del producto"></textarea>
       <div class="btn-row" style="margin-top:14px"><button class="btn" data-x>Volver</button><button class="btn primary" data-ok style="background:var(--bad);border-color:var(--bad)">Rechazar</button></div>`, (el, close) => {
       el.querySelector("[data-x]").onclick = close;
@@ -1131,14 +1134,14 @@
         if (!why) { toast("Escribí el motivo del rechazo"); return; }
         const p = inbox.find(x => x.id === id);
         if (p) { p.status = "rechazado"; p.reason = why; p.rejectedAt = new Date().toISOString(); save(); log("Pedido rechazado", id + " · " + why); }
-        close(); render(); toast("Pedido rechazado");
+        close(); render(); toast("Nota de pedido rechazada");
       };
       setTimeout(() => el.querySelector("#rWhy").focus(), 60);
     });
   }
   function draftFromPedido(p) {
     return { pedidoId: p.id, mode: p.client.mode, ruc: p.client.ruc || "", name: p.client.name || "", doc: p.client.doc || "", email: p.client.email || "",
-      docType: p.client.docType || "", country: p.client.country || "",
+      docType: p.client.docType || "", country: p.client.country || "", address: p.client.address || "", phone: p.client.phone || "",
       condition: p.condition, installments: p.installments || 1, currency: p.currency, exchange: p.exchange || "", items: p.items.map(i => Object.assign({}, i)) };
   }
   // Elige un cliente frecuente sin redibujar (lo hace quien llama)
@@ -1175,7 +1178,7 @@
     const ty = T.deType(inv.deType), isFac = ty.code === "1";
     if (isFac && inv.pedidoId) {
       const p = inbox.find(x => x.id === inv.pedidoId);
-      if (p && p.status === "facturado") { toast("Ese pedido ya fue facturado (" + p.invoiceNumber + ")"); return; }
+      if (p && p.status === "facturado") { toast("Esa nota de pedido ya fue facturada (" + p.invoiceNumber + ")"); return; }
     }
     const tim = activeTimbrado(), st = docState(ty.code);
     if (!st.ok) { toast(st.why); return; }
@@ -1271,6 +1274,7 @@
     const ds = t.dataset;
     if (ds.go) { go(ds.go); return; }
     if (ds.boleta) { boletaSheet(ds.boleta); return; }
+    if (ds.pedpdf) { const p = inbox.find(x => x.id === ds.pedpdf); if (p && window.NotaPedidoPdf) { FE.downloadBlob(NotaPedidoPdf.build(p).output("blob"), NotaPedidoPdf.fileName(p)); toast("PDF descargado"); } return; }
     if (ds.boletaok) { T.marcarBoletaVista(ds.boletaok); render(); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
@@ -1367,8 +1371,8 @@
     if (ds.rejectped) { rejectSheet(ds.rejectped); return; }
     if (ds.reopenped) { const p = inbox.find(x => x.id === ds.reopenped); if (p) { p.status = "pendiente"; p.reason = ""; save(); } render(); return; }
     if (ds.delped) {
-      confirmSheet("¿Eliminar el pedido?", "Se borra de este dispositivo.", "Eliminar", () => {
-        inbox = inbox.filter(x => x.id !== ds.delped); save(); go("pedidos"); toast("Pedido eliminado");
+      confirmSheet("¿Eliminar la nota de pedido?", "Se borra de este dispositivo.", "Eliminar", () => {
+        inbox = inbox.filter(x => x.id !== ds.delped); save(); go("pedidos"); toast("Nota de pedido eliminada");
       }, true);
       return;
     }

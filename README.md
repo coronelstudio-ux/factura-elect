@@ -12,6 +12,19 @@ Son tres apps web instalables (PWA), cada una con su ícono. Todo se guarda **en
 Roles, permisos, datos y el modelo para la base de datos: [`docs/arquitectura-multiempresa.md`](docs/arquitectura-multiempresa.md).
 Firma electrónica y servicio Firmador: [`docs/firma-electronica.md`](docs/firma-electronica.md).
 
+## Nota de pedido (app Pedidos)
+
+- El vendedor carga la **nota de pedido por pasos**, igual que una factura en el Facturador:
+  1. **Cliente:** frecuentes, RUC, sin RUC o extranjero; correo y, en un desplegable, dirección y teléfono (opcionales).
+  2. **Productos:** del catálogo o nuevos.
+  3. **Condición:** contado o crédito, moneda y una nota.
+  4. **Revisión:** cada línea vuelve a su paso.
+- Al guardarla, el vendedor tiene dos salidas:
+  - **Para el cliente:** "Enviar PDF por WhatsApp". El PDF tiene el formato de la factura, simplificado: sin timbrado, CDC, QR ni leyendas del KuDE; con IVA por producto, totales, nota y la leyenda "Documento no válido como comprobante fiscal". El membrete queda en blanco por ahora.
+  - **Para el facturador:** el QR o el código, como antes. La dirección y el teléfono también viajan en el QR.
+- El Facturador muestra "Notas de pedido" y puede descargar el mismo PDF desde la nota recibida.
+- **Pendiente para la base de datos:** el vendedor será un usuario de la empresa. La nota llegará directo al Facturador sin QR y el PDF llevará el membrete de la empresa.
+
 ## Flujo del pedido (sin cargar dos veces)
 
 1. El cargador crea el pedido en **Pedidos** → se guarda y se genera un **QR** con todo el pedido (cliente, productos, condición, vendedor, nota).
@@ -33,9 +46,10 @@ Firma electrónica y servicio Firmador: [`docs/firma-electronica.md`](docs/firma
 index.html              Página de entrada con los enlaces para instalar cada app
 admin/                  App del estudio (index.html, app.js, manifest, sw.js, icons/)
 facturador/             App del principal (index.html, app.js, kude-pdf.js, xml-preview.js, manifest, sw.js, icons/)
-pedidos/                App del cargador (index.html, app.js, manifest, sw.js, icons/)
+pedidos/                App del vendedor: notas de pedido (index.html, app.js, manifest, sw.js, icons/)
 shared/core.js          Cálculo de IVA, RUC (módulo 11), receptor, CDC, QR, cámara, compartir, respaldo
 shared/tenant.js        Multiempresa: empresas, usuarios y roles, auditoría, timbrados, alertas, catálogo, firma
+shared/nota-pedido-pdf.js  PDF de la nota de pedido (sin datos fiscales)
 shared/styles.css       Estilos comunes (del facturador original)
 vendor/                 qrcode-generator, jsQR, lz-string, jsPDF (para funcionar sin internet)
 docs/                   Informe técnico y archivo original facturador-prueba-local.html

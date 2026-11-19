@@ -1,7 +1,7 @@
 {
   "name": "Pedidos",
   "short_name": "Pedidos",
-  "description": "Carga de pedidos para enviar al facturador",
+  "description": "Notas de pedido para el cliente y el facturador",
   "id": "factura-elect-pedidos",
   "start_url": "./",
   "scope": "./",

@@ -510,7 +510,8 @@
   function pedidoToCompact(p) {
     const c = p.client || {};
     return { v: 1, i: p.id, r: p.rev || 1, s: p.seller, f: p.createdAt, u: p.updatedAt || p.createdAt,
-      c: [c.mode === "sin" ? 0 : c.mode === "ext" ? 2 : 1, c.ruc || "", c.name || "", c.doc || "", c.email || "", c.docType || "", c.country || ""],
+      c: [c.mode === "sin" ? 0 : c.mode === "ext" ? 2 : 1, c.ruc || "", c.name || "", c.doc || "", c.email || "", c.docType || "", c.country || ""]
+        .concat(c.address || c.phone ? [c.address || "", c.phone || ""] : []), // dirección y teléfono solo si hay (QR más chico)
       k: p.condition === "credito" ? 1 : 0, q: p.installments || 1, m: p.currency || "PYG", x: p.exchange || "",
       it: (p.items || []).map(it => it.code ? [it.desc, it.qty, it.price, it.tax, it.discount || 0, it.code] : [it.desc, it.qty, it.price, it.tax, it.discount || 0]), o: p.note || "" };
   }
@@ -519,7 +520,7 @@
     const c = o.c || [];
     return { id: String(o.i), rev: Number(o.r) || 1, seller: String(o.s || ""), createdAt: o.f, updatedAt: o.u || o.f,
       client: { mode: c[0] === 0 ? "sin" : c[0] === 2 ? "ext" : "con", ruc: c[1] || "", name: c[2] || "", doc: c[3] || "", email: c[4] || "",
-        docType: String(c[5] || ""), country: String(c[6] || "") },
+        docType: String(c[5] || ""), country: String(c[6] || ""), address: String(c[7] || ""), phone: String(c[8] || "") },
       condition: o.k === 1 ? "credito" : "contado", installments: Number(o.q) || 1, currency: o.m === "USD" ? "USD" : "PYG", exchange: o.x || "",
       items: o.it.map(a => Object.assign({ desc: String(a[0] || ""), qty: Number(a[1]) || 0, price: Number(a[2]) || 0, tax: ["10", "5", "E"].includes(a[3]) ? a[3] : "10", discount: Number(a[4]) || 0 },
         a[5] ? { code: String(a[5]) } : {})),
