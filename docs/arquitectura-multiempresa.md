@@ -83,6 +83,7 @@ La **cola de envíos** (`T.queueFor`) lista las facturas pendientes con las hora
 | `fe_activeEmpresa` | Empresa abierta en el Facturador |
 | `fe_users` | Usuarios con rol, empresas y PIN (hash SHA-256 con el id del usuario) |
 | `fe_audit` | Auditoría |
+| `fe_boletas` | Boletas de pago emitidas por el estudio a cada empresa (aviso en el Facturador) |
 | `fac_<empresa>_invoices` / `_timbrados` / `_pedidos` / `_clients` / `_products` / `_prefs` | Datos de cada empresa |
 | `ped_*` | Datos de la app Pedidos del cargador |
 
@@ -103,7 +104,7 @@ timbrado (id, empresa_id, numero, inicio, fin, proximo_numero, activo, usado)
 usuario (id, estudio_id, nombre, rol, pin_hash, activo)
 usuario_empresa (usuario_id, empresa_id)
 producto (id, empresa_id, codigo, descripcion, precio, iva)
-cliente (id, empresa_id, tipo, ruc, tipo_doc, documento, pais, nombre, correo)
+cliente (id, empresa_id, tipo, ruc, tipo_doc, documento, pais, nombre, correo, direccion, telefono)
 pedido (id, empresa_id, vendedor_id, version, estado, motivo, datos_json, recibido, factura_id)
 documento (id, empresa_id, timbrado_id, numero, cdc, fecha_emision, receptor_json, items_json, totales_json,
            xml_firmado, digest_value, qr_url, estado, motivo, enviado, respuesta_sifen, cancelado, pedido_id)
@@ -147,4 +148,5 @@ precio_empresa (empresa_id, concepto, modo, monto, desde)
 descuento (id, empresa_id, tipo, valor, aplica, duracion, desde, meses, hasta, motivo, usuario_id, creado)
 cargo_mensual (empresa_id, periodo, lineas_json, total, cerrado)
 pago (id, empresa_id, monto, medio, referencia, fecha, usuario_id)
+boleta (id, empresa_id, periodo, monto, vence, documento_id, vista, vista_en)   -- se notifica al cliente
 ```

@@ -172,7 +172,7 @@
     if (!items.length) { toast("El mes no tiene montos a facturar"); return; }
     const st = T.storeFor(est.id);
     st.set("draft", { deType: "1", step: 0, goto: "revision", mode: "con", ruc: e.ruc + "-" + e.dv, name: e.name, doc: "", docType: "1", country: "", email: e.mail || "",
-      condition: "contado", installments: 1, currency: "PYG", exchange: "", items });
+      condition: "contado", installments: 1, currency: "PYG", exchange: "", items, servicio: { empresaId: e.id, period: m.period } });
     T.setActive(est.id); log("Factura del servicio preparada", e.name + " · " + T.periodLabel(m.period), e.id);
     location.href = "../facturador/";
   }

@@ -113,6 +113,25 @@ Emitir un documento sigue el flujo de una transferencia bancaria, tomando como m
 - **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
 - **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión. Como una factura no admite ítems negativos, los descuentos se restan del precio del concepto (o de los ítems mayores, si son sobre el total) y los conceptos incluidos no aparecen.
 
+## Boleta de pago (aviso al cliente)
+
+- Cuando el estudio emite la **factura del servicio** (Admin → empresa → "Facturar el servicio"), queda registrada una **boleta de pago** para esa empresa (`fe_boletas`).
+- En el Facturador del cliente aparece un **punto rojo en Ajustes** y, arriba de todo en Ajustes, un recuadro resaltado con el mes, el monto y el vencimiento.
+  - **Ver detalle:** conceptos del mes (incluidos y descuentos), total, vencimiento, estado del pago y **Descargar PDF** de la factura del servicio.
+  - **Entendido** (o cerrar el detalle) lo marca como visto. Las boletas quedan listadas en Ajustes → Boletas de pago.
+- Lo ve quien administra la empresa: admin del cliente, estudio, o el dispositivo sin usuarios.
+- Hoy funciona en el mismo dispositivo. Con el servidor, la boleta llegará como notificación a la app del cliente.
+
+## Datos del cliente al facturar
+
+- Con RUC se piden **RUC, razón social y correo**.
+- El desplegable **"Dirección y teléfono (opcional)"** suma esos dos datos. Se guardan en el cliente frecuente, se completan solos la próxima vez y salen en el KuDE, el PDF y el XML (`dDirRec`, `dNumCasRec`, `dTelRec`).
+
+## Membrete del KuDE
+
+- A4 y pantalla: **logo centrado a la izquierda**, los **datos del establecimiento** al lado (hacia el medio) y, separados por una línea, RUC, timbrado, tipo y número de documento.
+- **Persona física (unipersonal) con nombre de fantasía:** la fantasía va grande y debajo, más chico, el nombre completo del titular. En sociedades, la razón social grande y la fantasía debajo. El ticket usa el mismo criterio (`FE.emisorNombres`).
+
 ## XML del documento (solo admin maestro)
 
 En el detalle de cada documento, el admin maestro ve **Descargar XML (sin firma)**. Baja `DE_<CDC>_sin_firma.xml`:

@@ -137,12 +137,19 @@
   /* ===== KuDE: mismo diseño que el PDF de prueba, compacto ===== */
   .kude { background: #FFFFFF; color: #111; font-family: Helvetica, Arial, sans-serif; font-size: 11px; line-height: 1.3; padding: 10px; border-radius: 8px; border: 1px solid #CFD8D2; }
   .kude .band { text-align: center; color: #B42318; font-weight: 700; font-size: 10px; }
-  .kude .logo-img { max-width: 150px; max-height: 56px; display: block; margin-bottom: 6px; }
+  .kude .logo-img { max-width: 100%; max-height: 64px; display: block; margin: 0 auto; object-fit: contain; }
   .kude .band2 { text-align: center; color: #B42318; font-size: 8px; margin-top: -2px; margin-bottom: 4px; }
   .kude .ttl { text-align: center; font-size: 11px; margin: 2px 0 6px; }
   .kude .box { border: 1px solid #111; padding: 6px 8px; margin-bottom: 6px; }
-  .kude .hd > div { display: inline-block; width: 49%; vertical-align: top; }
-  .kude .logo { border: 1px dashed #8A8A8A; color: #8A8A8A; font-size: 9px; text-align: center; padding: 8px 4px; width: 60%; margin-bottom: 6px; }
+  .kude .hd { display: flex; gap: 8px; align-items: stretch; }
+  .kude .hd > div { flex: 1 1 50%; min-width: 0; }
+  .kude .hd > div + div { border-left: 1px solid #111; padding-left: 8px; }
+  .kude .hd-em { display: flex; align-items: center; gap: 8px; }
+  .kude .hd-logo { flex: 0 0 32%; max-width: 110px; display: flex; align-items: center; justify-content: center; align-self: stretch; }
+  .kude .hd-em .em { flex: 1; min-width: 0; border-left: 1px solid #DADADA; padding-left: 8px; overflow-wrap: anywhere; }
+  .kude .em-sub { display: block; font-size: 8.5px; color: #555; margin-top: 1px; }
+  .kude .em-dat { margin-top: 4px; }
+  .kude .logo { border: 1px dashed #8A8A8A; color: #8A8A8A; font-size: 8.5px; text-align: center; padding: 10px 4px; width: 100%; }
   .kude .em { font-size: 9.5px; }
   .kude .em b { font-size: 11px; }
   .kude .r { text-align: right; }
@@ -215,8 +222,10 @@ select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
 @container (max-width: 600px) {
   .kude .tblwrap table { display: none; }
   .kude .klist { display: block; }
+  .kude .hd { display: block; }
   .kude .hd > div { display: block; width: 100%; }
-  .kude .hd > div + div { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #BBB; }
+  .kude .hd > div.hd-em { display: flex; }
+  .kude .hd > div + div { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #BBB; border-left: 0; padding-left: 0; }
   .kude .liq { flex-wrap: wrap; }
 }
 @container (max-width: 360px) {
@@ -227,7 +236,10 @@ select.inline { min-height: 42px; padding: 8px 12px; font-size: 14px; }
 @supports not (container-type: inline-size) {
   .kude .tblwrap table { display: none; }
   .kude .klist { display: block; }
+  .kude .hd { display: block; }
   .kude .hd > div { display: block; width: 100%; }
+  .kude .hd > div.hd-em { display: flex; }
+  .kude .hd > div + div { border-left: 0; padding-left: 0; margin-top: 8px; }
 }
 @media print {
   .kude .tblwrap table { display: table !important; }
@@ -376,3 +388,15 @@ body.in-flow .screen { padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 .precio-row input[data-tmonto] { grid-column: 1; }
 .precio-row .incl { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); font-weight: 600; grid-column: 2; }
 .precio-row .incl input { width: 20px; height: 20px; min-height: 20px; appearance: auto; flex: none; }
+/* Datos opcionales del cliente (desplegable) */
+.more-data { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 4px; }
+.more-data summary { cursor: pointer; font-weight: 600; color: var(--accent); padding: 10px 2px; list-style: none; }
+.more-data summary::-webkit-details-marker { display: none; }
+.more-data summary::after { content: " ▾"; }
+.more-data[open] summary::after { content: " ▴"; }
+/* Aviso de boleta de pago (Ajustes del Facturador) */
+.boleta-alert { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 2px solid var(--accent); border-radius: 14px; padding: 14px; margin: 6px 0 14px; }
+.boleta-alert .ba-t { font-weight: 800; font-size: 16px; }
+.boleta-alert .ba-t::before { content: "● "; color: var(--bad); }
+.boleta-alert .ba-m { margin-top: 4px; }
+.tab .badge.dot { min-width: 10px; width: 10px; height: 10px; padding: 0; line-height: 10px; top: 6px; left: calc(50% + 6px); }

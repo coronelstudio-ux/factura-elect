@@ -34,6 +34,8 @@
 
     // ----- Receptor -----
     const rec = [];
+    // Dirección y teléfono del receptor (opcionales). Si hay dirección, el manual pide también el número de casa (0 = sin número).
+    const dirTel = r.address ? [["dDirRec", r.address], ["dNumCasRec", "0"], ["dTelRec", r.phone]] : [["dTelRec", r.phone]];
     if (isAF) {            // en la autofactura el receptor es el propio emisor
       rec.push(["iNatRec", "1"], ["iTiOpe", "2"], ["cPaisRec", "PRY"], ["dDesPaisRe", "Paraguay"], ["iTiContRec", company.taxpayerType || "2"],
         ["dRucRec", company.ruc], ["dDVRec", company.dv], ["dNomRec", company.name]);
@@ -41,13 +43,13 @@
       const p = FE.parseRuc(r.ruc) || { base: String(r.ruc || "").split("-")[0], dv: String(r.ruc || "").split("-")[1] };
       const reg = FE.registry[p.full || r.ruc] || {};
       rec.push(["iNatRec", "1"], ["iTiOpe", OPE_CODE[inv.operation] || "1"], ["cPaisRec", "PRY"], ["dDesPaisRe", "Paraguay"],
-        ["iTiContRec", reg.type === "Persona física" ? "1" : "2"], ["dRucRec", p.base], ["dDVRec", p.dv], ["dNomRec", r.name || inv.receiverName], ["dEmailRec", inv.receiverEmail]);
+        ["iTiContRec", reg.type === "Persona física" ? "1" : "2"], ["dRucRec", p.base], ["dDVRec", p.dv], ["dNomRec", r.name || inv.receiverName], ...dirTel, ["dEmailRec", inv.receiverEmail]);
     } else {
       const innom = r.mode === "sin" && !String(r.doc || "").trim(), dt = innom ? "5" : r.docType || (r.mode === "ext" ? "2" : "1");
       rec.push(["iNatRec", "2"], ["iTiOpe", r.mode === "ext" ? "4" : "2"],
         r.mode === "ext" ? note("cPaisRec: código ISO 3166 alfa-3 del país (" + (r.country || "sin país") + "), a completar") : ["cPaisRec", "PRY"],
         ["dDesPaisRe", r.mode === "ext" ? r.country || "" : "Paraguay"], ["iTipIDRec", dt], ["dDTipIDRec", DOC_REC[dt]],
-        ["dNumIDRec", innom ? "0" : r.doc], ["dNomRec", innom ? "Sin Nombre" : r.name || inv.receiverName], ["dEmailRec", inv.receiverEmail]);
+        ["dNumIDRec", innom ? "0" : r.doc], ["dNomRec", innom ? "Sin Nombre" : r.name || inv.receiverName], ...dirTel, ["dEmailRec", inv.receiverEmail]);
     }
 
     // ----- Ítems -----

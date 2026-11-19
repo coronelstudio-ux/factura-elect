@@ -52,28 +52,33 @@
     const noPrice = String(inv.deType || "1") === "7";
     text("KuDE de " + (inv.typeLabel || "Factura electrónica"), W / 2, y + 3.5, { size: 10.5, align: "center" }); y += 7;
 
-    // ---------- Emisor ----------
-    const top = y, LX = M + 3, RX = M + 106, LW = 98, RW = CW - 106 - 3;
-    let ly = top + 3;
-    if (logo) {
-      const k = Math.min(45 / logo.w, 18 / logo.h);
-      doc.addImage(logo.data, "PNG", LX, ly, logo.w * k, logo.h * k); ly += logo.h * k + 2;
-    } else {
-      doc.setDrawColor(138, 138, 138); doc.setLineDashPattern([1, 1], 0); doc.setLineWidth(0.2); doc.rect(LX, ly, 50, 12); doc.setLineDashPattern([], 0);
-      text("Logo del emisor", LX + 25, ly + 7, { size: 7, color: [138, 138, 138], align: "center" }); ly += 14;
-    }
-    ly += 3;
-    ly += lines(wrap(company.name, LW, 10, true), LX, ly, 10, true);
-    const emisor = [company.fantasy, company.address, company.city + " · Tel. " + company.phone, company.mail, "Actividad: " + company.activity].filter(Boolean);
-    emisor.forEach(l => { ly += lines(wrap(l, LW, 8), LX, ly, 8); });
+    // ---------- Emisor: logo centrado al costado, datos del establecimiento hacia el medio, timbrado a la derecha ----------
+    const top = y, LOGO_W = 34, LOGO_H = 26, LX = M + 3, DX = LX + LOGO_W + 4, DW = 103 - (DX - M) - 3, RX = M + 106, RW = CW - 106 - 3;
+    const nom = global.FE.emisorNombres(company);
+    let ly = top + 5;
+    ly += lines(wrap(nom.main, DW, 11, true), DX, ly, 11, true);
+    if (nom.sub) ly += lines(wrap(nom.sub, DW, 8, false), DX, ly - 0.6, 8, false, GREY);
+    ly += 1.2;
+    const emisor = [company.address, [company.city, company.phone ? "Tel. " + company.phone : ""].filter(Boolean).join(" · "), company.mail, company.activity ? "Actividad: " + company.activity : ""].filter(Boolean);
+    emisor.forEach(l => { ly += lines(wrap(l, DW, 7.8), DX, ly, 7.8); });
     let ry = top + 6;
     text("RUC: " + company.ruc + "-" + company.dv, RX, ry, { size: 10.5, bold: true }); ry += 5.5;
     (opts.timbradoLines || ["Timbrado Nº: " + company.timbrado, "Inicio de vigencia: " + company.start, "Fin de vigencia: " + company.end]).forEach(l => { text(l, RX, ry, { size: 8.5 }); ry += lh(8.5); });
     ry += 5;
     lines(wrap(inv.typeTitle || "FACTURA ELECTRÓNICA", RW, 12.5, true), RX, ry, 12.5, true); ry += lh(12.5) * (wrap(inv.typeTitle || "FACTURA ELECTRÓNICA", RW, 12.5, true).length - 1) + 6;
     text(inv.number, RX, ry, { size: 11.5, bold: true }); ry += 2;
-    const hH = Math.max(ly, ry) - top + 2;
-    box(M, top, CW, hH); doc.setLineWidth(0.2); doc.line(M + 103, top + 3, M + 103, top + hH - 3);
+    const hH = Math.max(ly, ry, top + LOGO_H + 6) - top + 2;
+    if (logo) {
+      const k = Math.min(LOGO_W / logo.w, LOGO_H / logo.h), lw = logo.w * k, lhh = logo.h * k;
+      doc.addImage(logo.data, "PNG", LX + (LOGO_W - lw) / 2, top + (hH - lhh) / 2, lw, lhh);
+    } else {
+      const py = top + (hH - 16) / 2;
+      doc.setDrawColor(138, 138, 138); doc.setLineDashPattern([1, 1], 0); doc.setLineWidth(0.2); doc.rect(LX, py, LOGO_W, 16); doc.setLineDashPattern([], 0);
+      text("Logo del emisor", LX + LOGO_W / 2, py + 9, { size: 7, color: [138, 138, 138], align: "center" });
+    }
+    box(M, top, CW, hH); doc.setLineWidth(0.2);
+    doc.setDrawColor.apply(doc, LIGHT); doc.line(DX - 2, top + 4, DX - 2, top + hH - 4);
+    doc.setDrawColor.apply(doc, BLACK); doc.line(M + 103, top + 3, M + 103, top + hH - 3);
     y = top + hH + 3;
 
     // ---------- Receptor ----------
@@ -211,8 +216,9 @@
     const sep = () => { doc.setDrawColor(120, 120, 120); doc.setLineDashPattern([0.8, 0.8], 0); doc.setLineWidth(0.15); doc.line(TM, y - 1, TWD - TM, y - 1); doc.setLineDashPattern([], 0); y += 2; };
     if (test) { center("AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA", 7, true, RED); y += 2; }
     if (logo) { const k = Math.min(36 / logo.w, 14 / logo.h); doc.addImage(logo.data, "PNG", (TWD - logo.w * k) / 2, y - 2, logo.w * k, logo.h * k); y += logo.h * k + 1; }
-    center(company.name, 9.5, true);
-    if (company.fantasy) center(company.fantasy, 7.5);
+    const nom = global.FE.emisorNombres(company);
+    center(nom.main, 9.5, true);
+    if (nom.sub) center(nom.sub, 7, false, GREY);
     center("RUC: " + company.ruc + "-" + company.dv, 8, true);
     center(company.address + " · " + company.city, 7);
     if (company.phone) center("Tel. " + company.phone, 7);

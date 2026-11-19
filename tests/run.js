@@ -349,6 +349,37 @@ test("XML en dólares: montos con decimales y total en guaraníes", () => {
   assert.ok(wellFormed(x)); assert.match(x, /<dTotGralOpe>12.5<\/dTotGralOpe>/); assert.match(x, /<dTotalGs>91250<\/dTotalGs>/); assert.match(x, /<cMoneOpe>USD/);
 });
 
+// ---------- Membrete, datos opcionales del cliente y boletas ----------
+test("Membrete: unipersonal con fantasía → fantasía grande y titular chico", () => {
+  assert.deepStrictEqual(FE.emisorNombres({ taxpayerType: "1", name: "Juan Pérez", fantasy: "Librería Sol" }), { main: "Librería Sol", sub: "Juan Pérez", unipersonal: true });
+  assert.strictEqual(FE.emisorNombres({ taxpayerType: "1", name: "Juan Pérez", fantasy: "" }).main, "Juan Pérez");
+  const soc = FE.emisorNombres({ taxpayerType: "2", name: "Ejemplo S.A.", fantasy: "Ejemplo Store" });
+  assert.strictEqual(soc.main, "Ejemplo S.A."); assert.strictEqual(soc.sub, "Ejemplo Store");
+});
+test("Cliente: dirección y teléfono se guardan y se completan solos", () => {
+  const d = { mode: "con", ruc: "4567890-1", name: "Cliente", email: "", address: "Calle 1 c/ 2", phone: "0981 000 000" };
+  const rc = FE.receiverFromDraft(d, FE.classify(d, 0));
+  assert.strictEqual(rc.address, "Calle 1 c/ 2"); assert.strictEqual(rc.phone, "0981 000 000");
+  let list = FE.upsertClient([], rc);
+  list = FE.upsertClient(list, Object.assign({}, rc, { address: "", phone: "" })); // una factura sin esos datos no los borra
+  assert.strictEqual(list[0].address, "Calle 1 c/ 2");
+  const nd = { mode: "con", ruc: "4567890-1", name: "", email: "", address: "", phone: "" };
+  FE.autofillClient(list, nd); assert.strictEqual(nd.phone, "0981 000 000");
+});
+test("XML: dirección y teléfono del receptor", () => {
+  const x = DEXml.build(Object.assign({ deType: "1" }, baseDoc, { receiver: { mode: "con", ruc: "4567890-1", name: "Cliente", address: "Calle 1", phone: "0981" } }), empXml);
+  assert.ok(wellFormed(x)); assert.match(x, /<dDirRec>Calle 1<\/dDirRec>\s*<dNumCasRec>0<\/dNumCasRec>\s*<dTelRec>0981<\/dTelRec>/);
+});
+test("Boleta de pago: se registra, aparece como nueva y se marca vista", () => {
+  const e = T.saveEmpresa(T.newEmpresa({ name: "ConBoleta", ruc: "5678901", dv: "0" }));
+  assert.strictEqual(T.boletaNueva(e.id), null);
+  const b = T.registrarBoleta({ empresaId: e.id, period: "2026-10", monto: 100000, vence: "2026-11-10", estudioId: "est", invoiceId: 7, numero: "001-001-0000007" });
+  assert.strictEqual(T.boletaNueva(e.id).id, b.id);
+  T.registrarBoleta({ empresaId: e.id, period: "2026-10", monto: 100000, estudioId: "est", invoiceId: 7 }); // la misma factura no se duplica
+  assert.strictEqual(T.boletasDe(e.id).length, 1);
+  T.marcarBoletaVista(T.boletasDe(e.id)[0].id); assert.strictEqual(T.boletaNueva(e.id), null);
+});
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);

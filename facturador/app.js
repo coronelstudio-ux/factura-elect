@@ -35,6 +35,7 @@
   // Usuario con sesión (null = modo de un solo dispositivo sin usuarios: se permite todo)
   let user = null;
   const can = perm => T.can(user, perm);
+  const verBoletas = () => can("cliente.config"); // el aviso de la boleta lo ve quien administra la empresa
   const log = (action, detail) => T.audit(action, detail, company.id, user);
   // Módulo contratado por la empresa y permitido al usuario (si no, todo lo del módulo desaparece)
   const mod = key => T.userHas(user, company, key);
@@ -48,7 +49,7 @@
   // Borrador de documento. type: código del tipo de documento (1 factura, 4 autofactura, 5 nota de crédito, 6 nota de débito, 7 remisión)
   function newDraft(type) {
     const code = String(type || "1");
-    return { deType: code, pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "",
+    return { deType: code, pedidoId: null, mode: "con", ruc: "", name: "", doc: "", docType: "1", country: "", email: "", address: "", phone: "",
       condition: prefs.condition, installments: 1, currency: code === "4" ? "PYG" : prefs.currency,
       exchange: prefs.exchangeDate === FE.todayKey() ? prefs.exchange : "", items: [],
       assoc: null, motivo: code === "6" ? "8" : "2",
@@ -394,7 +395,11 @@
           <button class="opt" data-wmode="ext"><b>Extranjero</b><span>Cliente del exterior</span></button>
         </div>` : ""}
       ${state.wmanual ? `<div class="card" style="margin-top:12px">${FE.receiverBlock(d, r, t.total, { why: true })}
-        ${d.deType === "1" ? `<label for="fEmail">Correo para enviar la factura (opcional)</label><input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">` : ""}</div>` : ""}`;
+        ${d.deType === "1" ? `<label for="fEmail">Correo para enviar la factura (opcional)</label><input id="fEmail" type="email" placeholder="cliente@correo.com" value="${esc(d.email)}">` : ""}
+        <details class="more-data" ${d.address || d.phone ? "open" : ""}><summary>Dirección y teléfono <span class="muted">(opcional)</span></summary>
+          <label for="fAddr">Dirección</label><input id="fAddr" data-kb="address" placeholder="Calle, número y ciudad" value="${esc(d.address)}">
+          <label for="fTel">Teléfono</label><input id="fTel" data-kb="tel" placeholder="0981 000 000" value="${esc(d.phone)}">
+        </details></div>` : ""}`;
   }
   function flowProductos(d) {
     const t = calcItems(d.items, d.currency), noPrice = d.deType === "7", ty = T.deType(d.deType);
@@ -556,7 +561,7 @@
     }
     if (code === "7") {
       const m = inv.rem || {};
-      p.push(["RUC / Documento del destinatario", inv.receiverId || "-"], ["Destinatario", inv.receiverName || "-"],
+      p.push(["RUC / Documento del destinatario", inv.receiverId || "-"], ["Destinatario", inv.receiverName || "-"], ["Dirección del destinatario", (inv.receiver || {}).address], ["Teléfono", (inv.receiver || {}).phone],
         ["Motivo del traslado", T.labelOf(T.MOTIVOS_REM, m.motivo)], ["Inicio del traslado", T.isoToDmy(m.inicio) || "-"],
         ["Fin estimado", T.isoToDmy(m.fin) || "-"], ["Punto de salida", m.salida || "-"], ["Punto de entrega", m.entrega || "-"],
         ["Modalidad de transporte", T.labelOf(T.MODOS_TRANSPORTE, m.modo)], ["Vehículo", [m.marca, m.chapa ? "chapa " + m.chapa : ""].filter(Boolean).join(" · ") || "-"],
@@ -572,8 +577,10 @@
       p.push(["Documento asociado", "Factura electrónica Nº " + (inv.assoc ? inv.assoc.number : "-")], ["CDC del documento asociado", inv.assoc && inv.assoc.cdc ? FE.formatCdc(inv.assoc.cdc) : "-"],
         ["Motivo de emisión", inv.motivoLabel || "-"]);
     } else {
-      p.push(["Dirección / Correo", inv.receiverEmail || "-"], ["Tipo de transacción", "Venta de mercadería"]);
+      p.push(["Tipo de transacción", "Venta de mercadería"]);
     }
+    const rc = inv.receiver || {};
+    p.push(["Dirección", rc.address], ["Teléfono", rc.phone], ["Correo", code === "1" ? inv.receiverEmail : ""]);
     return p;
   }
   function kudeHTML(inv) {
@@ -615,15 +622,17 @@
           <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T2.total)}</span></div>
           ${isUSD ? `<div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(T2.totalPyg)}</span></div>` : ""}
         </div>`;
+    const nom = FE.emisorNombres(company);
     return `
     <div class="kude" id="kudeBody">
       ${test ? `<div class="band">AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA</div>
       <div class="band2">DOCUMENTO ELECTRÓNICO SIN VALOR COMERCIAL NI FISCAL - GENERADO EN AMBIENTE DE PRUEBA</div>` : ""}
       <div class="ttl">KuDE de ${esc(label)}</div>
       <div class="box"><div class="hd">
-        <div>
-          ${company.logo ? `<img class="logo-img" src="${company.logo}" alt="Logo del emisor">` : `<div class="logo">Logo del emisor<br>(lo carga el cliente)</div>`}
-          <div class="em"><b>${esc(company.name)}</b><br>${esc(company.fantasy)}<br>${esc(company.address)}<br>${esc(company.city)} · Tel. ${esc(company.phone)}<br>${esc(company.mail)}<br>Actividad: ${esc(company.activity)}</div>
+        <div class="hd-em">
+          <div class="hd-logo">${company.logo ? `<img class="logo-img" src="${company.logo}" alt="Logo del emisor">` : `<div class="logo">Logo del emisor</div>`}</div>
+          <div class="em"><b>${esc(nom.main)}</b>${nom.sub ? `<span class="em-sub">${esc(nom.sub)}</span>` : ""}
+            <div class="em-dat">${[company.address, [company.city, company.phone ? "Tel. " + company.phone : ""].filter(Boolean).join(" · "), company.mail, company.activity ? "Actividad: " + company.activity : ""].filter(Boolean).map(esc).join("<br>")}</div></div>
         </div>
         <div>
           <div style="font-weight:700;font-size:12px">RUC: ${esc(company.ruc)}-${esc(company.dv)}</div>
@@ -667,7 +676,7 @@
     const ty = T.deType(d.deType), now = new Date(), tim = activeTimbrado();
     const base = { deType: ty.code, typeLabel: ty.label, typeTitle: ty.title, number: nextNumberStr(ty.code),
       timbrado: { id: tim.id, number: tim.number, start: tim.start, end: tim.end }, issuedAt: FE.localIso(now),
-      dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8), pedidoId: d.pedidoId || null };
+      dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8), pedidoId: d.pedidoId || null, servicio: d.servicio || null };
     const totalsOf = (t, cur, ex) => ({ exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total, totalPyg: FE.pygTotal(t.total, cur, ex) || 0 });
     const items = d.items.map(i => Object.assign({}, i));
     if (ty.assoc) {
@@ -897,14 +906,23 @@
     const cs = T.certStatus(company.cert), editCfg = can("cliente.config");
     const empUsers = T.usersFor(company.id).filter(u => !T.ROLES[u.role].estudio);
     const section = (title, body) => `<div class="section"><div class="section-title">${title}</div>${body}</div>`;
+    const bol = verBoletas() ? T.boletaNueva(company.id) : null, bols = verBoletas() ? T.boletasDe(company.id) : [];
     return `
       <h2>Ajustes</h2>
+      ${bol ? `<div class="boleta-alert" role="status">
+          <div class="ba-t">Se generó tu boleta de pago</div>
+          <div class="ba-m">${esc(T.periodLabel(bol.period))} · <b>${esc(FE.money(bol.monto, "PYG"))}</b>${bol.vence ? " · vence el " + esc(T.isoToDmy(bol.vence)) : ""}</div>
+          <div class="btn-row" style="margin-top:10px"><button class="btn primary" data-boleta="${esc(bol.id)}">Ver detalle</button><button class="btn" data-boletaok="${esc(bol.id)}">Entendido</button></div>
+        </div>` : ""}
       ${section("Sesión", `<div class="card">
           <div class="kv"><span class="muted">Usuario</span><span>${user ? esc(user.name) + " · " + esc(T.ROLES[user.role].label) : "Este dispositivo (sin usuarios)"}</span></div>
           ${T.empresasOf(user).length > 1 ? `<div class="kv"><span class="muted">Empresa</span><span><button class="link" data-switchemp style="min-height:0;padding:0">${esc(company.name)} ▾</button></span></div>` : ""}
           <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-changepin>Cambiar ${user ? "mi " : ""}PIN</button><button class="btn" data-lock>${user ? "Cerrar sesión" : "Bloquear ahora"}</button></div>
           ${can("admin.app") ? `<a class="btn" href="../admin/" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none">Abrir la app Admin</a>` : ""}
         </div>`)}
+      ${bols.length ? section("Boletas de pago", `<div class="card">${bols.slice(0, 6).map(b => `<div class="row" data-boleta="${esc(b.id)}" role="button" tabindex="0"><div class="main">
+          <div class="title">${esc(T.periodLabel(b.period))}${b.vista ? "" : ' <span class="tag bad">Nueva</span>'}</div><div class="sub">Factura ${esc(b.numero || "")}${b.vence ? " · vence el " + esc(T.isoToDmy(b.vence)) : ""}</div></div>
+          <div class="amt">${esc(FE.money(b.monto, "PYG"))}</div></div>`).join("")}</div>`) : ""}
       ${section("Apariencia", FE.themeHTML())}
       ${section("Empresa", `<div class="card">
           <div class="kv"><span class="muted">Razón social</span><span>${esc(company.name)}</span></div>
@@ -1028,6 +1046,8 @@
     document.getElementById("title").textContent = titles[s] || "Inicio";
     const pedTab = document.querySelector('.tab[data-go="pedidos"]');
     if (pedTab) { pedTab.style.display = mod("pedidos") ? "" : "none"; document.querySelector(".tabbar").style.setProperty("--tabs", mod("pedidos") ? 5 : 4); }
+    const setTab = document.querySelector('.tab[data-go="settings"]'), bol = verBoletas() ? T.boletaNueva(company.id) : null;
+    if (setTab) { let dot = setTab.querySelector(".badge"); if (bol && !dot) { dot = document.createElement("span"); dot.className = "badge dot"; dot.setAttribute("aria-label", "Nueva boleta de pago"); setTab.appendChild(dot); } if (!bol && dot) dot.remove(); }
     document.querySelectorAll(".tab").forEach(t => {
       const k = t.dataset.go;
       t.classList.toggle("on", s === k || (k === "history" && s === "detail") || (k === "new" && s === "preview") || (k === "pedidos" && s === "pedido"));
@@ -1047,6 +1067,8 @@
     if (state.screen === "new") document.querySelectorAll("#screen [data-field]").forEach(el => setPath(d, el.dataset.field, el.value));
     FE.syncReceiver(d);
     if (g("fEmail")) d.email = g("fEmail").value;
+    if (g("fAddr")) d.address = g("fAddr").value;
+    if (g("fTel")) d.phone = g("fTel").value;
     if (g("fCuotas")) d.installments = Math.max(1, parseInt(g("fCuotas").value, 10) || 1);
     if (g("fCur")) d.currency = g("fCur").value;
     if (g("fTc")) d.exchange = g("fTc").value;
@@ -1122,25 +1144,32 @@
   // Elige un cliente frecuente sin redibujar (lo hace quien llama)
   function draftFromDoc(k) {
     const d = newDraft(k.deType), r = k.receiver || {};
-    Object.assign(d, { mode: r.mode || "con", ruc: r.ruc || "", name: r.name || "", doc: r.doc || "", docType: r.docType || "1", country: r.country || "", email: k.receiverEmail || "",
+    Object.assign(d, { mode: r.mode || "con", ruc: r.ruc || "", name: r.name || "", doc: r.doc || "", docType: r.docType || "1", country: r.country || "", email: k.receiverEmail || "", address: r.address || "", phone: r.phone || "",
       items: k.items.map(i => Object.assign({}, i)), currency: k.currency || "PYG", exchange: k.exchange || "", condition: k.condition || "contado", installments: k.installments || 1,
-      pedidoId: k.pedidoId || null });
+      pedidoId: k.pedidoId || null, servicio: k.servicio || null });
     if (k.assoc) d.assoc = { id: k.assoc.id, number: k.assoc.number, cdc: k.assoc.cdc, date: k.assoc.date, currency: k.currency, client: k.receiverName };
     if (k.motivo) d.motivo = k.motivo; if (k.seller) d.seller = Object.assign({}, k.seller); if (k.constancia) d.constancia = Object.assign({}, k.constancia); if (k.rem) d.rem = Object.assign({}, d.rem, k.rem);
     return d;
   }
   function useClientQuiet(c) {
     const d = state.draft;
-    Object.assign(d, { mode: c.mode, ruc: c.ruc || "", doc: c.doc || "", name: c.name || "", email: c.email || "", docType: c.docType || "", country: c.country || "" });
+    Object.assign(d, { mode: c.mode, ruc: c.ruc || "", doc: c.doc || "", name: c.name || "", email: c.email || "", docType: c.docType || "", country: c.country || "", address: c.address || "", phone: c.phone || "" });
   }
   function useClient(c) {
     const d = state.draft;
     d.mode = c.mode; d.ruc = c.ruc || ""; d.doc = c.doc || ""; d.name = c.name || ""; d.email = c.email || "";
-    d.docType = c.docType || ""; d.country = c.country || "";
+    d.docType = c.docType || ""; d.country = c.country || ""; d.address = c.address || ""; d.phone = c.phone || "";
     render();
   }
 
   let emitting = false;
+  // Factura del servicio del estudio: deja la boleta de pago para que la vea la empresa cliente
+  function avisarBoleta(inv, invoiceId) {
+    const cli = T.getEmpresa(inv.servicio.empresaId); if (!cli) return;
+    const mes = (T.cuenta(cli).meses || []).find(m => m.period === inv.servicio.period) || {};
+    T.registrarBoleta({ empresaId: cli.id, period: inv.servicio.period, monto: inv.totals.total, vence: mes.vence || "", estudioId: company.id,
+      invoiceId, numero: inv.number });
+  }
   async function emit() {
     const inv = state.preview; if (!inv || emitting) return;
     const ty = T.deType(inv.deType), isFac = ty.code === "1";
@@ -1187,6 +1216,7 @@
           const p = inbox.find(x => x.id === inv.pedidoId);
           if (p) { p.status = "facturado"; p.invoiceNumber = inv.number; p.invoiceId = id; p.invoicedAt = date; }
         }
+        if (isFac && inv.servicio) avisarBoleta(inv, id);
         if (ty.key === "remision" && inv.pedidoId) { const p = inbox.find(x => x.id === inv.pedidoId); if (p) { p.remisionNumber = inv.number; p.remisionId = id; } }
       }
       save();
@@ -1236,10 +1266,12 @@
 
   const screenEl = document.getElementById("screen");
   screenEl.addEventListener("click", e => {
-    const t = e.target.closest("button, [data-open], [data-openped]");
+    const t = e.target.closest("button, [data-open], [data-openped], [data-boleta]");
     if (!t) return;
     const ds = t.dataset;
     if (ds.go) { go(ds.go); return; }
+    if (ds.boleta) { boletaSheet(ds.boleta); return; }
+    if (ds.boletaok) { T.marcarBoletaVista(ds.boletaok); render(); return; }
     if (ds.mode) { syncFields(); state.draft.mode = ds.mode; render(); return; }
     if (ds.cond) { syncFields(); state.draft.condition = ds.cond; render(); return; }
     if (ds.add) { syncFields(); itemSheet(it => { state.draft.items.push(it); render(); }, null, mod("productos") ? products : [], state.draft.currency, itemOpts()); return; }
@@ -1434,6 +1466,35 @@
   }
 
   // PDF del KuDE con texto real (seleccionable y buscable), dibujado con jsPDF a partir de los datos.
+  // Detalle de la boleta de pago: conceptos del mes, total, vencimiento, estado y PDF de la factura del servicio
+  function boletaSheet(id) {
+    const b = T.boletasDe(company.id).find(x => x.id === id); if (!b) return;
+    const mes = (T.cuenta(company).meses || []).find(m => m.period === b.period), c = mes || T.cargoDe(company, b.period);
+    const est = T.getEmpresa(b.estudioId), fac = est ? (T.storeFor(est.id).get("invoices", []).find(x => x.id === b.invoiceId) || null) : null;
+    const estado = mes ? ({ pagado: "Pagado", pendiente: "Pendiente de pago", vencido: "Vencido", suspendido: "Vencido · emisión suspendida" })[mes.state] || "" : "";
+    sheet(`<h3>Boleta de pago · ${esc(T.periodLabel(b.period))}</h3>
+      <div class="card" style="margin-top:8px">
+        ${(c.lines || []).filter(l => l[1] !== 0 || (l[2] && l[2].incluido)).map(l => `<div class="kv"><span>${esc(l[0])}</span><span>${l[2] && l[2].incluido ? "Incluido" : esc(FE.money(l[1], "PYG"))}</span></div>`).join("")}
+        <div class="kv" style="font-weight:800;border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span>Total del mes</span><span>${esc(FE.money(c.total, "PYG"))}</span></div>
+        ${b.vence ? `<div class="kv"><span class="muted">Vence</span><span>${esc(T.isoToDmy(b.vence))}</span></div>` : ""}
+        ${estado ? `<div class="kv"><span class="muted">Estado</span><span>${esc(estado)}${mes && mes.pagado > 0 && mes.saldo > 0 ? " · saldo " + esc(FE.money(mes.saldo, "PYG")) : ""}</span></div>` : ""}
+        <div class="kv"><span class="muted">Factura</span><span>${esc(b.numero || "-")}${est ? " · " + esc(FE.emisorNombres(est).main) : ""}</span></div>
+      </div>
+      ${b.monto !== c.total ? `<div class="muted small" style="margin-top:6px">La factura se emitió por ${esc(FE.money(b.monto, "PYG"))}.</div>` : ""}
+      <div class="muted small" style="margin-top:8px">Para pagar o consultar, comunicate con el estudio.</div>
+      <div class="btn-row" style="margin-top:14px"><button class="btn" data-x>Cerrar</button><button class="btn primary" data-bpdf ${fac && fac.kude ? "" : "disabled"}>Descargar PDF</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = () => { T.marcarBoletaVista(b.id); close(); render(); };
+      el.querySelector("[data-bpdf]").onclick = async () => {
+        if (!fac || !fac.kude || !window.KudePdf) { toast("No se encontró la factura del servicio"); return; }
+        try {
+          toast("Generando PDF…");
+          await KudePdf.save(fac.kude, est, { consultUrl: "https://ekuatia.set.gov.py/consultas" + (est.env === "test" ? "-test" : "") + "/", qrText: fac.kude.qrUrl || "",
+            timbradoLines: timbradoLines(fac.kude), pairs: docInfoPairs(fac.kude), format: "a4" });
+          T.marcarBoletaVista(b.id); toast("PDF descargado");
+        } catch (err) { console.error(err); toast("No se pudo generar el PDF"); }
+      };
+    });
+  }
   async function downloadKudePdf(format, docId) {
     const inv = docId ? (invoices.find(x => x.id === docId) || {}).kude : state.screen === "new" || state.screen === "preview" ? state.preview : ((invoices.find(x => x.id === state.detailId) || {}).kude);
     if (!inv) { toast("No hay datos para generar el PDF"); return; }
@@ -1454,7 +1515,7 @@
   // Tecla Escape o atrás del navegador dentro del flujo: un paso atrás
   document.addEventListener("keydown", e => { if (e.key === "Escape" && state.screen === "new" && !document.querySelector(".sheet-back, .pinpad-back, .lock")) { const b = document.querySelector("[data-wback]"); if (b) b.click(); } });
   screenEl.addEventListener("keydown", e => {
-    if (e.key === "Enter" && e.target.dataset && (e.target.dataset.open || e.target.dataset.openped)) { e.preventDefault(); e.target.click(); }
+    if (e.key === "Enter" && e.target.dataset && (e.target.dataset.open || e.target.dataset.openped || e.target.dataset.boleta)) { e.preventDefault(); e.target.click(); }
   });
 
   // ================= PIN de acceso =================

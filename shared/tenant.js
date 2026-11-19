@@ -239,6 +239,16 @@
     l.unshift(Object.assign({ id: randomId(8), at: new Date().toISOString() }, o));
     G.set("pagos", l);
   }
+  // Boletas de pago: se registran cuando el estudio emite la factura del servicio a una empresa cliente.
+  // El Facturador del cliente las muestra como aviso hasta que se marcan como vistas. Con servidor, se enviarán como notificación.
+  const boletasDe = empId => G.get("boletas", []).filter(b => b.empresaId === empId).sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  function registrarBoleta(o) {
+    const l = G.get("boletas", []).filter(b => !(b.empresaId === o.empresaId && b.period === o.period && b.invoiceId === o.invoiceId && b.estudioId === o.estudioId));
+    const b = Object.assign({ id: randomId(8), at: new Date().toISOString(), vista: false }, o);
+    l.unshift(b); G.set("boletas", l); return b;
+  }
+  const boletaNueva = empId => boletasDe(empId).find(b => !b.vista) || null;
+  function marcarBoletaVista(id) { const l = G.get("boletas", []); const b = l.find(x => x.id === id); if (b) { b.vista = true; b.vistaAt = new Date().toISOString(); G.set("boletas", l); } }
   // Estado de cuenta por mes y estado general. El mes P vence el día venceDia del mes siguiente; después de graciaDias se suspende la emisión.
   function cuenta(emp) {
     const t = tarifas(), p = planOf(emp), today = FE.todayKey(), pagos = pagosDe(emp.id);
@@ -659,6 +669,6 @@
     normTimbrado, typeEnabled, nextNum, bumpNum, tiposFieldsHTML, readTipos, bindTipos, usedTiposOf, inutilizar,
     certStatus, PRESTADORES, queueFor, alertsFor, SEND_LIMIT_H, encodeCatalog, decodeCatalog, productSheet,
     Firmador, ONBOARDING, TEST_CHECKS, MODULES, moduleOf, hasModule, userHas,
-    TARIFAS_DEF, tarifas, saveTarifas, CONCEPTS, conceptOf, generalMonto, precioDe, incluidosDe, descuentosDe, descuentoVigente, descuentoTexto, addPeriods, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
+    TARIFAS_DEF, tarifas, saveTarifas, CONCEPTS, conceptOf, generalMonto, precioDe, incluidosDe, descuentosDe, descuentoVigente, descuentoTexto, addPeriods, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, boletasDe, registrarBoleta, boletaNueva, marcarBoletaVista, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox
   };
 })(window);

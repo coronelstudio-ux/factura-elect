@@ -175,7 +175,16 @@
     return { mode: d.mode, ruc: d.mode === "con" ? ((parseRuc(d.ruc) || {}).full || d.ruc) : "",
       doc: d.mode === "con" ? "" : String(d.doc || "").trim(), docType: d.mode === "con" ? "" : (r && r.docType) || d.docType || "1",
       country: d.mode === "ext" ? String(d.country || "").trim() : "",
-      name: d.name || (d.mode === "con" && r ? r.name || "" : ""), email: d.email || "" };
+      name: d.name || (d.mode === "con" && r ? r.name || "" : ""), email: d.email || "",
+      address: String(d.address || "").trim(), phone: String(d.phone || "").trim() };
+  }
+
+  // Nombre del emisor para el membrete. Persona física (unipersonal) con nombre de fantasía: la fantasía va grande
+  // y el nombre del titular más chico. Sociedad: la razón social grande y la fantasía debajo.
+  function emisorNombres(c) {
+    c = c || {}; const fan = String(c.fantasy || "").trim(), name = String(c.name || "").trim();
+    if (String(c.taxpayerType) === "1" && fan) return { main: fan, sub: name, unipersonal: true };
+    return { main: name || fan, sub: fan && fan !== name ? fan : "", unipersonal: String(c.taxpayerType) === "1" };
   }
 
   // ================= Cálculos =================
@@ -430,7 +439,7 @@
   }
 
   // ================= Clientes frecuentes =================
-  // client: { id, mode: "con"|"sin"|"ext", ruc, doc, docType, country, name, email }
+  // client: { id, mode: "con"|"sin"|"ext", ruc, doc, docType, country, name, email, address, phone }
   function clientKey(c) {
     if (c.mode === "con") return "R:" + (parseRuc(c.ruc) || { full: c.ruc }).full;
     return (c.mode === "ext" ? "X:" : "D:") + (c.doc || c.name || "").trim().toLowerCase();
@@ -442,9 +451,10 @@
     const key = clientKey(c);
     const clean = { mode: c.mode, ruc: c.mode === "con" ? (parseRuc(c.ruc) || {}).full || c.ruc : "", doc: c.mode === "con" ? "" : (c.doc || ""),
       docType: c.mode === "con" ? "" : (c.docType || (c.mode === "ext" ? "2" : "1")), country: c.mode === "ext" ? (c.country || "") : "",
-      name: c.name || "", email: c.email || "", used: Date.now() };
+      name: c.name || "", email: c.email || "", address: c.address || "", phone: c.phone || "", used: Date.now() };
     const i = list.findIndex(x => clientKey(x) === key);
-    if (i >= 0) list[i] = Object.assign({}, list[i], clean, { name: clean.name || list[i].name, email: clean.email || list[i].email });
+    if (i >= 0) list[i] = Object.assign({}, list[i], clean, { name: clean.name || list[i].name, email: clean.email || list[i].email,
+      address: clean.address || list[i].address || "", phone: clean.phone || list[i].phone || "" });
     else list.push(Object.assign({ id: randomId(8) }, clean));
     list.sort((a, b) => (b.used || 0) - (a.used || 0));
     return list;
@@ -461,6 +471,8 @@
     let changed = false;
     if (!d.name && c.name) { d.name = c.name; changed = true; }
     if (!d.email && c.email) { d.email = c.email; changed = true; }
+    if (!d.address && c.address) { d.address = c.address; changed = true; }
+    if (!d.phone && c.phone) { d.phone = c.phone; changed = true; }
     if (d.mode === "ext" && !d.country && c.country) { d.country = c.country; changed = true; }
     return changed ? c : null;
   }
@@ -784,6 +796,6 @@
     receiverBlock, syncReceiver, receiverLiveIds, receiverFromDraft,
     buildCdc, isValidCdc, formatCdc, CSC_TEST, toHex, sha256Hex, simulatedDigest, buildQrUrl, localIso, makeStore, randomId, toast, sheet, confirmSheet, itemSheet,
     upsertClient, clientPicker, encodePedido, decodePedido, qrCanvas, readQrFromFile, openScanner,
-    shareCanvas, copyText, downloadBlob, exportBackup, importBackup, registerSW, fnv32
+    shareCanvas, copyText, downloadBlob, emisorNombres, exportBackup, importBackup, registerSW, fnv32
   };
 })(window);
