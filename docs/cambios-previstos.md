@@ -106,6 +106,72 @@ Temas que no se programan ahora. **Cada vez que se apliquen cambios, preguntar a
 - **Boleta de pago como notificación** en la app del cliente (requiere servidor).
 - **Fecha de fin del timbrado:** confirmar en Marangatu (e-Kuatia y e-Kuatia'i) si existe y decidir si se quita.
 
+## Cambios para la app oficial (con base de datos)
+
+Cambios grandes que dependen del servidor y de trabajar de forma oficial. No se programan en el prototipo actual.
+
+### O1. Perfil con verificación de identidad (foto del rostro y del documento)
+
+- **Pedido:** app descargable donde cada persona crea su perfil y carga sus datos de identidad, con foto del rostro (selfie) y del documento. Ver cómo funciona en Paraguay; es un cambio importante por la información que requiere y los métodos nuevos.
+
+- **Cómo funciona en Paraguay (investigado en noviembre de 2026):**
+  - **Identidad Electrónica del MITIC** (Portal Paraguay), el modelo oficial de referencia:
+    - Se cargan los datos personales y tres fotos: frente de la cédula, dorso y una selfie sosteniendo la cédula cerca del rostro.
+    - Si las fotos están bien, se valida automáticamente contra los datos del Estado (Sistema de Intercambio de Información). Si no, pasa a revisión humana, con respuesta en un plazo de hasta 48 horas.
+    - Después hay preguntas de verificación y doble factor por SMS (obligatorio desde 2026).
+    - Más de 1,5 millones de personas la tienen. No encontré una API pública para que empresas privadas validen contra ella: hay que consultarlo al MITIC.
+  - **Proveedores privados de verificación (KYC):**
+    - **Hacen lo mismo:** foto de la cédula, selfie con **prueba de vida** (detecta fotos de fotos, máscaras y *deepfakes*), comparación del rostro con la foto de la cédula y, algunos, consulta de la cédula contra el registro de Identificaciones.
+    - **Ejemplos:**
+      - Didit: anuncia consulta a Identificaciones en tiempo real y un plan gratis de 500 verificaciones por mes.
+      - Verifik.
+      - Shufti.
+      - NeoBiometrics (Neosystem, empresa paraguaya): puede instalarse en servidores propios, para que los datos no salgan del país.
+    - **A verificar:** son datos de marketing de cada proveedor; precios, cobertura y validez legal hay que confirmarlos con cada uno.
+  - **Ley 7593/2025 de Protección de Datos Personales** (promulgada en noviembre de 2025):
+    - Los **datos biométricos** (el rostro usado para identificar) son **datos sensibles**. Su tratamiento está prohibido salvo **consentimiento** del titular o las excepciones de la ley.
+    - Para tratamiento a gran escala se pide una **evaluación de impacto** (EIPD) antes de empezar.
+    - Multas altas: hasta 10.000 jornales mínimos en los casos más graves.
+    - Antes de empezar hay que revisar con un abogado el texto oficial, el reglamento y la autoridad de aplicación.
+
+- **Propuesta de flujo (a profundizar):**
+  1. **Registro:** correo o teléfono, con código por SMS o correo, y contraseña.
+  2. **Datos personales:** nombre, cédula, fecha de nacimiento, teléfono y dirección.
+  3. **Documento:** foto del frente y del dorso de la cédula, con guía en pantalla (marco, aviso de reflejos o desenfoque).
+  4. **Rostro:** selfie con prueba de vida y comparación con la foto de la cédula.
+  5. **Validación:**
+     - automática, por un proveedor o, si se puede, por el MITIC;
+     - si falla, revisión manual por el estudio, con un plazo de respuesta.
+  6. **Consentimiento explícito** antes de capturar el rostro: qué se guarda, para qué, por cuánto tiempo y cómo borrarlo.
+  7. **Estados del perfil:**
+     - pendiente;
+     - verificado;
+     - rechazado, con motivo;
+     - vencido, cuando vence la cédula.
+  8. **Vínculo con la empresa:** el usuario verificado se asocia a una o más empresas con su rol. El maestro o el admin del cliente aprueban el acceso.
+  9. **Seguridad:**
+     - fotos y datos cifrados, en servidores con control de acceso;
+     - retención mínima;
+     - borrado a pedido;
+     - auditoría de quién vio qué.
+
+- **Decisiones para más adelante:**
+  - **Método de validación:**
+    - Identidad Electrónica del MITIC, si se permite a privados;
+    - un proveedor de KYC, ¿cuál?;
+    - o revisión manual por el estudio al principio.
+  - **Quiénes se verifican:**
+    - todos los usuarios;
+    - solo los admins de cada empresa;
+    - o también los vendedores.
+  - **Dónde se guardan las fotos:** en el proveedor, en servidores propios o en la nube. Influye en el costo y en la ley de datos.
+  - **Plataforma:**
+    - app nativa (Android/iOS, en las tiendas);
+    - o la misma app web instalable con cámara.
+    - La nativa da mejor captura y lectura del chip de la cédula, si se usa.
+  - **Asesoría legal:** EIPD, textos de consentimiento, política de privacidad y contrato con el proveedor.
+  - **Firma electrónica** (Ley 6822/2021): ver si conviene que el perfil verificado firme documentos. Queda por investigar.
+
 ## Aplicados
 
 (Todavía ninguno con este método.)
