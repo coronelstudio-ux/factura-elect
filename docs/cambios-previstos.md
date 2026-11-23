@@ -13,10 +13,9 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   - Si todo es exento: `Exenta de IVA`.
   - En dólares, el IVA en dólares (con 2 decimales).
   - Para nota de crédito y nota de débito, lo mismo. Autofactura y remisión no llevan IVA: no se muestra.
-  - Lugares: el paso **Productos** (monto grande arriba), el paso **Revisión** (total) y la pantalla de **¡Listo!** después de emitir.
-- **Dudas:**
-  - ¿En los tres lugares o solo en alguno?
-  - ¿Agregar también el total de IVA (`Total IVA Gs 17.410`) cuando hay 5 % y 10 % juntos?
+  - Lugares (confirmado): el paso **Productos** (monto grande arriba), el paso **Revisión** (total) y la pantalla de **¡Listo!** después de emitir.
+  - Cuando hay 5 % y 10 % juntos, agregar el total (confirmado): `IVA 10 %: Gs 16.363 · IVA 5 %: Gs 1.047 · Total IVA Gs 17.410`.
+- **Estado:** definido, listo para aplicar.
 
 ## Aplicados
 
