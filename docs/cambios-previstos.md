@@ -30,32 +30,41 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   - Con el timbrado sin usar, también el número y la fecha de inicio.
   - Puede cambiar el próximo número de cada tipo (solo hacia adelante si ya se usó) y quitar tipos que no tienen documentos.
   - El KuDE muestra "Fin de vigencia" si se cargó una.
-- **Propuesta:**
-  1. **Sin fecha de fin.** Se quita el campo. Las fechas de fin que ya están cargadas dejan de usarse: ni vencen el timbrado ni salen en el KuDE.
+- **e-Kuatia (sistema propio, como esta app) y e-Kuatia'i (facturador gratuito de la DNIT):**
+  - Los dos son facturación electrónica por SIFEN. En los dos casos el timbrado electrónico se pide en Marangatu después de habilitarse como facturador electrónico.
+  - e-Kuatia'i solo sirve para quien tiene **un establecimiento y un punto de expedición**. El sistema propio no tiene ese límite.
+  - Ninguna fuente encontrada distingue la vigencia del timbrado entre los dos: la regla "sin fecha de fin" se refiere al timbrado electrónico en general.
+  - **Falta confirmarlo** en Marangatu → Datos del timbrado, en un caso de cada tipo.
+- **Decisiones del usuario:**
+  - Gestionan timbrados (cargar, activar, agregar un tipo, dar de baja) **solo el admin maestro y el admin del cliente**. Los demás, incluido el operador del estudio, **solo ven qué timbrado está activo**.
+  - Si un timbrado activado tiene un error: **se da de baja y se carga uno nuevo**. Después de activarlo no se puede hacer ningún cambio.
+  - **La fecha de fin no se quita todavía**, hasta confirmar si es necesaria.
+- **Propuesta (ajustada):**
+  1. **Fecha de fin:** por ahora queda, pero solo se carga **antes de activar**. Una vez activo no se modifica. Se revisa cuando se confirme la regla.
   2. **Estados:**
      - **Cargado:** sin activar; se puede corregir todo.
-     - **Activo:** bloqueado; no se modifica.
+     - **Activo:** bloqueado.
      - **Dado de baja:** definitivo; queda en el historial.
-     - Al activar se pide confirmar: "Después no se puede modificar".
-  3. **Activo = bloqueado:** no se pueden cambiar el número, la fecha de inicio, los tipos ni los números de cada tipo.
-     - Para saltar números se usa la **inutilización**, que ya existe y queda registrada.
-     - Lo único permitido es **agregar** un tipo de documento que se habilitó después en Marangatu. Queda en la auditoría y nunca se quita.
+     - Al activar se pide confirmar con PIN: "Después no se puede modificar".
+  3. **Activo = bloqueado:** no se pueden cambiar el número, las fechas, los tipos ni los números de cada tipo.
+     - Para saltar números se usa la **inutilización**.
+     - Solo se permite **agregar** un tipo de documento que se habilitó después en Marangatu. Queda en la auditoría y nunca se quita.
   4. **Dar de baja:**
-     - Botón "Dar de baja" con motivo obligatorio:
+     - Motivo obligatorio:
        - cambio de timbrado otorgado por la DNIT;
        - cese de actividades;
        - cancelado por la DNIT;
        - error de carga;
+       - vencimiento;
        - otro, con detalle.
      - Pide PIN y queda en la auditoría.
      - No se puede deshacer, y desde ese momento no se emite con ese timbrado.
-     - Para seguir facturando hay que cargar y activar otro timbrado.
-  5. **Solo uno activo a la vez**, como ahora. Activar otro **da de baja** al anterior, con el motivo "Cambio de timbrado". Hoy solo lo deja inactivo y se lo podía volver a activar.
-  6. **KuDE y PDF:** solo número de timbrado e inicio de vigencia.
-- **Dudas:**
-  - ¿Quién puede dar de baja: solo el admin maestro, o también el operador?
-  - Si se cargó mal un timbrado y ya se activó, pero todavía no se emitió nada, ¿se permite corregirlo, o se da de baja como "error de carga" y se carga uno nuevo? Propuesta: darlo de baja, para no dejar ninguna puerta de modificación.
-  - ¿Confirmás que se quita la fecha de fin? Si en Marangatu tu timbrado sí muestra una, la dejamos solo como dato informativo, sin que bloquee la emisión.
+  5. **Solo uno activo:** activar otro **da de baja** al anterior con el motivo "Cambio de timbrado". Ya no queda inactivo para volver a activarlo.
+  6. **Permisos:**
+     - El permiso de timbrados pasa a ser del maestro y del admin del cliente. El operador del estudio lo pierde.
+     - En el Facturador, los demás usuarios ven solo el timbrado activo, sin botones.
+  7. **KuDE y PDF:** sin cambios mientras no se confirme la regla de la fecha de fin.
+- **Estado:** definido, salvo la confirmación de la fecha de fin, que no bloquea aplicar lo demás.
 
 ## Aplicados
 
