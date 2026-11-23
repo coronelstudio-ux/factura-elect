@@ -155,15 +155,57 @@ Cambios grandes que dependen del servidor y de trabajar de forma oficial. No se 
      - borrado a pedido;
      - auditoría de quién vio qué.
 
+- **Decisiones del usuario (de a poco):**
+  - **Solo se verifica con rostro y documento al admin dueño del RUC**, es decir, quien contrata el servicio.
+  - **Los funcionarios** (cargan facturas, crean notas de pedido) **no** pasan por esa verificación y se cargan con pocos datos. Los habilita el admin dueño, que **controla qué puede y qué no puede hacer cada uno**.
+  - **El admin maestro** (estudio) supervisa todo, por encima del admin dueño.
+  - Diseñar **todo el sistema de gestión de registros**, contemplando las distintas formas de hacerlo.
+
+- **Propuesta: gestión de registros**
+  1. **Formas de alta del admin dueño** (a elegir; pueden convivir):
+     - **a) Autoregistro desde la app:**
+       - el dueño baja la app, crea su cuenta, verifica su identidad y carga el RUC;
+       - queda en **"pendiente de aprobación"** hasta que el estudio lo revisa y activa el servicio.
+     - **b) Alta por el estudio:**
+       - el maestro crea la empresa (como el alta guiada de hoy) y le manda al dueño una **invitación** (enlace o QR);
+       - el dueño entra con la invitación y completa solo su verificación de identidad.
+     - **c) Alta presencial:** el estudio carga todo en su oficina, con el dueño presente, y verifica la identidad ahí.
+  2. **Verificación del dueño del RUC:**
+     - **Persona física:** el RUC es su número de cédula. Se compara la cédula de la foto con el RUC.
+     - **Sociedad:** el que se registra es el **representante legal**. Además de su cédula y su rostro, sube el documento que lo acredita (acta, estatuto o poder). El estudio lo revisa a mano.
+     - Se puede sumar la comprobación del RUC (razón social y estado activo) contra los datos de la DNIT.
+  3. **Funcionarios:**
+     - **Datos:** nombre, cédula (opcional), teléfono o correo y un PIN propio.
+     - **Alta:**
+       - el admin dueño los crea desde su app;
+       - o les manda una **invitación** (enlace o QR) para que entren solos a su empresa.
+     - **Roles base:** facturador y vendedor (notas de pedido).
+     - **Permisos finos**, que el admin marca o desmarca por persona. Por ejemplo:
+       - emitir facturas, notas de crédito y remisiones;
+       - cancelar;
+       - ver el historial completo o solo lo propio;
+       - cargar notas de pedido;
+       - ver totales del día.
+     - **Suspender o dar de baja** a un funcionario al instante; lo que emitió queda con su nombre.
+     - **Tope de usuarios** según el plan contratado. Ya existe el cobro por usuario adicional.
+  4. **Control del maestro:**
+     - bandeja de registros pendientes (aprobar o rechazar con motivo);
+     - ver los usuarios de cada empresa y suspender a cualquiera;
+     - auditoría de altas, bajas y cambios de permisos.
+  5. **Recuperar el acceso:**
+     - funcionario: el admin le asigna otro PIN;
+     - admin dueño: recupera con código por SMS o correo; si cambia de celular, vuelve a validar el rostro.
+- **Dudas para la próxima vuelta:**
+  - ¿Qué formas de alta del dueño querés: a, b, c o varias?
+  - ¿Los funcionarios necesitan alguna verificación mínima (por ejemplo, código por SMS a su teléfono) o alcanza con que el admin los cree?
+  - Para sociedades, ¿se verifica solo al representante legal, o también puede haber más de un admin dueño?
+  - ¿Los permisos finos se definen por persona, o con roles armados por el admin (por ejemplo, "Cajero" o "Vendedor de calle")?
+
 - **Decisiones para más adelante:**
   - **Método de validación:**
     - Identidad Electrónica del MITIC, si se permite a privados;
     - un proveedor de KYC, ¿cuál?;
     - o revisión manual por el estudio al principio.
-  - **Quiénes se verifican:**
-    - todos los usuarios;
-    - solo los admins de cada empresa;
-    - o también los vendedores.
   - **Dónde se guardan las fotos:** en el proveedor, en servidores propios o en la nube. Influye en el costo y en la ley de datos.
   - **Plataforma:**
     - app nativa (Android/iOS, en las tiendas);
