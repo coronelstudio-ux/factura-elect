@@ -9,6 +9,7 @@ Cuando el usuario diga **"anota los cambios"** (o dicte cambios para más adelan
 3. **Preguntar** lo que no esté claro y **proponer** una solución concreta para cada punto.
 4. **Esperar autorización.** Programar solo cuando el usuario diga "apliquemos los cambios previstos" (o equivalente). Antes, mostrar el plan final.
 5. Al aplicar: pruebas (`node tests/run.js` y pruebas en el navegador), documentación, commit y push. Marcar en la lista lo hecho y moverlo a "Aplicados".
+6. Lo que el usuario deja para después va a "Previstos para más adelante" en la misma lista. **No se muestra en la app** (nada de "Próximamente"). **Cada vez que se apliquen cambios, preguntar si se profundiza en esos temas o se aplazan.**
 
 En general: evaluar cada pedido y **pedir autorización antes de crear archivos o código**.
 

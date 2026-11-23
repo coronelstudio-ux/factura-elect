@@ -84,18 +84,27 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
      - **Seguridad:** Cambiar PIN (la "contraseña" de hoy).
      - **Empresa:** Cambiar de empresa, si tiene más de una.
      - **Accesos:** Abrir la app Admin (solo el estudio).
-     - **Próximamente**, visible en gris: correo, teléfono, foto, contraseña con letras, dispositivos conectados, notificaciones.
+     - Lo que falta (correo, teléfono, foto, etc.) **no se muestra**: queda anotado en "Previstos para más adelante".
      - Abajo de todo, **Cerrar sesión** en rojo, con confirmación.
   3. **Facturador sin usuarios (modo un dispositivo):** el perfil muestra "Este dispositivo", con **Cambiar PIN del dispositivo** y **Bloquear ahora** en lugar de Cerrar sesión.
   4. **Pedidos (hoy sin usuarios):**
      - El perfil muestra el nombre del vendedor (editable ahí) y el código del dispositivo.
      - La sección "Vendedor" de Ajustes pasa al perfil.
-     - Cerrar sesión y PIN aparecen en "Próximamente", hasta que el vendedor sea un usuario de la empresa (con la base de datos).
+     - Cerrar sesión y PIN no se muestran todavía: llegan cuando el vendedor sea un usuario de la empresa (con la base de datos).
   5. Un solo componente compartido en `shared/` para que las tres apps se vean iguales.
 - **Dudas:**
   - "Contraseña": ¿seguimos con el PIN de números por ahora, y la contraseña con letras llega con el servidor?
   - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
-  - ¿Los "Próximamente" se muestran en gris o los ocultamos hasta que existan? Propuesta: mostrarlos en gris, para que se vea lo que viene.
+- **Decidido:** lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
+
+## Previstos para más adelante
+
+Temas que no se programan ahora. **Cada vez que se apliquen cambios, preguntar al usuario si se profundiza en alguno o se aplaza.**
+
+- **Perfil (del cambio 3):** correo, teléfono, foto, contraseña con letras, dispositivos conectados, notificaciones.
+- **Pedidos con usuario:** el vendedor como usuario de la empresa, con ingreso, PIN y cierre de sesión; la nota llega directo al Facturador sin QR y el PDF lleva el membrete (requiere la base de datos).
+- **Boleta de pago como notificación** en la app del cliente (requiere servidor).
+- **Fecha de fin del timbrado:** confirmar en Marangatu (e-Kuatia y e-Kuatia'i) si existe y decidir si se quita.
 
 ## Aplicados
 
