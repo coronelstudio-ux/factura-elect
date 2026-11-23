@@ -66,6 +66,37 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   7. **KuDE y PDF:** sin cambios mientras no se confirme la regla de la fecha de fin.
 - **Estado:** definido, salvo la confirmación de la fecha de fin, que no bloquea aplicar lo demás.
 
+### 3. Apartado "Mi perfil" en Ajustes (las tres apps, todos los perfiles)
+
+- **Pedido:** crear el apartado de perfil para cerrar sesión, cambiar la contraseña y más datos de perfil que se agregarán después. Se ve arriba, con su ícono, al entrar en Ajustes. Para todas las apps y todos los perfiles.
+- **Hoy:**
+  - **Facturador:** sección "Sesión" en Ajustes, con usuario, empresa, Cambiar PIN, Cerrar sesión y Abrir Admin.
+  - **Admin:** sección "Sesión" con Cambiar mi PIN y Cerrar sesión.
+  - **Pedidos:** no tiene usuarios ni sesión; solo el nombre del vendedor en Ajustes → Vendedor.
+- **Propuesta:**
+  1. **Tarjeta de perfil arriba de todo en Ajustes:**
+     - ícono redondo con las iniciales (después, una foto);
+     - nombre, rol y empresa;
+     - una flecha. Al tocarla se abre **Mi perfil**.
+     - La sección "Sesión" actual desaparece y su contenido pasa a Mi perfil.
+  2. **Pantalla Mi perfil:**
+     - **Datos:** nombre, rol, empresa o empresas asignadas, último ingreso.
+     - **Seguridad:** Cambiar PIN (la "contraseña" de hoy).
+     - **Empresa:** Cambiar de empresa, si tiene más de una.
+     - **Accesos:** Abrir la app Admin (solo el estudio).
+     - **Próximamente**, visible en gris: correo, teléfono, foto, contraseña con letras, dispositivos conectados, notificaciones.
+     - Abajo de todo, **Cerrar sesión** en rojo, con confirmación.
+  3. **Facturador sin usuarios (modo un dispositivo):** el perfil muestra "Este dispositivo", con **Cambiar PIN del dispositivo** y **Bloquear ahora** en lugar de Cerrar sesión.
+  4. **Pedidos (hoy sin usuarios):**
+     - El perfil muestra el nombre del vendedor (editable ahí) y el código del dispositivo.
+     - La sección "Vendedor" de Ajustes pasa al perfil.
+     - Cerrar sesión y PIN aparecen en "Próximamente", hasta que el vendedor sea un usuario de la empresa (con la base de datos).
+  5. Un solo componente compartido en `shared/` para que las tres apps se vean iguales.
+- **Dudas:**
+  - "Contraseña": ¿seguimos con el PIN de números por ahora, y la contraseña con letras llega con el servidor?
+  - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
+  - ¿Los "Próximamente" se muestran en gris o los ocultamos hasta que existan? Propuesta: mostrarlos en gris, para que se vea lo que viene.
+
 ## Aplicados
 
 (Todavía ninguno con este método.)
