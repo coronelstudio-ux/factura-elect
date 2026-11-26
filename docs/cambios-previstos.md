@@ -88,13 +88,71 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
      Así el lenguaje queda igual en las tres apps y se cambia en un solo lugar. También deja preparada una futura traducción.
   6. **Alcance:** pantallas, botones, avisos, mensajes de error y ayudas de las tres apps. El KuDE y el PDF no cambian, porque sus leyendas las exige la DNIT.
 
-- **Dudas:**
-  - Cuando un texto necesita dirigirse al usuario (por ejemplo, el aviso de la boleta), ¿se usa **"usted"**, se mantiene el **"vos"** pero menos dirigido, o se evita del todo con frases impersonales? Propuesta: **impersonal** siempre que se pueda y, si no queda otra, **usted**.
-  - ¿Estás de acuerdo con los nuevos nombres de roles, en especial "Administrador general" y "Vendedor"?
-  - En el flujo de emisión, ¿títulos cortos (Cliente, Productos…) en lugar de las preguntas tipo app bancaria?
-  - ¿El admin de la empresa ve los términos técnicos (CDC, KuDE) o la versión simple? Propuesta: la simple, con el término técnico entre paréntesis donde haga falta, por ejemplo "Código de control (CDC)".
+- **Decidido (se aceptan todas las propuestas):**
+  - **Trato:** frases **impersonales** siempre que se pueda; si hace falta dirigirse al usuario, **usted**. Se deja el voseo.
+  - **Roles:** Administrador general, Operador del estudio, Administrador de la empresa, Facturador, Vendedor.
+  - **Emisión:** títulos cortos (Cliente, Productos, Condición de venta, Revisión) en lugar de preguntas.
+  - **Admin de la empresa:** términos simples, con el técnico entre paréntesis donde haga falta, por ejemplo "Código de control (CDC)".
+
+- **Análisis ampliado: más cosas que cambian en lo que ven los usuarios**
+  1. **Nombres de las apps** (pantalla de inicio del celular y título):
+     - Admin → **Administración**;
+     - Facturador → **Facturación**;
+     - Pedidos → **Notas de pedido**.
+  2. **Pestañas de abajo:**
+     - Facturador "Nueva" y Pedidos "Nuevo" → **Emitir** y **Nueva nota**;
+     - Admin "Panel" → **Inicio**;
+     - Facturador "Pedidos" → **Notas** (igual que en Pedidos).
+  3. **Estados con nombre completo y uniforme:**
+     - Factura "Pendiente" → **Pendiente de envío**;
+     - "Rechazada" (factura) y "Rechazado" (nota de pedido) → **Rechazada** en las dos;
+     - "Activo · vencido" → **Vencido**;
+     - "De baja" y "Dado de baja" → **Dado de baja** en las dos;
+     - "Sin compartir" y "Compartido" → **No enviada** y **Enviada**;
+     - tipos de documento no disponibles: "Próximamente" → **No disponible**, con el motivo.
+  4. **Títulos de pantallas y secciones:**
+     - "Últimos comprobantes" → **Últimos documentos**;
+     - "KuDE" (sección del detalle) → **Documento**;
+     - "Vista previa" → **Revisión**;
+     - "Respaldo" y "Respaldo completo" → **Copia de seguridad**;
+     - "Cola de envíos a SIFEN" → **Envíos pendientes a SIFEN** (solo el administrador general).
+  5. **Ventanas que hoy preguntan en voseo:**
+     - "¿Con qué caja emitís?" → **Seleccionar caja**;
+     - "¿Cómo te llamás?" → **Nombre del vendedor**;
+     - "Crear admin maestro" → **Crear administrador general**;
+     - "Nominar la factura" → **Identificar al comprador**.
+  6. **Mensajes de "simulación":** hoy aparecen sueltos ("(simulado)", "1103 … (simulación)", "La aprobación de SIFEN es simulada").
+     - Se reemplazan por un **único aviso de "Modo de prueba"**, visible arriba mientras la empresa esté en prueba.
+     - Los mensajes quedan limpios, por ejemplo "Rechazada por la DNIT: número de timbrado no vigente".
+  7. **Botones uniformes:**
+     - **Cancelar** para salir sin guardar (hoy se mezclan "Volver", "Cancelar" y "Cerrar");
+     - **Guardar** para confirmar datos;
+     - el verbo exacto para acciones definitivas: **Emitir**, **Dar de baja**, **Eliminar**.
+  8. **Pantallas vacías:** frase corta y uniforme, por ejemplo "Sin documentos emitidos" o "Sin notas de pedido", y un botón con la acción principal.
+  9. **Avisos de error:** describen qué falta o qué está mal y, si corresponde, cómo seguir. Por ejemplo:
+     - "Falta la fecha de inicio del timbrado";
+     - "El RUC no es válido: el dígito verificador no corresponde".
+  10. **Avisos de éxito:** en participio y breves: "Cliente guardado", "Factura emitida", "Nota de pedido enviada".
+  11. **Pantallas de ingreso y bloqueo:**
+      - sin emojis: se usa un ícono de la app;
+      - "¿Olvidaste el PIN? Pedile al admin maestro…" → **"Para recuperar el PIN, contacte al administrador de la empresa."**
+  12. **Fechas y horas:** formato único `26/11/2026 09:09`, de 24 horas (hoy mezcla "p. m." y "·").
+  13. **Abreviaturas de tipos** (FE, NC, ND, AF, NR):
+      - en listas, solo para el administrador general;
+      - para los demás, el nombre corto: "Factura", "Nota de crédito", etc.
+  14. **Textos para lectores de pantalla y accesibilidad:** con el mismo tono impersonal.
+  15. **Auditoría:** nombres de las acciones uniformes y en impersonal, por ejemplo "Factura emitida", "Ingreso", "Cierre de sesión", "Timbrado dado de baja".
+  16. **Documentación** (README y guías): mismo glosario y mismos nombres de roles.
+
+- **Relación:** el **cambio 6** (qué funciones ve cada usuario) toca las mismas pantallas. Conviene **aplicar el 5 y el 6 juntos**: se revisa cada pantalla una sola vez.
+- **Estado:** definido. Se aplica junto con el cambio 6, cuando se autorice.
 - **Tamaño:** mediano a grande. Toca casi todos los textos de las tres apps, pero no cambia cómo funcionan. Se prueba revisando pantalla por pantalla.
 
+
+### 6. Qué funciones ve cada usuario (próximo análisis)
+
+- **Pedido:** después del lenguaje, analizar qué funciones ve cada usuario, cuáles necesita y cuáles no.
+- **Estado:** por analizar. Se registrará aquí, con una tabla de funciones por rol (administrador general, operador del estudio, administrador de la empresa, facturador, vendedor), y se aplicará junto con el cambio 5.
 
 ## Previstos para más adelante
 
