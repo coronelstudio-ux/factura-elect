@@ -97,6 +97,62 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
 - **Decidido:** lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
 
+### 4. Establecimientos y puntos de expedición dentro del timbrado
+
+- **Pedido:** los puntos de expedición y el establecimiento son parte del timbrado y se definen según las reglas de la DNIT. En la app figuran como dato de la empresa: investigar y cambiar todo lo relacionado.
+- **Cómo funciona según la DNIT:**
+  - **Establecimientos:** son los locales **declarados en el RUC**, cada uno con código (001, 002…) y dirección. Se dan de alta en el RUC, no en el timbrado.
+  - **Puntos de expedición:**
+    - se crean en Marangatu **dentro de cada establecimiento**;
+    - el sistema les asigna el código (001, 002…);
+    - pueden crearse desde la misma solicitud de timbrado.
+  - **Timbrado electrónico:**
+    - al solicitarlo en Marangatu (Facturación y Timbrado → Solicitudes → Documentos Electrónicos → Generar) se elige el **establecimiento**, los **puntos de expedición** y, **para cada punto**, los **tipos de documento** habilitados (factura, nota de crédito, nota de débito…);
+    - al aprobarse llegan el timbrado y el CSC por el buzón Marandu.
+  - **Numeración:**
+    - el número del documento es `establecimiento-punto-número` (001-002-0000045);
+    - el número de 7 dígitos corre **por timbrado, establecimiento, punto y tipo de documento**, hasta 9.999.999.
+  - **CDC y XML:**
+    - el establecimiento (`dEst`) y el punto (`dPunExp`) van dentro del CDC y del grupo del timbrado (`gTimb`);
+    - deben coincidir exactamente con lo aprobado en Marangatu, o SIFEN rechaza el documento.
+- **Cómo está hoy la app:**
+  - **Configuración:** la empresa tiene **un solo** establecimiento y **un solo** punto (`establishment`, `point`), cargados en el alta (paso 2) y editables en la ficha de la empresa.
+  - **Numeración:** el timbrado guarda los tipos y el próximo número de cada tipo, pero **no** por establecimiento ni por punto.
+  - **Uso:** la empresa los aplica al número del documento, al CDC y a la inutilización.
+  - **Consecuencias:**
+    - no se puede tener más de un punto (por ejemplo, dos cajas o dos vendedores emitiendo);
+    - cambiar el establecimiento en la ficha cambiaría los números y los CDC siguientes sin control.
+- **Propuesta:**
+  1. **Establecimientos en la empresa, como en el RUC:**
+     - lista con código, nombre (opcional) y dirección;
+     - se cargan al dar de alta la empresa;
+     - una vez usados en un timbrado activo no se modifican, solo se dan de baja.
+  2. **Puntos de expedición y tipos dentro del timbrado.** Cada timbrado tiene sus **habilitaciones**: establecimiento → puntos → tipos habilitados en cada punto → próximo número de cada tipo. Por ejemplo:
+     - 001 / 001: factura, nota de crédito, nota de débito;
+     - 001 / 002: factura, nota de crédito.
+  3. **Mismas reglas que el cambio 2:**
+     - **Cargado:** se puede corregir todo.
+     - **Activo:** bloqueado. Solo se puede **agregar** un punto o un tipo que se habilitó después en Marangatu; queda en la auditoría y nunca se quita.
+     - **Dado de baja:** definitivo.
+  4. **Numeración por timbrado + establecimiento + punto + tipo.** La inutilización pide establecimiento, punto, tipo y rango.
+  5. **Punto de cada usuario:**
+     - el admin asigna a cada funcionario su punto de expedición (por ejemplo, Caja 1 = 001-001, Caja 2 = 001-002);
+     - si tiene más de uno, lo elige al emitir;
+     - el punto en uso se ve arriba, junto a la empresa.
+  6. **Dirección en el KuDE y el XML:** la del **establecimiento** donde se emite.
+  7. **Alta guiada (Admin):**
+     - el paso 2 pasa a "Establecimientos" (código y dirección);
+     - en el paso del timbrado se cargan los puntos y los tipos de cada uno.
+  8. **Ficha de la empresa:**
+     - se quita la edición de "Establecimiento y punto";
+     - en su lugar, la lista de establecimientos y, dentro del timbrado, sus puntos.
+  9. **Migración:** el establecimiento y el punto que hoy tiene cada empresa pasan a ser la primera habilitación de su timbrado. Los números siguen desde donde iban.
+- **Relación:** se aplica junto con el **cambio 2** (timbrado protegido), porque cambia la misma estructura.
+- **Dudas:**
+  - ¿El punto de expedición se asigna por usuario (propuesta) o por dispositivo (cada celular o caja es un punto)?
+  - Si una empresa tiene varios establecimientos, ¿el KuDE muestra solo la dirección del establecimiento que emite, o también la de la casa matriz? Propuesta: la del establecimiento que emite.
+  - ¿Los puntos llevan un nombre interno (por ejemplo, "Caja 1" o "Vendedor Ana") además del código, para reconocerlos fácil?
+
 ## Previstos para más adelante
 
 Temas que no se programan ahora. **Cada vez que se apliquen cambios, preguntar al usuario si se profundiza en alguno o se aplaza.**
