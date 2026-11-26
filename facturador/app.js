@@ -401,6 +401,12 @@
           <label for="fTel">Teléfono</label><input id="fTel" data-kb="tel" placeholder="0981 000 000" value="${esc(d.phone)}">
         </details></div>` : ""}`;
   }
+  // IVA debajo del monto (factura y notas de crédito y débito; la autofactura y la remisión no llevan IVA)
+  function ivaLine(code, t, cur, cls) {
+    if (!["1", "5", "6"].includes(String(code))) return "";
+    const txt = FE.ivaText(t, cur);
+    return txt ? `<div class="${cls}">${txt.split(" · ").map(x => `<span class="nw">${esc(x)}</span>`).join(" · ")}</div>` : "";
+  }
   function flowProductos(d) {
     const t = calcItems(d.items, d.currency), noPrice = d.deType === "7", ty = T.deType(d.deType);
     const prods = mod("productos") ? products : [];
@@ -408,6 +414,7 @@
     const units = d.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
     return `
       <div class="flow-amount">${noPrice ? FE.fmtQty(units) + " <small>unidades</small>" : esc(FE.money(t.total, d.currency))}</div>
+      ${ivaLine(d.deType, t, d.currency, "flow-iva")}
       <div class="flow-amount-sub">${d.items.length} ${noPrice ? "ítem(s)" : "producto(s)"}${ty.key === "nc" && fac ? " · saldo de la factura " + esc(FE.money(saldoOf(fac), fac.currency)) : ""}</div>
       ${prods.length && !ty.assoc ? `<div class="flow-label">Productos frecuentes</div><div class="chips-grid">${prods.slice(0, 12).map((p, i) =>
         `<button class="pchip" data-wprod="${i}"><b>${esc(p.desc)}</b>${noPrice ? "" : `<span>${esc(FE.money(p.price, "PYG"))}</span>`}</button>`).join("")}</div>` : ""}
@@ -487,6 +494,7 @@
     return `
       <div class="rev-card">
         <div class="rev-total">${ty.key === "remision" ? esc(d.items.length + " ítem(s)") : esc(FE.money(t.total, d.currency))}</div>
+        ${ivaLine(d.deType, t, d.currency, "flow-iva")}
         <div class="rev-total-sub">${esc(ty.label)}${d.currency === "USD" && t.total && FE.pygTotal(t.total, "USD", d.exchange) ? " · " + esc(FE.money(FE.pygTotal(t.total, "USD", d.exchange), "PYG")) : ""}</div>
         ${rows.join("")}
       </div>
@@ -740,6 +748,7 @@
         <div class="receipt-title">${ok ? "¡Listo!" : "No se pudo emitir"}</div>
         <div class="receipt-sub">${ok ? esc(ty.short) + " emitida y aprobada" : "SIFEN la rechazó"}</div>
         ${isRem ? "" : `<div class="receipt-amount">${r.currency === "USD" ? esc(FE.money(r.totalOp, "USD")) : "Gs " + fmt(r.total)}</div>
+          ${r.kude ? ivaLine(ty.code, r.kude.totals, r.currency, "receipt-iva") : ""}
           ${r.currency === "USD" ? `<div class="receipt-amount-sub">Gs ${fmt(r.total)}</div>` : ""}`}
         <div class="receipt-card">
           ${rows.map(([k, v]) => `<div class="kv"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}
@@ -912,17 +921,12 @@
     const bol = verBoletas() ? T.boletaNueva(company.id) : null, bols = verBoletas() ? T.boletasDe(company.id) : [];
     return `
       <h2>Ajustes</h2>
+      ${T.profileCardHTML(perfilInfo())}
       ${bol ? `<div class="boleta-alert" role="status">
           <div class="ba-t">Se generó tu boleta de pago</div>
           <div class="ba-m">${esc(T.periodLabel(bol.period))} · <b>${esc(FE.money(bol.monto, "PYG"))}</b>${bol.vence ? " · vence el " + esc(T.isoToDmy(bol.vence)) : ""}</div>
           <div class="btn-row" style="margin-top:10px"><button class="btn primary" data-boleta="${esc(bol.id)}">Ver detalle</button><button class="btn" data-boletaok="${esc(bol.id)}">Entendido</button></div>
         </div>` : ""}
-      ${section("Sesión", `<div class="card">
-          <div class="kv"><span class="muted">Usuario</span><span>${user ? esc(user.name) + " · " + esc(T.ROLES[user.role].label) : "Este dispositivo (sin usuarios)"}</span></div>
-          ${T.empresasOf(user).length > 1 ? `<div class="kv"><span class="muted">Empresa</span><span><button class="link" data-switchemp style="min-height:0;padding:0">${esc(company.name)} ▾</button></span></div>` : ""}
-          <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-changepin>Cambiar ${user ? "mi " : ""}PIN</button><button class="btn" data-lock>${user ? "Cerrar sesión" : "Bloquear ahora"}</button></div>
-          ${can("admin.app") ? `<a class="btn" href="../admin/" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none">Abrir la app Admin</a>` : ""}
-        </div>`)}
       ${bols.length ? section("Boletas de pago", `<div class="card">${bols.slice(0, 6).map(b => `<div class="row" data-boleta="${esc(b.id)}" role="button" tabindex="0"><div class="main">
           <div class="title">${esc(T.periodLabel(b.period))}${b.vista ? "" : ' <span class="tag bad">Nueva</span>'}</div><div class="sub">Factura ${esc(b.numero || "")}${b.vence ? " · vence el " + esc(T.isoToDmy(b.vence)) : ""}</div></div>
           <div class="amt">${esc(FE.money(b.monto, "PYG"))}</div></div>`).join("")}</div>`) : ""}
@@ -1394,6 +1398,7 @@
       return;
     }
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
+    if (ds.profile !== undefined) { perfilSheet(); return; }
     if (ds.changepin !== undefined) { user ? T.changeOwnPin(user) : Lock.change(); return; }
     if (ds.lock !== undefined) { Access.lockNow(); return; }
     if (ds.switchemp !== undefined) { switchEmpresa(); return; }
@@ -1470,6 +1475,31 @@
   }
 
   // PDF del KuDE con texto real (seleccionable y buscable), dibujado con jsPDF a partir de los datos.
+  // ---- Mi perfil ----
+  function perfilInfo() {
+    if (!user) return { name: "Este dispositivo", sub: "Sin usuarios · " + company.name };
+    return { name: user.name, sub: T.ROLES[user.role].label + " · " + company.name };
+  }
+  function perfilSheet() {
+    const info = perfilInfo(), emps = T.empresasOf(user), actions = [];
+    actions.push({ id: "pin", label: user ? "Cambiar mi PIN" : "Cambiar el PIN del dispositivo" });
+    if (emps.length > 1) actions.push({ id: "empresa", label: "Cambiar de empresa" });
+    if (can("admin.app") && user) actions.push({ id: "admin", label: "Abrir la app Admin" });
+    const u = user ? T.getUser(user.id) || user : null;
+    T.profileSheet(Object.assign({}, info, {
+      rows: user ? [["Rol", T.ROLES[user.role].label], ["Empresa", company.name], ["Empresas asignadas", T.ROLES[user.role].estudio && user.role === "maestro" ? "Todas" : String(emps.length)],
+        ["Último ingreso", u && u.lastLoginAt ? fmtDate(u.lastLoginAt) : ""]] : [["Empresa", company.name], ["Acceso", "PIN del dispositivo"]],
+      actions,
+      exit: user ? { label: "Cerrar sesión", confirm: "¿Cerrar sesión?", text: "Para volver a entrar vas a necesitar tu PIN." } : { label: "Bloquear ahora" },
+      onAction: (id, close) => {
+        close();
+        if (id === "pin") { user ? T.changeOwnPin(user) : Lock.change(); return; }
+        if (id === "empresa") { switchEmpresa(); return; }
+        if (id === "admin") { location.href = "../admin/"; return; }
+        if (id === "exit") Access.lockNow();
+      }
+    }));
+  }
   // Detalle de la boleta de pago: conceptos del mes, total, vencimiento, estado y PDF de la factura del servicio
   function boletaSheet(id) {
     const b = T.boletasDe(company.id).find(x => x.id === id); if (!b) return;

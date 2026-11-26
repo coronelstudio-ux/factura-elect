@@ -15,7 +15,7 @@
   let catalog = store.get("catalog", { empresa: "", products: [], loadedAt: "" });
   const save = () => { store.set("pedidos", pedidos); store.set("clients", clients); store.set("settings", settings); store.set("catalog", catalog); };
 
-  const state = { screen: "new", detailId: null, filter: "all", wq: "", wmanual: false, draft: Object.assign(newDraft(), store.get("draft", null) || {}) };
+  const state = { screen: "list", detailId: null, filter: "all", wq: "", wmanual: false, draft: Object.assign(newDraft(), store.get("draft", null) || {}) };
   // Total en guaraníes para el límite de innominado (en dólares, con el tipo de cambio si lo cargó)
   const pygOf = (d, t) => { const v = FE.pygTotal(t.total, d.currency, d.exchange); return v == null ? 0 : v; };
   function newDraft() {
@@ -225,6 +225,7 @@
   function screenSettings() {
     return `
       <h2>Ajustes</h2>
+      ${FE.T.profileCardHTML({ name: settings.seller || "Sin nombre", sub: "Vendedor · dispositivo " + settings.deviceId })}
       <div class="section"><div class="section-title">Apariencia</div>${FE.themeHTML()}</div>
       <div class="section"><div class="section-title">Productos</div>
         <div class="card">
@@ -236,13 +237,6 @@
             <button class="btn" data-catpaste>Pegar código</button>
           </div>
           ${catalog.products.length ? `<button class="link" data-catclear style="color:var(--bad)">Quitar catálogo</button>` : ""}
-        </div></div>
-      <div class="section"><div class="section-title">Vendedor</div>
-        <div class="card">
-          <label for="sSeller" style="margin-top:0">Tu nombre (aparece en cada nota de pedido)</label>
-          <input id="sSeller" value="${esc(settings.seller)}" placeholder="Ej. Ana Benítez">
-          <button class="btn soft" data-saveseller style="margin-top:10px">Guardar nombre</button>
-          <div class="kv" style="margin-top:8px"><span class="muted">Código de este dispositivo</span><span>${esc(settings.deviceId)}</span></div>
         </div></div>
       <div class="section"><div class="section-title">Instalar en este dispositivo</div>
         <div class="card">${FE.installHTML("Pedidos")}</div></div>
@@ -470,6 +464,14 @@
     if (ds.addclient !== undefined) { clientSheet(); return; }
     if (ds.useclient) { const c = clients.find(x => x.id === ds.useclient); if (c) useClient(c); return; }
     if (ds.delclient) { clients = clients.filter(x => x.id !== ds.delclient); save(); render(); return; }
+    if (ds.profile !== undefined) {
+      FE.T.profileSheet({ name: settings.seller || "Sin nombre", sub: "Vendedor · dispositivo " + settings.deviceId,
+        rows: [["Nombre en las notas", settings.seller || "Sin configurar"], ["Código del dispositivo", settings.deviceId],
+          ["Catálogo", catalog.products.length ? (catalog.empresa || "Sin nombre") + " · " + catalog.products.length + " producto(s)" : ""], ["Notas de pedido", String(pedidos.length)]],
+        actions: [{ id: "name", label: "Cambiar mi nombre" }],
+        onAction: (id, close) => { close(); if (id === "name") askSeller(); } });
+      return;
+    }
     if (ds.saveseller !== undefined) {
       const v = document.getElementById("sSeller").value.trim();
       if (!v) { toast("Escribí tu nombre"); return; }

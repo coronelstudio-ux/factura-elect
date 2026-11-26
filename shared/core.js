@@ -187,6 +187,17 @@
     return { main: name || fan, sub: fan && fan !== name ? fan : "", unipersonal: String(c.taxpayerType) === "1" };
   }
 
+  // Texto del IVA debajo del monto: solo las tasas que tienen IVA; con las dos, también el total. Todo exento → "Exenta de IVA".
+  function ivaText(t, cur) {
+    if (!t || !(Number(t.total) > 0)) return "";
+    const p = [];
+    if (t.iva10 > 0) p.push("IVA 10 %: " + money(t.iva10, cur));
+    if (t.iva5 > 0) p.push("IVA 5 %: " + money(t.iva5, cur));
+    if (!p.length) return "Exenta de IVA";
+    if (p.length === 2) p.push("Total IVA " + money(t.iva, cur));
+    return p.join(" · ");
+  }
+
   // ================= Cálculos =================
   // cur: moneda ("PYG" por defecto, sin decimales; "USD" con 2 decimales)
   function calcItem(it, cur) {
@@ -797,6 +808,6 @@
     receiverBlock, syncReceiver, receiverLiveIds, receiverFromDraft,
     buildCdc, isValidCdc, formatCdc, CSC_TEST, toHex, sha256Hex, simulatedDigest, buildQrUrl, localIso, makeStore, randomId, toast, sheet, confirmSheet, itemSheet,
     upsertClient, clientPicker, encodePedido, decodePedido, qrCanvas, readQrFromFile, openScanner,
-    shareCanvas, copyText, downloadBlob, emisorNombres, exportBackup, importBackup, registerSW, fnv32
+    shareCanvas, copyText, downloadBlob, emisorNombres, ivaText, exportBackup, importBackup, registerSW, fnv32
   };
 })(window);

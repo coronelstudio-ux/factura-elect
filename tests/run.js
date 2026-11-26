@@ -388,6 +388,15 @@ test("Nota de pedido: el QR lleva dirección y teléfono, y sigue leyendo los QR
   assert.ok(sin.ok); assert.strictEqual(sin.pedido.client.address, "");
 });
 
+test("IVA debajo del monto: solo las tasas con IVA y el total si hay dos", () => {
+  assert.strictEqual(FE.ivaText({ total: 110000, iva10: 10000, iva5: 0, iva: 10000 }, "PYG"), "IVA 10 %: Gs 10.000");
+  assert.strictEqual(FE.ivaText({ total: 21000, iva10: 0, iva5: 1000, iva: 1000 }, "PYG"), "IVA 5 %: Gs 1.000");
+  assert.strictEqual(FE.ivaText({ total: 131000, iva10: 10000, iva5: 1000, iva: 11000 }, "PYG"), "IVA 10 %: Gs 10.000 · IVA 5 %: Gs 1.000 · Total IVA Gs 11.000");
+  assert.strictEqual(FE.ivaText({ total: 5000, iva10: 0, iva5: 0, iva: 0 }, "PYG"), "Exenta de IVA");
+  assert.strictEqual(FE.ivaText({ total: 0, iva10: 0, iva5: 0, iva: 0 }, "PYG"), "");
+  assert.match(FE.ivaText({ total: 12.5, iva10: 1.14, iva5: 0, iva: 1.14 }, "USD"), /1,14|1\.14/);
+});
+
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);
   process.exit(failed ? 1 : 0);

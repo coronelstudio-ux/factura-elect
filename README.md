@@ -127,6 +127,18 @@ Emitir un documento sigue el flujo de una transferencia bancaria, tomando como m
 - **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
 - **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión. Como una factura no admite ítems negativos, los descuentos se restan del precio del concepto (o de los ítems mayores, si son sobre el total) y los conceptos incluidos no aparecen.
 
+## Mi perfil
+
+- En las tres apps, arriba de todo en **Ajustes**, una tarjeta con el ícono, el nombre y el rol abre **Mi perfil**.
+- Mi perfil muestra los datos del usuario (rol, empresas, último ingreso) y las acciones: cambiar el PIN, cambiar de empresa, abrir la otra app y **cerrar sesión** (con confirmación).
+- **Facturador sin usuarios:** muestra "Este dispositivo", con cambiar el PIN del dispositivo y **Bloquear ahora**.
+- **Pedidos:** muestra el nombre del vendedor (se cambia desde el perfil) y el código del dispositivo. La app abre en "Mis notas de pedido".
+- Componente compartido: `T.profileCardHTML` y `T.profileSheet` en `shared/tenant.js`.
+
+## IVA al emitir
+
+En factura, nota de crédito y nota de débito, debajo del monto (paso Productos, Revisión y pantalla ¡Listo!) se muestra el IVA en letra más chica: solo las tasas que correspondan y, si hay 5 % y 10 %, también el total. Si todo es exento: "Exenta de IVA" (`FE.ivaText`).
+
 ## Boleta de pago (aviso al cliente)
 
 - Cuando el estudio emite la **factura del servicio** (Admin → empresa → "Facturar el servicio"), queda registrada una **boleta de pago** para esa empresa (`fe_boletas`).

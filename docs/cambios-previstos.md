@@ -5,18 +5,6 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 
 ## Pendientes
 
-### 1. IVA debajo del monto al emitir
-
-- **Pedido:** al emitir una factura aparece el monto final. Debajo, en letra más chica, mostrar el IVA 10 % y/o 5 % según corresponda.
-- **Propuesta:**
-  - Mostrar solo las tasas que tienen IVA. Ejemplos: `IVA 10 %: Gs 16.363 · IVA 5 %: Gs 1.047`, o solo `IVA 10 %: Gs 16.363`.
-  - Si todo es exento: `Exenta de IVA`.
-  - En dólares, el IVA en dólares (con 2 decimales).
-  - Para nota de crédito y nota de débito, lo mismo. Autofactura y remisión no llevan IVA: no se muestra.
-  - Lugares (confirmado): el paso **Productos** (monto grande arriba), el paso **Revisión** (total) y la pantalla de **¡Listo!** después de emitir.
-  - Cuando hay 5 % y 10 % juntos, agregar el total (confirmado): `IVA 10 %: Gs 16.363 · IVA 5 %: Gs 1.047 · Total IVA Gs 17.410`.
-- **Estado:** definido, listo para aplicar.
-
 ### 2. Timbrado protegido según las reglas de la DNIT
 
 - **Pedido:** hoy la fecha de fin del timbrado se puede modificar. Revisar las reglas de la DNIT: los datos del timbrado no deberían poder cambiarse una vez cargados y activados; solo darse de baja por término o por el motivo que corresponda.
@@ -65,41 +53,6 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
      - En el Facturador, los demás usuarios ven solo el timbrado activo, sin botones.
   7. **KuDE y PDF:** sin cambios mientras no se confirme la regla de la fecha de fin.
 - **Estado:** definido, salvo la confirmación de la fecha de fin, que no bloquea aplicar lo demás.
-
-### 3. Apartado "Mi perfil" en Ajustes (las tres apps, todos los perfiles)
-
-- **Pedido:** crear el apartado de perfil para cerrar sesión, cambiar la contraseña y más datos de perfil que se agregarán después. Se ve arriba, con su ícono, al entrar en Ajustes. Para todas las apps y todos los perfiles.
-- **Hoy:**
-  - **Facturador:** sección "Sesión" en Ajustes, con usuario, empresa, Cambiar PIN, Cerrar sesión y Abrir Admin.
-  - **Admin:** sección "Sesión" con Cambiar mi PIN y Cerrar sesión.
-  - **Pedidos:** no tiene usuarios ni sesión; solo el nombre del vendedor en Ajustes → Vendedor.
-- **Propuesta:**
-  1. **Tarjeta de perfil arriba de todo en Ajustes:**
-     - ícono redondo con las iniciales (después, una foto);
-     - nombre, rol y empresa;
-     - una flecha. Al tocarla se abre **Mi perfil**.
-     - La sección "Sesión" actual desaparece y su contenido pasa a Mi perfil.
-  2. **Pantalla Mi perfil:**
-     - **Datos:** nombre, rol, empresa o empresas asignadas, último ingreso.
-     - **Seguridad:** Cambiar PIN (la "contraseña" de hoy).
-     - **Empresa:** Cambiar de empresa, si tiene más de una.
-     - **Accesos:** Abrir la app Admin (solo el estudio).
-     - Lo que falta (correo, teléfono, foto, etc.) **no se muestra**: queda anotado en "Previstos para más adelante".
-     - Abajo de todo, **Cerrar sesión** en rojo, con confirmación.
-  3. **Facturador sin usuarios (modo un dispositivo):** el perfil muestra "Este dispositivo", con **Cambiar PIN del dispositivo** y **Bloquear ahora** en lugar de Cerrar sesión.
-  4. **Pedidos (hoy sin usuarios):**
-     - El perfil muestra el nombre del vendedor (editable ahí) y el código del dispositivo.
-     - La sección "Vendedor" de Ajustes pasa al perfil.
-     - Cerrar sesión y PIN no se muestran todavía: llegan cuando el vendedor sea un usuario de la empresa (con la base de datos).
-  5. Un solo componente compartido en `shared/` para que las tres apps se vean iguales.
-- **Dudas:**
-  - "Contraseña": ¿seguimos con el PIN de números por ahora, y la contraseña con letras llega con el servidor?
-  - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
-- **Decidido:**
-  - Lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
-  - Se usan las propuestas: por ahora la "contraseña" es el **PIN**, y la contraseña con letras llega con el servidor.
-  - **Pedidos** sigue sin ingreso de usuario hasta la base de datos.
-- **Estado:** definido, listo para aplicar.
 
 ### 4. Establecimientos y puntos de expedición dentro del timbrado
 
@@ -281,4 +234,50 @@ Cambios grandes que dependen del servidor y de trabajar de forma oficial. No se 
 
 ## Aplicados
 
-(Todavía ninguno con este método.)
+### 1. IVA debajo del monto al emitir
+
+- **Pedido:** al emitir una factura aparece el monto final. Debajo, en letra más chica, mostrar el IVA 10 % y/o 5 % según corresponda.
+- **Propuesta:**
+  - Mostrar solo las tasas que tienen IVA. Ejemplos: `IVA 10 %: Gs 16.363 · IVA 5 %: Gs 1.047`, o solo `IVA 10 %: Gs 16.363`.
+  - Si todo es exento: `Exenta de IVA`.
+  - En dólares, el IVA en dólares (con 2 decimales).
+  - Para nota de crédito y nota de débito, lo mismo. Autofactura y remisión no llevan IVA: no se muestra.
+  - Lugares (confirmado): el paso **Productos** (monto grande arriba), el paso **Revisión** (total) y la pantalla de **¡Listo!** después de emitir.
+  - Cuando hay 5 % y 10 % juntos, agregar el total (confirmado): `IVA 10 %: Gs 16.363 · IVA 5 %: Gs 1.047 · Total IVA Gs 17.410`.
+- **Estado:** aplicado el 26/11/2026.
+
+### 3. Apartado "Mi perfil" en Ajustes (las tres apps, todos los perfiles)
+
+- **Pedido:** crear el apartado de perfil para cerrar sesión, cambiar la contraseña y más datos de perfil que se agregarán después. Se ve arriba, con su ícono, al entrar en Ajustes. Para todas las apps y todos los perfiles.
+- **Hoy:**
+  - **Facturador:** sección "Sesión" en Ajustes, con usuario, empresa, Cambiar PIN, Cerrar sesión y Abrir Admin.
+  - **Admin:** sección "Sesión" con Cambiar mi PIN y Cerrar sesión.
+  - **Pedidos:** no tiene usuarios ni sesión; solo el nombre del vendedor en Ajustes → Vendedor.
+- **Propuesta:**
+  1. **Tarjeta de perfil arriba de todo en Ajustes:**
+     - ícono redondo con las iniciales (después, una foto);
+     - nombre, rol y empresa;
+     - una flecha. Al tocarla se abre **Mi perfil**.
+     - La sección "Sesión" actual desaparece y su contenido pasa a Mi perfil.
+  2. **Pantalla Mi perfil:**
+     - **Datos:** nombre, rol, empresa o empresas asignadas, último ingreso.
+     - **Seguridad:** Cambiar PIN (la "contraseña" de hoy).
+     - **Empresa:** Cambiar de empresa, si tiene más de una.
+     - **Accesos:** Abrir la app Admin (solo el estudio).
+     - Lo que falta (correo, teléfono, foto, etc.) **no se muestra**: queda anotado en "Previstos para más adelante".
+     - Abajo de todo, **Cerrar sesión** en rojo, con confirmación.
+  3. **Facturador sin usuarios (modo un dispositivo):** el perfil muestra "Este dispositivo", con **Cambiar PIN del dispositivo** y **Bloquear ahora** en lugar de Cerrar sesión.
+  4. **Pedidos (hoy sin usuarios):**
+     - El perfil muestra el nombre del vendedor (editable ahí) y el código del dispositivo.
+     - La sección "Vendedor" de Ajustes pasa al perfil.
+     - Cerrar sesión y PIN no se muestran todavía: llegan cuando el vendedor sea un usuario de la empresa (con la base de datos).
+  5. Un solo componente compartido en `shared/` para que las tres apps se vean iguales.
+- **Dudas:**
+  - "Contraseña": ¿seguimos con el PIN de números por ahora, y la contraseña con letras llega con el servidor?
+  - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
+- **Decidido:**
+  - Lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
+  - Se usan las propuestas: por ahora la "contraseña" es el **PIN**, y la contraseña con letras llega con el servidor.
+  - **Pedidos** sigue sin ingreso de usuario hasta la base de datos.
+- **Estado:** aplicado el 26/11/2026. Además, Pedidos abre en "Mis notas de pedido" (antes abría directo en el flujo, sin barra de abajo).
+

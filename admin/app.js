@@ -357,10 +357,7 @@
   function screenAjustes() {
     return `
       <h2>Ajustes</h2>
-      ${section("Sesión", `<div class="card">
-          <div class="kv"><span class="muted">Usuario</span><span>${esc(user.name)} · ${esc(T.ROLES[user.role].label)}</span></div>
-          <div class="btn-row" style="margin-top:10px"><button class="btn soft" data-mypin>Cambiar mi PIN</button><button class="btn" data-logout>Cerrar sesión</button></div>
-        </div>`)}
+      ${T.profileCardHTML({ name: user.name, sub: T.ROLES[user.role].label + " · Estudio" })}
       ${user.role === "maestro" ? section("Tarifas del servicio", `<div class="card">
           ${(t => `<div class="kv"><span class="muted">Plan base</span><span>${t.incl.base ? "Incluido" : "Gs " + fmt(t.base)} · ${t.incluidos} documentos</span></div>
           ${T.MODULES.map(m => `<div class="kv"><span class="muted">${esc(m.label)}</span><span>${t.incl[m.key] ? "Incluido" : "Gs " + fmt(t.modulos[m.key] || 0)}</span></div>`).join("")}
@@ -717,6 +714,20 @@
       return;
     }
     // ajustes
+    if (ds.profile !== undefined) {
+      const u = T.getUser(user.id) || user, emps = T.empresasOf(user);
+      T.profileSheet({ name: user.name, sub: T.ROLES[user.role].label + " · Estudio",
+        rows: [["Rol", T.ROLES[user.role].label], ["Empresas", user.role === "maestro" ? "Todas (" + emps.length + ")" : String(emps.length)], ["Último ingreso", u.lastLoginAt ? fmtDate(u.lastLoginAt) : ""]],
+        actions: [{ id: "pin", label: "Cambiar mi PIN" }, { id: "fac", label: "Abrir el Facturador" }],
+        exit: { label: "Cerrar sesión", confirm: "¿Cerrar sesión?", text: "Para volver a entrar vas a necesitar tu PIN." },
+        onAction: (id, close) => {
+          close();
+          if (id === "pin") { T.changeOwnPin(user); return; }
+          if (id === "fac") { location.href = "../facturador/"; return; }
+          if (id === "exit") { log("Sesión cerrada", ""); user = null; T.setSession("admin", null); render(); Access.login(); }
+        } });
+      return;
+    }
     if (ds.mypin !== undefined) { T.changeOwnPin(user); return; }
     if (ds.logout !== undefined) { log("Sesión cerrada", ""); user = null; T.setSession("admin", null); render(); Access.login(); return; }
     if (ds.themeSet) { FE.setTheme(ds.themeSet); render(); return; }
@@ -783,7 +794,7 @@
         if (p1 !== p2) { toast("Los PIN no coinciden"); return; }
         const list = T.users(), u = { id: FE.randomId(8), name, role: "maestro", empresas: [], active: true, createdAt: new Date().toISOString() };
         u.pin = await T.hashPin(p1, u.id); list.push(u); T.saveUsers(list);
-        user = u; T.setSession("admin", u); log("Admin maestro creado", name); el.remove(); render(); toast("Bienvenido, " + name);
+        T.markLogin(u.id); user = u; T.setSession("admin", u); log("Admin maestro creado", name); el.remove(); render(); toast("Bienvenido, " + name);
       };
       setTimeout(() => el.querySelector("#fmName").focus(), 60);
     }

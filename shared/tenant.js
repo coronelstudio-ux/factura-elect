@@ -606,6 +606,31 @@
       setTimeout(() => el.querySelector("#uName").focus(), 60);
     });
   }
+  // Último ingreso del usuario (se muestra en Mi perfil)
+  function markLogin(id) { const l = users(), u = l.find(x => x.id === id); if (u) { u.lastLoginAt = new Date().toISOString(); saveUsers(l); } }
+
+  // ================= Mi perfil (las tres apps) =================
+  const initialsOf = n => String(n || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "?";
+  // Tarjeta arriba de todo en Ajustes. o: { name, sub }
+  function profileCardHTML(o) {
+    return `<button class="profile-card" data-profile aria-label="Abrir mi perfil"><span class="pf-avatar">${esc(initialsOf(o.name))}</span>
+      <span class="pf-t"><b>${esc(o.name || "Sin nombre")}</b><span>${esc(o.sub || "")}</span></span><span class="pf-go" aria-hidden="true">›</span></button>`;
+  }
+  // Panel Mi perfil. o: { name, sub, rows: [[etiqueta, valor]], actions: [{ id, label }], exit: { label, confirm, text }, onAction(id, close) }
+  function profileSheet(o) {
+    const rows = (o.rows || []).filter(r => r[1] != null && String(r[1]).trim() !== "");
+    sheet(`<div class="pf-head"><span class="pf-avatar big">${esc(initialsOf(o.name))}</span><div><h3 style="margin:0">${esc(o.name || "Sin nombre")}</h3><div class="muted small">${esc(o.sub || "")}</div></div></div>
+      ${rows.length ? `<div class="card" style="margin-top:12px">${rows.map(([k, v]) => `<div class="kv"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>` : ""}
+      ${(o.actions || []).length ? `<div class="pf-actions">${o.actions.map(a => `<button class="pf-act" data-pfa="${esc(a.id)}">${esc(a.label)}<span aria-hidden="true">›</span></button>`).join("")}</div>` : ""}
+      ${o.exit ? `<button class="btn pf-exit" data-pfexit>${esc(o.exit.label)}</button>` : ""}
+      <button class="link" data-x style="display:block;margin:10px auto 0">Cerrar</button>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelectorAll("[data-pfa]").forEach(b => b.onclick = () => o.onAction(b.dataset.pfa, close));
+      const ex = el.querySelector("[data-pfexit]");
+      if (ex) ex.onclick = () => { close(); if (o.exit.confirm) FE.confirmSheet(o.exit.confirm, o.exit.text || "", o.exit.label, () => o.onAction("exit", () => {}), true); else o.onAction("exit", () => {}); };
+    });
+  }
+
   // Pantalla de ingreso: elegir usuario y escribir su PIN. o: { title, users, onSuccess(user) }
   function loginOverlay(o) {
     if (document.querySelector(".lock")) return;
@@ -624,7 +649,7 @@
     const pinEl = el.querySelector("#lgPin");
     const submit = async () => {
       const u = getUser(el.querySelector("#lgUser").value), pin = pinEl.value.trim();
-      if (await verifyPin(u, pin)) { el.remove(); o.onSuccess(u); }
+      if (await verifyPin(u, pin)) { el.remove(); markLogin(u.id); o.onSuccess(getUser(u.id) || u); }
       else { pinEl.value = ""; toast("PIN incorrecto"); }
     };
     el.querySelector("#lgOk").onclick = submit;
@@ -661,7 +686,7 @@
   }
 
   FE.T = {
-    ROLES, PERMS, can, isoToDmy, dmyToIso, daysUntil, DEMO,
+    ROLES, PERMS, can, isoToDmy, dmyToIso, daysUntil, DEMO, profileCardHTML, profileSheet, markLogin,
     listEmpresas, getEmpresa, saveEmpresa, activeId, setActive, storeFor, newEmpresa, ensureEmpresas,
     users, saveUsers, getUser, usersFor, empresasOf, accessTo, hashPin, verifyPin, sessionUser, setSession,
     audit, auditList, timbradoStatus, vigenciaText, timbradoListHTML, timbradoSheet, activateTimbrado,
