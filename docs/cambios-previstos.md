@@ -95,7 +95,11 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 - **Dudas:**
   - "Contraseña": ¿seguimos con el PIN de números por ahora, y la contraseña con letras llega con el servidor?
   - Pedidos: ¿querés que ya tenga ingreso con usuario y PIN (vendedor creado como cargador de la empresa), o esperamos a la base de datos? Propuesta: esperar, porque sin servidor el usuario solo existiría en ese celular.
-- **Decidido:** lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
+- **Decidido:**
+  - Lo que todavía no existe no se muestra en la app; queda solo en la lista de "Previstos para más adelante".
+  - Se usan las propuestas: por ahora la "contraseña" es el **PIN**, y la contraseña con letras llega con el servidor.
+  - **Pedidos** sigue sin ingreso de usuario hasta la base de datos.
+- **Estado:** definido, listo para aplicar.
 
 ### 4. Establecimientos y puntos de expedición dentro del timbrado
 
@@ -148,6 +152,11 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
      - en su lugar, la lista de establecimientos y, dentro del timbrado, sus puntos.
   9. **Migración:** el establecimiento y el punto que hoy tiene cada empresa pasan a ser la primera habilitación de su timbrado. Los números siguen desde donde iban.
 - **Relación:** se aplica junto con el **cambio 2** (timbrado protegido), porque cambia la misma estructura.
+- **Decidido:** se usan las propuestas.
+  - El punto se asigna **por usuario**.
+  - Cada punto lleva un **nombre** ("Caja 1", "Caja 2"…) además del código.
+  - El KuDE muestra la dirección del establecimiento que emite.
+- **Estado:** definido, listo para aplicar.
 - **Dudas:**
   - ¿El punto de expedición se asigna por usuario (propuesta) o por dispositivo (cada celular o caja es un punto)?
   - Si una empresa tiene varios establecimientos, ¿el KuDE muestra solo la dirección del establecimiento que emite, o también la de la casa matriz? Propuesta: la del establecimiento que emite.
