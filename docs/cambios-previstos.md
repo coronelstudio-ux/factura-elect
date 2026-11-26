@@ -5,7 +5,95 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 
 ## Pendientes
 
-(Ninguno por ahora.)
+### 5. Lenguaje de la app según cada tipo de usuario
+
+- **Pedido:** revisar los términos y denominaciones para que sean más neutros y adecuados a cada usuario: admin maestro, admin de la empresa, facturadores y vendedores. Usar un lenguaje propio de una aplicación: menos dirigido (menos órdenes al usuario) y más formal o descriptivo.
+
+- **Diagnóstico (textos actuales):**
+  - **Tono dirigido:** unas 140 frases en imperativo con voseo ("Escribí…", "Elegí…", "Tocá…", "Pedile…", "Comunicate…", "Cargalo…"). La mayoría son avisos de error.
+    - En el Facturador: 67.
+    - En el Admin: 28.
+    - En Pedidos: 17.
+    - En el núcleo compartido: 30.
+  - **Preguntas conversacionales** en el flujo de emisión, copiadas del estilo de una app bancaria: "¿A quién le facturás?", "¿Qué le vendés?", "¿Cómo te paga?", "¿A quién le vendés?".
+  - **Términos técnicos que hoy ve el facturador** y no necesita entender:
+    - KuDE (58 veces en el Facturador);
+    - CDC (44);
+    - SIFEN (6);
+    - XML (11);
+    - "ambiente de prueba";
+    - "IdCSC";
+    - "módulo";
+    - "innominado";
+    - "nominación";
+    - "simulado/simulación".
+  - **Nombres de roles poco claros:** "Admin maestro", "Admin del cliente", "Operador", "Cargador".
+  - **Mezcla de nombres para lo mismo:**
+    - pedido / nota de pedido;
+    - punto de expedición / caja;
+    - boleta / factura del servicio;
+    - comprobante / documento / KuDE.
+
+- **Qué lee y qué necesita entender cada usuario:**
+
+| Usuario | Qué hace | Qué necesita entender | Qué le sobra hoy |
+|---|---|---|---|
+| **Admin maestro** (estudio) | Empresas, certificados, timbrados, CSC, ambiente, cobros | Todo el vocabulario técnico y legal (SIFEN, CDC, KuDE, IdCSC, inutilización, XML) | Nada: es el público técnico |
+| **Admin de la empresa** (dueño) | Usuarios, cajas, timbrado, productos, preferencias, cuenta del servicio | Timbrado, cajas, tipos de documento, cuenta y vencimientos | IdCSC, ambiente, XML, SIFEN, "módulo" |
+| **Facturador** (cajero) | Emitir, cancelar, notas de crédito, consultar | Cliente, productos, condición, número de factura, aprobada o rechazada | KuDE, CDC, SIFEN, XML, "innominado", "simulación" |
+| **Vendedor** (notas de pedido) | Cargar notas, enviar el PDF, compartir el QR | Cliente, productos, nota, enviar | "Cargador", "QR del pedido" como algo técnico |
+
+- **Propuesta:**
+  1. **Tono general: descriptivo e impersonal.**
+     - Los botones y títulos usan acciones en infinitivo o sustantivos: "Emitir factura", "Agregar producto", "Cerrar sesión".
+     - Los avisos describen la situación en lugar de ordenar:
+       - "Falta el RUC del cliente" en lugar de "Escribí el RUC";
+       - "El PIN debe tener de 4 a 6 números" en lugar de "El PIN tiene que tener…";
+       - "Disponible para el administrador de la empresa" en lugar de "Pedile al estudio que…".
+     - Los textos de ayuda son demostrativos: "La factura se envía por correo al aprobarse".
+  2. **Pasos del flujo con títulos en lugar de preguntas:**
+     - "¿A quién le facturás?" → **Cliente**;
+     - "¿Qué le vendés?" → **Productos**;
+     - "¿Cómo te paga?" → **Condición de venta**;
+     - "Revisá antes de emitir" → **Revisión**.
+     - Debajo de cada título va una línea descriptiva corta.
+  3. **Glosario único.** El mismo término en toda la app, con su versión simple para quien no es técnico:
+
+| Concepto | Admin maestro | Admin de empresa, facturador y vendedor |
+|---|---|---|
+| KuDE | KuDE | Factura (PDF) o "documento" |
+| CDC | CDC | Código de control |
+| Aprobación de SIFEN | Aprobado por SIFEN | Aprobada por la DNIT |
+| Punto de expedición | Caja (punto 001-002) | Caja |
+| Ambiente de prueba / producción | Ambiente de prueba / producción | Modo de prueba / (nada en producción) |
+| Módulo | Módulo | Función contratada |
+| Innominado | Innominado | Consumidor final sin datos |
+| Nominación | Nominación | Identificar al comprador |
+| Inutilización | Inutilización | (no lo ve) |
+| Boleta de pago | Factura del servicio | Cuenta del servicio |
+| Pedido | Nota de pedido | Nota de pedido |
+| Simulado / simulación | Simulado (prueba) | (no se muestra) |
+
+  4. **Nombres de roles:**
+     - Admin maestro → **Administrador general**;
+     - Operador → **Operador del estudio**;
+     - Admin del cliente → **Administrador de la empresa**;
+     - Facturador → **Facturador**;
+     - Cargador → **Vendedor**.
+  5. **Un archivo de textos compartido** (`shared/textos.js`) con:
+     - el glosario;
+     - los mensajes comunes;
+     - la versión de cada término según el rol.
+
+     Así el lenguaje queda igual en las tres apps y se cambia en un solo lugar. También deja preparada una futura traducción.
+  6. **Alcance:** pantallas, botones, avisos, mensajes de error y ayudas de las tres apps. El KuDE y el PDF no cambian, porque sus leyendas las exige la DNIT.
+
+- **Dudas:**
+  - Cuando un texto necesita dirigirse al usuario (por ejemplo, el aviso de la boleta), ¿se usa **"usted"**, se mantiene el **"vos"** pero menos dirigido, o se evita del todo con frases impersonales? Propuesta: **impersonal** siempre que se pueda y, si no queda otra, **usted**.
+  - ¿Estás de acuerdo con los nuevos nombres de roles, en especial "Administrador general" y "Vendedor"?
+  - En el flujo de emisión, ¿títulos cortos (Cliente, Productos…) en lugar de las preguntas tipo app bancaria?
+  - ¿El admin de la empresa ve los términos técnicos (CDC, KuDE) o la versión simple? Propuesta: la simple, con el término técnico entre paréntesis donde haga falta, por ejemplo "Código de control (CDC)".
+- **Tamaño:** mediano a grande. Toca casi todos los textos de las tres apps, pero no cambia cómo funcionan. Se prueba revisando pantalla por pantalla.
 
 
 ## Previstos para más adelante
