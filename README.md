@@ -127,6 +127,20 @@ Emitir un documento sigue el flujo de una transferencia bancaria, tomando como m
 - **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
 - **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión. Como una factura no admite ítems negativos, los descuentos se restan del precio del concepto (o de los ítems mayores, si son sobre el total) y los conceptos incluidos no aparecen.
 
+## Timbrados, establecimientos y cajas (reglas de la DNIT)
+
+- **Establecimientos** (Admin → empresa → Establecimientos y cajas): como figuran en el RUC, con código y dirección. Cada uno tiene sus **cajas** (puntos de expedición), con código y un nombre interno ("Caja 1", "Caja 2"…). Los códigos en uso no se cambian; se dan de baja.
+- **El timbrado habilita cajas y tipos**: en cada caja, los tipos de documento que se habilitaron en Marangatu. La numeración corre por **timbrado + establecimiento + caja + tipo** (`001-002-0000001`), y el CDC lleva el establecimiento y la caja con que se emitió.
+- **Estados del timbrado:**
+  - *Cargado:* se puede corregir o eliminar.
+  - *Activo:* se activa con PIN y **ya no se modifica**. Solo se puede **Ampliar** (agregar cajas o tipos habilitados después en Marangatu).
+  - *Dado de baja:* con motivo obligatorio y PIN; no se deshace. Activar un timbrado nuevo da de baja al anterior ("Cambio de timbrado").
+- **Quién los gestiona:** el admin maestro y el admin de la empresa. Los demás solo ven el timbrado activo.
+- **Cajas por usuario:** al crear o editar un facturador o vendedor se marcan sus cajas. Sin ninguna marcada usa todas; los admins usan todas. Si tiene varias, elige con cuál emite en Ajustes; la caja en uso se ve arriba.
+- **KuDE, PDF y XML:** la dirección del emisor es la del establecimiento que emitió.
+- **Inutilización:** se elige timbrado, caja y tipo.
+- **Datos anteriores:** el establecimiento y el punto que tenía cada empresa pasan a ser su primera caja ("Caja 1"), y la numeración sigue donde iba.
+
 ## Mi perfil
 
 - En las tres apps, arriba de todo en **Ajustes**, una tarjeta con el ícono, el nombre y el rol abre **Mi perfil**.

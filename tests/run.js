@@ -140,7 +140,11 @@ test("Límite de innominado se mide en guaraníes", () => {
 // ---------- Multiempresa: roles y permisos ----------
 test("Sin usuario (un solo dispositivo) se permite todo", () => assert.ok(T.can(null, "empresa.certificado")));
 test("Facturador no edita timbrados ni ve certificados", () => { const u = { role: "facturador" }; assert.ok(T.can(u, "facturar")); assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); });
-test("Operador edita timbrados pero no certificados ni usuarios del estudio", () => { const u = { role: "operador" }; assert.ok(T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); assert.ok(!T.can(u, "usuarios.estudio")); });
+test("Timbrados: solo el maestro y el admin del cliente; el operador no", () => {
+  assert.ok(T.can({ role: "maestro" }, "timbrados.editar")); assert.ok(T.can({ role: "admincliente" }, "timbrados.editar"));
+  const u = { role: "operador" }; assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); assert.ok(!T.can(u, "usuarios.estudio"));
+  assert.ok(!T.can({ role: "facturador" }, "timbrados.editar"));
+});
 test("Admin del cliente configura su empresa pero no el ambiente", () => { const u = { role: "admincliente" }; assert.ok(T.can(u, "cliente.config")); assert.ok(!T.can(u, "empresa.ambiente")); });
 test("Cargador no factura", () => assert.ok(!T.can({ role: "cargador" }, "facturar")));
 
@@ -395,6 +399,47 @@ test("IVA debajo del monto: solo las tasas con IVA y el total si hay dos", () =>
   assert.strictEqual(FE.ivaText({ total: 5000, iva10: 0, iva5: 0, iva: 0 }, "PYG"), "Exenta de IVA");
   assert.strictEqual(FE.ivaText({ total: 0, iva10: 0, iva5: 0, iva: 0 }, "PYG"), "");
   assert.match(FE.ivaText({ total: 12.5, iva10: 1.14, iva5: 0, iva: 1.14 }, "USD"), /1,14|1\.14/);
+});
+
+// ---------- Timbrado protegido, establecimientos y cajas (cambios 2 y 4) ----------
+test("Migración: el establecimiento y punto de la empresa pasan a la primera caja del timbrado", () => {
+  const emp = { id: "m1", establishment: "002", point: "003", address: "Calle 1", city: "Luque" };
+  const ests = T.establecimientosOf(emp);
+  assert.strictEqual(ests[0].code, "002"); assert.strictEqual(ests[0].puntos[0].code, "003"); assert.strictEqual(ests[0].puntos[0].nombre, "Caja 1");
+  const t = T.normTimbrado({ id: "t", number: "12345678", tipos: ["1", "5"], numeros: { "1": 40 }, active: true }, T.puntosOf(emp)[0].key);
+  assert.deepStrictEqual(Object.keys(t.habilita), ["002-003"]); assert.strictEqual(T.nextNum(t, "1", "002-003"), 40);
+  assert.strictEqual(t.estado, "activo");
+  assert.strictEqual(T.normTimbrado({ id: "u", used: true, active: false }).estado, "baja");
+  assert.strictEqual(T.normTimbrado({ id: "v", active: false }).estado, "cargado");
+});
+test("Numeración por timbrado + establecimiento + punto + tipo", () => {
+  const t = T.normTimbrado({ id: "n", estado: "activo", habilita: { "001-001": { tipos: ["1", "5"], numeros: { "1": 10, "5": 3 } }, "001-002": { tipos: ["1"], numeros: { "1": 1 } } } });
+  T.bumpNum(t, "1", "001-002"); T.bumpNum(t, "1", "001-002"); T.bumpNum(t, "1", "001-001");
+  assert.strictEqual(T.nextNum(t, "1", "001-002"), 3); assert.strictEqual(T.nextNum(t, "1", "001-001"), 11); assert.strictEqual(T.nextNum(t, "5", "001-001"), 3);
+  assert.ok(T.typeEnabled(t, "5", "001-001")); assert.ok(!T.typeEnabled(t, "5", "001-002")); assert.ok(T.typeEnabled(t, "5"));
+});
+test("Activar: el activo anterior queda dado de baja por cambio de timbrado; uno activo no se vuelve a activar", () => {
+  const l = [{ id: "a", number: "11111111", start: plusDays(-5), estado: "activo" }, { id: "b", number: "22222222", start: plusDays(-1), estado: "cargado" }];
+  assert.ok(T.activateTimbrado(l, "b", "Carlos"));
+  assert.strictEqual(l[0].estado, "baja"); assert.strictEqual(l[0].baja.motivo, "cambio"); assert.strictEqual(l[0].baja.user, "Carlos");
+  assert.strictEqual(T.activateTimbrado(l, "a"), null); // dado de baja: no se reactiva
+  assert.strictEqual(T.activateTimbrado(l, "b"), null); // ya activo
+  assert.strictEqual(T.timbradoStatus(l[0]), "baja");
+});
+test("Inutilización por caja: no mezcla números de otra caja", () => {
+  const t = T.normTimbrado({ id: "i", estado: "activo", habilita: { "001-001": { tipos: ["1"], numeros: { "1": 5 } }, "001-002": { tipos: ["1"], numeros: { "1": 5 } } } });
+  const docs = [{ number: "001-001-0000003", deType: "1", status: "ok", kude: { timbrado: { id: "i" } } }];
+  assert.match(T.inutilizar({ t, deTypeCode: "1", desde: 3, hasta: 3, docs, inutils: [], key: "001-001" }).error, /ya se usó/);
+  assert.ok(T.inutilizar({ t, deTypeCode: "1", desde: 3, hasta: 3, docs, inutils: [], key: "001-002" }).ok);
+  assert.ok(T.inutilizar({ t, deTypeCode: "1", desde: 5, hasta: 6, docs, inutils: [], key: "001-002" }).ok);
+  assert.strictEqual(T.nextNum(t, "1", "001-002"), 7); assert.strictEqual(T.nextNum(t, "1", "001-001"), 5);
+});
+test("Cajas por usuario: el facturador usa las asignadas; sin asignar, todas; los admins, todas", () => {
+  const emp = { id: "e9", establecimientos: [{ code: "001", puntos: [{ code: "001", nombre: "Caja 1" }, { code: "002", nombre: "Caja 2" }, { code: "003", nombre: "Caja 3", baja: true }] }] };
+  assert.deepStrictEqual(T.puntosDeUsuario({ role: "facturador", puntos: { e9: ["001-002"] } }, emp), ["001-002"]);
+  assert.deepStrictEqual(T.puntosDeUsuario({ role: "facturador" }, emp), ["001-001", "001-002"]);
+  assert.deepStrictEqual(T.puntosDeUsuario({ role: "admincliente", puntos: { e9: ["001-002"] } }, emp), ["001-001", "001-002"]);
+  assert.strictEqual(T.puntoLabel(emp, "001-002"), "Caja 2 (001-002)");
 });
 
 Promise.all(pending).then(() => {

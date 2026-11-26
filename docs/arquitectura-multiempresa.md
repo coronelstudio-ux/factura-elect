@@ -22,7 +22,7 @@ El núcleo compartido está en `shared/tenant.js` (empresas, usuarios, permisos,
 | Datos técnicos: RUC, establecimiento, IdCSC (`empresa.tecnico`) | ✓ | ✓ | | | |
 | Certificado (`empresa.certificado`) | ✓ | | | | |
 | Ambiente prueba/producción (`empresa.ambiente`) | ✓ | | | | |
-| Timbrados (`timbrados.editar`) | ✓ | ✓ | | | |
+| Timbrados, establecimientos y cajas (`timbrados.editar`) | ✓ | | ✓ | | |
 | Usuarios del estudio (`usuarios.estudio`) | ✓ | | | | |
 | Usuarios de una empresa (`usuarios.empresa`) | ✓ | ✓ | ✓ | | |
 | Logo, productos, preferencias (`cliente.config`) | ✓ | ✓ | ✓ | | |
@@ -96,11 +96,14 @@ estudio (id, nombre)
 empresa (id, estudio_id, ruc, dv, razon_social, fantasia, actividad, direccion, ciudad, telefono, correo,
          tipo_contribuyente, ambiente, id_csc_prueba, id_csc_prod, estado, alta_paso, alta_checks, habilitado,
          logo, creado, actualizado)
-establecimiento (id, empresa_id, codigo, punto, direccion)
+establecimiento (id, empresa_id, codigo, direccion, ciudad, baja)
+punto_expedicion (id, establecimiento_id, codigo, nombre, baja)          -- "Caja 1", "Caja 2"…
+timbrado_habilita (timbrado_id, punto_id, tipo_documento, proximo_numero) -- numeración por timbrado + punto + tipo
+usuario_punto (usuario_id, punto_id)
 certificado (id, empresa_id, titular, ruc, prestador, tipo, serie, desde, vence,
              p12_cifrado, clave_cifrada)          -- solo lo lee el servicio Firmador
 csc (id, empresa_id, ambiente, id_csc, valor_cifrado)
-timbrado (id, empresa_id, numero, inicio, fin, proximo_numero, activo, usado)
+timbrado (id, empresa_id, numero, inicio, fin, estado, activado, baja_motivo, baja_detalle, baja_fecha, baja_usuario)  -- estado: cargado | activo | baja
 usuario (id, estudio_id, nombre, rol, pin_hash, activo)
 usuario_empresa (usuario_id, empresa_id)
 producto (id, empresa_id, codigo, descripcion, precio, iva)
@@ -115,7 +118,7 @@ preferencias (empresa_id, condicion, moneda, tipo_cambio, fecha_tipo_cambio, pie
 
 Reglas para el servidor:
 - Toda consulta filtra por `empresa_id` y por las empresas del usuario (no solo en la pantalla).
-- `timbrado`: un solo `activo = true` por empresa (índice único parcial).
+- `timbrado`: un solo `estado = 'activo'` por empresa (índice único parcial). Un timbrado activo o dado de baja no se modifica; solo se agregan filas a `timbrado_habilita`.
 - `documento.numero` único por empresa, timbrado, establecimiento y punto. El número se asigna en una transacción.
 - El estado "facturado" de un pedido vuelve a la app Pedidos (hoy no puede, porque no hay servidor).
 

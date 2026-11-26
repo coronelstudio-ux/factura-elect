@@ -420,3 +420,14 @@ body.in-flow .screen { padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 .pf-act span { color: var(--muted); font-size: 20px; }
 .pf-exit { width: 100%; margin-top: 14px; color: var(--bad); border-color: var(--bad); }
 .nw { white-space: nowrap; }
+/* Timbrados: habilitaciones por caja y acciones */
+.tim-row .hab { margin-top: 6px; }
+.tim-row .hab b { font-size: 13px; }
+.tim-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.hab-card { border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; margin-top: 8px; background: var(--surface); }
+.hab-title { font-weight: 700; margin-bottom: 2px; }
+/* Establecimientos y cajas */
+.est-block { padding: 6px 0 10px; border-bottom: 1px solid var(--border); }
+.est-block:last-of-type { border-bottom: 0; }
+.est-block.off { opacity: .6; }
+.est-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }

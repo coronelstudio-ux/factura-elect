@@ -5,115 +5,8 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 
 ## Pendientes
 
-### 2. Timbrado protegido según las reglas de la DNIT
+(Ninguno por ahora.)
 
-- **Pedido:** hoy la fecha de fin del timbrado se puede modificar. Revisar las reglas de la DNIT: los datos del timbrado no deberían poder cambiarse una vez cargados y activados; solo darse de baja por término o por el motivo que corresponda.
-- **Lo que dicen las fuentes:**
-  - El timbrado electrónico **no tiene fecha de fin de vigencia** (preguntas frecuentes de e-Kuatia de la DNIT; RG 23/19, art. 12). La numeración llega hasta 9.999.999 por establecimiento, punto y tipo de documento, y después se reinicia.
-  - Es **un solo timbrado para todos los tipos de documento**. Los establecimientos, los puntos de expedición y los tipos se habilitan en Marangatu.
-  - En el XML (`gTimb`) solo va la **fecha de inicio** (`dFeIniT`), no la de fin.
-  - Una guía de terceros (Fazapp) dice que vence cada año, pero no cita una fuente oficial. Conviene confirmarlo en Marangatu → Datos del timbrado.
-- **Lo que permite hoy la app:**
-  - Quien puede editar timbrados (maestro u operador) cambia la fecha de fin en cualquier momento.
-  - Con el timbrado sin usar, también el número y la fecha de inicio.
-  - Puede cambiar el próximo número de cada tipo (solo hacia adelante si ya se usó) y quitar tipos que no tienen documentos.
-  - El KuDE muestra "Fin de vigencia" si se cargó una.
-- **e-Kuatia (sistema propio, como esta app) y e-Kuatia'i (facturador gratuito de la DNIT):**
-  - Los dos son facturación electrónica por SIFEN. En los dos casos el timbrado electrónico se pide en Marangatu después de habilitarse como facturador electrónico.
-  - e-Kuatia'i solo sirve para quien tiene **un establecimiento y un punto de expedición**. El sistema propio no tiene ese límite.
-  - Ninguna fuente encontrada distingue la vigencia del timbrado entre los dos: la regla "sin fecha de fin" se refiere al timbrado electrónico en general.
-  - **Falta confirmarlo** en Marangatu → Datos del timbrado, en un caso de cada tipo.
-- **Decisiones del usuario:**
-  - Gestionan timbrados (cargar, activar, agregar un tipo, dar de baja) **solo el admin maestro y el admin del cliente**. Los demás, incluido el operador del estudio, **solo ven qué timbrado está activo**.
-  - Si un timbrado activado tiene un error: **se da de baja y se carga uno nuevo**. Después de activarlo no se puede hacer ningún cambio.
-  - **La fecha de fin no se quita todavía**, hasta confirmar si es necesaria.
-- **Propuesta (ajustada):**
-  1. **Fecha de fin:** por ahora queda, pero solo se carga **antes de activar**. Una vez activo no se modifica. Se revisa cuando se confirme la regla.
-  2. **Estados:**
-     - **Cargado:** sin activar; se puede corregir todo.
-     - **Activo:** bloqueado.
-     - **Dado de baja:** definitivo; queda en el historial.
-     - Al activar se pide confirmar con PIN: "Después no se puede modificar".
-  3. **Activo = bloqueado:** no se pueden cambiar el número, las fechas, los tipos ni los números de cada tipo.
-     - Para saltar números se usa la **inutilización**.
-     - Solo se permite **agregar** un tipo de documento que se habilitó después en Marangatu. Queda en la auditoría y nunca se quita.
-  4. **Dar de baja:**
-     - Motivo obligatorio:
-       - cambio de timbrado otorgado por la DNIT;
-       - cese de actividades;
-       - cancelado por la DNIT;
-       - error de carga;
-       - vencimiento;
-       - otro, con detalle.
-     - Pide PIN y queda en la auditoría.
-     - No se puede deshacer, y desde ese momento no se emite con ese timbrado.
-  5. **Solo uno activo:** activar otro **da de baja** al anterior con el motivo "Cambio de timbrado". Ya no queda inactivo para volver a activarlo.
-  6. **Permisos:**
-     - El permiso de timbrados pasa a ser del maestro y del admin del cliente. El operador del estudio lo pierde.
-     - En el Facturador, los demás usuarios ven solo el timbrado activo, sin botones.
-  7. **KuDE y PDF:** sin cambios mientras no se confirme la regla de la fecha de fin.
-- **Estado:** definido, salvo la confirmación de la fecha de fin, que no bloquea aplicar lo demás.
-
-### 4. Establecimientos y puntos de expedición dentro del timbrado
-
-- **Pedido:** los puntos de expedición y el establecimiento son parte del timbrado y se definen según las reglas de la DNIT. En la app figuran como dato de la empresa: investigar y cambiar todo lo relacionado.
-- **Cómo funciona según la DNIT:**
-  - **Establecimientos:** son los locales **declarados en el RUC**, cada uno con código (001, 002…) y dirección. Se dan de alta en el RUC, no en el timbrado.
-  - **Puntos de expedición:**
-    - se crean en Marangatu **dentro de cada establecimiento**;
-    - el sistema les asigna el código (001, 002…);
-    - pueden crearse desde la misma solicitud de timbrado.
-  - **Timbrado electrónico:**
-    - al solicitarlo en Marangatu (Facturación y Timbrado → Solicitudes → Documentos Electrónicos → Generar) se elige el **establecimiento**, los **puntos de expedición** y, **para cada punto**, los **tipos de documento** habilitados (factura, nota de crédito, nota de débito…);
-    - al aprobarse llegan el timbrado y el CSC por el buzón Marandu.
-  - **Numeración:**
-    - el número del documento es `establecimiento-punto-número` (001-002-0000045);
-    - el número de 7 dígitos corre **por timbrado, establecimiento, punto y tipo de documento**, hasta 9.999.999.
-  - **CDC y XML:**
-    - el establecimiento (`dEst`) y el punto (`dPunExp`) van dentro del CDC y del grupo del timbrado (`gTimb`);
-    - deben coincidir exactamente con lo aprobado en Marangatu, o SIFEN rechaza el documento.
-- **Cómo está hoy la app:**
-  - **Configuración:** la empresa tiene **un solo** establecimiento y **un solo** punto (`establishment`, `point`), cargados en el alta (paso 2) y editables en la ficha de la empresa.
-  - **Numeración:** el timbrado guarda los tipos y el próximo número de cada tipo, pero **no** por establecimiento ni por punto.
-  - **Uso:** la empresa los aplica al número del documento, al CDC y a la inutilización.
-  - **Consecuencias:**
-    - no se puede tener más de un punto (por ejemplo, dos cajas o dos vendedores emitiendo);
-    - cambiar el establecimiento en la ficha cambiaría los números y los CDC siguientes sin control.
-- **Propuesta:**
-  1. **Establecimientos en la empresa, como en el RUC:**
-     - lista con código, nombre (opcional) y dirección;
-     - se cargan al dar de alta la empresa;
-     - una vez usados en un timbrado activo no se modifican, solo se dan de baja.
-  2. **Puntos de expedición y tipos dentro del timbrado.** Cada timbrado tiene sus **habilitaciones**: establecimiento → puntos → tipos habilitados en cada punto → próximo número de cada tipo. Por ejemplo:
-     - 001 / 001: factura, nota de crédito, nota de débito;
-     - 001 / 002: factura, nota de crédito.
-  3. **Mismas reglas que el cambio 2:**
-     - **Cargado:** se puede corregir todo.
-     - **Activo:** bloqueado. Solo se puede **agregar** un punto o un tipo que se habilitó después en Marangatu; queda en la auditoría y nunca se quita.
-     - **Dado de baja:** definitivo.
-  4. **Numeración por timbrado + establecimiento + punto + tipo.** La inutilización pide establecimiento, punto, tipo y rango.
-  5. **Punto de cada usuario:**
-     - el admin asigna a cada funcionario su punto de expedición (por ejemplo, Caja 1 = 001-001, Caja 2 = 001-002);
-     - si tiene más de uno, lo elige al emitir;
-     - el punto en uso se ve arriba, junto a la empresa.
-  6. **Dirección en el KuDE y el XML:** la del **establecimiento** donde se emite.
-  7. **Alta guiada (Admin):**
-     - el paso 2 pasa a "Establecimientos" (código y dirección);
-     - en el paso del timbrado se cargan los puntos y los tipos de cada uno.
-  8. **Ficha de la empresa:**
-     - se quita la edición de "Establecimiento y punto";
-     - en su lugar, la lista de establecimientos y, dentro del timbrado, sus puntos.
-  9. **Migración:** el establecimiento y el punto que hoy tiene cada empresa pasan a ser la primera habilitación de su timbrado. Los números siguen desde donde iban.
-- **Relación:** se aplica junto con el **cambio 2** (timbrado protegido), porque cambia la misma estructura.
-- **Decidido:** se usan las propuestas.
-  - El punto se asigna **por usuario**.
-  - Cada punto lleva un **nombre** ("Caja 1", "Caja 2"…) además del código.
-  - El KuDE muestra la dirección del establecimiento que emite.
-- **Estado:** definido, listo para aplicar.
-- **Dudas:**
-  - ¿El punto de expedición se asigna por usuario (propuesta) o por dispositivo (cada celular o caja es un punto)?
-  - Si una empresa tiene varios establecimientos, ¿el KuDE muestra solo la dirección del establecimiento que emite, o también la de la casa matriz? Propuesta: la del establecimiento que emite.
-  - ¿Los puntos llevan un nombre interno (por ejemplo, "Caja 1" o "Vendedor Ana") además del código, para reconocerlos fácil?
 
 ## Previstos para más adelante
 
@@ -280,4 +173,114 @@ Cambios grandes que dependen del servidor y de trabajar de forma oficial. No se 
   - Se usan las propuestas: por ahora la "contraseña" es el **PIN**, y la contraseña con letras llega con el servidor.
   - **Pedidos** sigue sin ingreso de usuario hasta la base de datos.
 - **Estado:** aplicado el 26/11/2026. Además, Pedidos abre en "Mis notas de pedido" (antes abría directo en el flujo, sin barra de abajo).
+
+### 2. Timbrado protegido según las reglas de la DNIT
+
+- **Pedido:** hoy la fecha de fin del timbrado se puede modificar. Revisar las reglas de la DNIT: los datos del timbrado no deberían poder cambiarse una vez cargados y activados; solo darse de baja por término o por el motivo que corresponda.
+- **Lo que dicen las fuentes:**
+  - El timbrado electrónico **no tiene fecha de fin de vigencia** (preguntas frecuentes de e-Kuatia de la DNIT; RG 23/19, art. 12). La numeración llega hasta 9.999.999 por establecimiento, punto y tipo de documento, y después se reinicia.
+  - Es **un solo timbrado para todos los tipos de documento**. Los establecimientos, los puntos de expedición y los tipos se habilitan en Marangatu.
+  - En el XML (`gTimb`) solo va la **fecha de inicio** (`dFeIniT`), no la de fin.
+  - Una guía de terceros (Fazapp) dice que vence cada año, pero no cita una fuente oficial. Conviene confirmarlo en Marangatu → Datos del timbrado.
+- **Lo que permite hoy la app:**
+  - Quien puede editar timbrados (maestro u operador) cambia la fecha de fin en cualquier momento.
+  - Con el timbrado sin usar, también el número y la fecha de inicio.
+  - Puede cambiar el próximo número de cada tipo (solo hacia adelante si ya se usó) y quitar tipos que no tienen documentos.
+  - El KuDE muestra "Fin de vigencia" si se cargó una.
+- **e-Kuatia (sistema propio, como esta app) y e-Kuatia'i (facturador gratuito de la DNIT):**
+  - Los dos son facturación electrónica por SIFEN. En los dos casos el timbrado electrónico se pide en Marangatu después de habilitarse como facturador electrónico.
+  - e-Kuatia'i solo sirve para quien tiene **un establecimiento y un punto de expedición**. El sistema propio no tiene ese límite.
+  - Ninguna fuente encontrada distingue la vigencia del timbrado entre los dos: la regla "sin fecha de fin" se refiere al timbrado electrónico en general.
+  - **Falta confirmarlo** en Marangatu → Datos del timbrado, en un caso de cada tipo.
+- **Decisiones del usuario:**
+  - Gestionan timbrados (cargar, activar, agregar un tipo, dar de baja) **solo el admin maestro y el admin del cliente**. Los demás, incluido el operador del estudio, **solo ven qué timbrado está activo**.
+  - Si un timbrado activado tiene un error: **se da de baja y se carga uno nuevo**. Después de activarlo no se puede hacer ningún cambio.
+  - **La fecha de fin no se quita todavía**, hasta confirmar si es necesaria.
+- **Propuesta (ajustada):**
+  1. **Fecha de fin:** por ahora queda, pero solo se carga **antes de activar**. Una vez activo no se modifica. Se revisa cuando se confirme la regla.
+  2. **Estados:**
+     - **Cargado:** sin activar; se puede corregir todo.
+     - **Activo:** bloqueado.
+     - **Dado de baja:** definitivo; queda en el historial.
+     - Al activar se pide confirmar con PIN: "Después no se puede modificar".
+  3. **Activo = bloqueado:** no se pueden cambiar el número, las fechas, los tipos ni los números de cada tipo.
+     - Para saltar números se usa la **inutilización**.
+     - Solo se permite **agregar** un tipo de documento que se habilitó después en Marangatu. Queda en la auditoría y nunca se quita.
+  4. **Dar de baja:**
+     - Motivo obligatorio:
+       - cambio de timbrado otorgado por la DNIT;
+       - cese de actividades;
+       - cancelado por la DNIT;
+       - error de carga;
+       - vencimiento;
+       - otro, con detalle.
+     - Pide PIN y queda en la auditoría.
+     - No se puede deshacer, y desde ese momento no se emite con ese timbrado.
+  5. **Solo uno activo:** activar otro **da de baja** al anterior con el motivo "Cambio de timbrado". Ya no queda inactivo para volver a activarlo.
+  6. **Permisos:**
+     - El permiso de timbrados pasa a ser del maestro y del admin del cliente. El operador del estudio lo pierde.
+     - En el Facturador, los demás usuarios ven solo el timbrado activo, sin botones.
+  7. **KuDE y PDF:** sin cambios mientras no se confirme la regla de la fecha de fin.
+- **Estado:** aplicado el 26/11/2026. La fecha de fin sigue (solo se carga antes de activar) hasta confirmarla en Marangatu.
+
+### 4. Establecimientos y puntos de expedición dentro del timbrado
+
+- **Pedido:** los puntos de expedición y el establecimiento son parte del timbrado y se definen según las reglas de la DNIT. En la app figuran como dato de la empresa: investigar y cambiar todo lo relacionado.
+- **Cómo funciona según la DNIT:**
+  - **Establecimientos:** son los locales **declarados en el RUC**, cada uno con código (001, 002…) y dirección. Se dan de alta en el RUC, no en el timbrado.
+  - **Puntos de expedición:**
+    - se crean en Marangatu **dentro de cada establecimiento**;
+    - el sistema les asigna el código (001, 002…);
+    - pueden crearse desde la misma solicitud de timbrado.
+  - **Timbrado electrónico:**
+    - al solicitarlo en Marangatu (Facturación y Timbrado → Solicitudes → Documentos Electrónicos → Generar) se elige el **establecimiento**, los **puntos de expedición** y, **para cada punto**, los **tipos de documento** habilitados (factura, nota de crédito, nota de débito…);
+    - al aprobarse llegan el timbrado y el CSC por el buzón Marandu.
+  - **Numeración:**
+    - el número del documento es `establecimiento-punto-número` (001-002-0000045);
+    - el número de 7 dígitos corre **por timbrado, establecimiento, punto y tipo de documento**, hasta 9.999.999.
+  - **CDC y XML:**
+    - el establecimiento (`dEst`) y el punto (`dPunExp`) van dentro del CDC y del grupo del timbrado (`gTimb`);
+    - deben coincidir exactamente con lo aprobado en Marangatu, o SIFEN rechaza el documento.
+- **Cómo está hoy la app:**
+  - **Configuración:** la empresa tiene **un solo** establecimiento y **un solo** punto (`establishment`, `point`), cargados en el alta (paso 2) y editables en la ficha de la empresa.
+  - **Numeración:** el timbrado guarda los tipos y el próximo número de cada tipo, pero **no** por establecimiento ni por punto.
+  - **Uso:** la empresa los aplica al número del documento, al CDC y a la inutilización.
+  - **Consecuencias:**
+    - no se puede tener más de un punto (por ejemplo, dos cajas o dos vendedores emitiendo);
+    - cambiar el establecimiento en la ficha cambiaría los números y los CDC siguientes sin control.
+- **Propuesta:**
+  1. **Establecimientos en la empresa, como en el RUC:**
+     - lista con código, nombre (opcional) y dirección;
+     - se cargan al dar de alta la empresa;
+     - una vez usados en un timbrado activo no se modifican, solo se dan de baja.
+  2. **Puntos de expedición y tipos dentro del timbrado.** Cada timbrado tiene sus **habilitaciones**: establecimiento → puntos → tipos habilitados en cada punto → próximo número de cada tipo. Por ejemplo:
+     - 001 / 001: factura, nota de crédito, nota de débito;
+     - 001 / 002: factura, nota de crédito.
+  3. **Mismas reglas que el cambio 2:**
+     - **Cargado:** se puede corregir todo.
+     - **Activo:** bloqueado. Solo se puede **agregar** un punto o un tipo que se habilitó después en Marangatu; queda en la auditoría y nunca se quita.
+     - **Dado de baja:** definitivo.
+  4. **Numeración por timbrado + establecimiento + punto + tipo.** La inutilización pide establecimiento, punto, tipo y rango.
+  5. **Punto de cada usuario:**
+     - el admin asigna a cada funcionario su punto de expedición (por ejemplo, Caja 1 = 001-001, Caja 2 = 001-002);
+     - si tiene más de uno, lo elige al emitir;
+     - el punto en uso se ve arriba, junto a la empresa.
+  6. **Dirección en el KuDE y el XML:** la del **establecimiento** donde se emite.
+  7. **Alta guiada (Admin):**
+     - el paso 2 pasa a "Establecimientos" (código y dirección);
+     - en el paso del timbrado se cargan los puntos y los tipos de cada uno.
+  8. **Ficha de la empresa:**
+     - se quita la edición de "Establecimiento y punto";
+     - en su lugar, la lista de establecimientos y, dentro del timbrado, sus puntos.
+  9. **Migración:** el establecimiento y el punto que hoy tiene cada empresa pasan a ser la primera habilitación de su timbrado. Los números siguen desde donde iban.
+- **Relación:** se aplica junto con el **cambio 2** (timbrado protegido), porque cambia la misma estructura.
+- **Decidido:** se usan las propuestas.
+  - El punto se asigna **por usuario**.
+  - Cada punto lleva un **nombre** ("Caja 1", "Caja 2"…) además del código.
+  - El KuDE muestra la dirección del establecimiento que emite.
+- **Estado:** aplicado el 26/11/2026.
+- **Dudas:**
+  - ¿El punto de expedición se asigna por usuario (propuesta) o por dispositivo (cada celular o caja es un punto)?
+  - Si una empresa tiene varios establecimientos, ¿el KuDE muestra solo la dirección del establecimiento que emite, o también la de la casa matriz? Propuesta: la del establecimiento que emite.
+  - ¿Los puntos llevan un nombre interno (por ejemplo, "Caja 1" o "Vendedor Ana") además del código, para reconocerlos fácil?
 

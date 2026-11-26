@@ -26,7 +26,7 @@
     "empresa.tecnico": ["maestro", "operador"],
     "empresa.certificado": ["maestro"],
     "empresa.ambiente": ["maestro"],
-    "timbrados.editar": ["maestro", "operador"],
+    "timbrados.editar": ["maestro", "admincliente"],
     "usuarios.estudio": ["maestro"],
     "usuarios.empresa": ["maestro", "operador", "admincliente"],
     "cliente.config": ["maestro", "operador", "admincliente"],
@@ -51,7 +51,7 @@
     establishment: "001", point: "001", env: "test", certExpires: "15/03/2027", csc: "0001", logo: null,
     nextNumber: 13, taxpayerType: "2"
   };
-  const listEmpresas = () => G.get("empresas", []);
+  const listEmpresas = () => G.get("empresas", []).map(e => { establecimientosOf(e); return e; }); // migra establecimiento y punto a la lista de establecimientos
   const getEmpresa = id => listEmpresas().find(e => e.id === id) || null;
   function saveEmpresa(e) {
     const l = listEmpresas(), i = l.findIndex(x => x.id === e.id);
@@ -298,151 +298,281 @@
   const CONSTANCIAS = [["1", "Constancia de no ser contribuyente"], ["2", "Constancia de microproductor"]];
   const labelOf = (list, code) => (list.find(x => x[0] === String(code)) || [code, ""])[1];
 
+  // ================= Establecimientos y puntos de expedición =================
+  // Como en el RUC y en Marangatu: los establecimientos son de la empresa (código y dirección) y cada uno tiene sus
+  // puntos de expedición ("cajas"). El timbrado habilita puntos y, en cada punto, tipos de documento.
+  // empresa.establecimientos = [{ code: "001", address, city, baja, puntos: [{ code: "001", nombre: "Caja 1", baja }] }]
+  const pad3 = v => String(v == null ? "" : v).replace(/\D/g, "").padStart(3, "0").slice(-3);
+  const keyOf = (est, pt) => pad3(est) + "-" + pad3(pt);
+  function establecimientosOf(emp) {
+    if (!emp) return [];
+    if (!Array.isArray(emp.establecimientos) || !emp.establecimientos.length)
+      emp.establecimientos = [{ code: pad3(emp.establishment || "001"), address: emp.address || "", city: emp.city || "", puntos: [{ code: pad3(emp.point || "001"), nombre: "Caja 1" }] }];
+    emp.establecimientos.forEach(e => {
+      e.code = pad3(e.code); if (!Array.isArray(e.puntos)) e.puntos = [];
+      e.puntos.forEach((p, i) => { p.code = pad3(p.code); if (!p.nombre) p.nombre = "Caja " + (i + 1); });
+    });
+    return emp.establecimientos;
+  }
+  // Lista plana de puntos: { key: "001-002", est, code, nombre, address, city, baja }
+  function puntosOf(emp, conBaja) {
+    const out = [];
+    establecimientosOf(emp).forEach(e => e.puntos.forEach(p => {
+      const baja = !!(e.baja || p.baja);
+      if (conBaja || !baja) out.push({ key: keyOf(e.code, p.code), est: e.code, code: p.code, nombre: p.nombre, address: e.address, city: e.city, baja });
+    }));
+    return out;
+  }
+  const puntoInfo = (emp, key) => puntosOf(emp, true).find(p => p.key === key) || null;
+  const puntoLabel = (emp, key) => { const p = puntoInfo(emp, key); return p ? p.nombre + " (" + key + ")" : key; };
+  // Puntos que puede usar un usuario: los admins y el modo dispositivo, todos; los demás, los asignados (si no tiene ninguno asignado, todos)
+  function puntosDeUsuario(u, emp) {
+    const all = puntosOf(emp).map(p => p.key);
+    if (!u || ["maestro", "operador", "admincliente"].includes(u.role)) return all;
+    const asig = (u.puntos && u.puntos[emp.id]) || [];
+    return asig.length ? all.filter(k => asig.includes(k)) : all;
+  }
+
   // ================= Timbrados =================
-  // Cada timbrado habilita algunos tipos de documento y lleva una numeración por tipo:
-  // { id, number, start, end, tipos: ["1","5",...], numeros: { "1": 13, "5": 1 }, nextNumber (= numeros["1"]), active, used }
-  function normTimbrado(t) {
+  // { id, number, start, end, estado: "cargado" | "activo" | "baja", active (= estado activo), activatedAt,
+  //   baja: { motivo, detalle, at, user }, habilita: { "001-001": { tipos: ["1","5"], numeros: { "1": 13, "5": 1 } } } }
+  // Reglas (DNIT): cargado = se puede corregir; activo = no se modifica (solo se agregan puntos o tipos habilitados después en Marangatu);
+  // baja = definitivo. La numeración corre por timbrado + establecimiento + punto + tipo.
+  // tipos (todos los habilitados), numeros y nextNumber (del primer punto) se derivan para compatibilidad.
+  const MOTIVOS_BAJA_TIM = [["cambio", "Cambio de timbrado otorgado por la DNIT"], ["cese", "Cese de actividades"], ["dnit", "Cancelado por la DNIT"],
+    ["error", "Error de carga"], ["vencimiento", "Vencimiento"], ["otro", "Otro"]];
+  function normTimbrado(t, defKey) {
     if (!t) return t;
-    if (!Array.isArray(t.tipos) || !t.tipos.length) t.tipos = ["1"];
-    if (!t.numeros) t.numeros = { "1": t.nextNumber || 1 };
-    t.tipos.forEach(c => { if (!(t.numeros[c] >= 1)) t.numeros[c] = 1; });
-    t.nextNumber = t.numeros["1"] || 1;
+    if (!t.habilita || !Object.keys(t.habilita).length) {
+      const tipos = Array.isArray(t.tipos) && t.tipos.length ? t.tipos.slice() : ["1"];
+      t.habilita = { [defKey || "001-001"]: { tipos, numeros: Object.assign({}, t.numeros || { "1": t.nextNumber || 1 }) } };
+    }
+    Object.values(t.habilita).forEach(h => {
+      if (!Array.isArray(h.tipos) || !h.tipos.length) h.tipos = ["1"];
+      h.numeros = h.numeros || {}; h.tipos.forEach(c => { if (!(h.numeros[c] >= 1)) h.numeros[c] = 1; });
+    });
+    if (!t.estado) {
+      t.estado = t.active ? "activo" : t.used ? "baja" : "cargado";
+      if (t.estado === "baja" && !t.baja) t.baja = { motivo: "cambio", detalle: "Registrado al actualizar la app", at: new Date().toISOString(), user: "" };
+    }
+    t.active = t.estado === "activo";
+    const keys = Object.keys(t.habilita), first = t.habilita[keys[0]];
+    t.tipos = Array.from(new Set(keys.flatMap(k => t.habilita[k].tipos)));
+    t.numeros = first.numeros; t.nextNumber = first.numeros["1"] || 1;
     return t;
   }
-  const typeEnabled = (t, code) => !!t && normTimbrado(t).tipos.includes(String(code));
-  const nextNum = (t, code) => normTimbrado(t).numeros[String(code)] || 1;
-  function bumpNum(t, code) { normTimbrado(t); t.numeros[code] = nextNum(t, code) + 1; t.nextNumber = t.numeros["1"] || 1; t.used = true; }
+  const habKeys = t => Object.keys(normTimbrado(t).habilita);
+  const habOf = (t, key) => { normTimbrado(t); return t.habilita[key || habKeys(t)[0]] || null; };
+  const typeEnabled = (t, code, key) => { if (!t) return false; if (!key) return normTimbrado(t).tipos.includes(String(code)); const h = habOf(t, key); return !!h && h.tipos.includes(String(code)); };
+  const nextNum = (t, code, key) => { const h = habOf(t, key); return (h && h.numeros[String(code)]) || 1; };
+  function bumpNum(t, code, key) { const h = habOf(t, key); h.numeros[code] = (h.numeros[code] || 1) + 1; t.used = true; normTimbrado(t); }
   function timbradoStatus(t) {
     const today = FE.todayKey();
     if (!t) return "none";
+    if (t.estado === "baja") return "baja";
     if (t.start && today < t.start) return "futuro";
     if (t.end && today > t.end) return "vencido";
     return "vigente";
   }
   const vigenciaText = t => t.end ? isoToDmy(t.start) + " al " + isoToDmy(t.end) : "Desde " + isoToDmy(t.start) + " · sin fecha de fin";
+  const motivoBajaText = b => b ? labelOf(MOTIVOS_BAJA_TIM, b.motivo) + (b.detalle ? " · " + b.detalle : "") : "";
+  const habText = (t, emp, key) => { const h = t.habilita[key]; return h.tipos.map(c => deType(c).short + " · " + String(h.numeros[c] || 1).padStart(7, "0")); };
+  // opts: { editable, emp }. Los que no administran timbrados ven solo el activo.
   function timbradoListHTML(list, opts) {
     opts = opts || {};
-    const rows = list.slice().sort((a, b) => (b.active - a.active) || String(b.start).localeCompare(String(a.start))).map(t => {
-      normTimbrado(t);
+    const sorted = list.map(t => normTimbrado(t)).sort((a, b) => ({ activo: 0, cargado: 1, baja: 2 }[a.estado] - { activo: 0, cargado: 1, baja: 2 }[b.estado]) || String(b.start).localeCompare(String(a.start)));
+    const shown = opts.editable ? sorted : sorted.filter(t => t.estado === "activo");
+    const rows = shown.map(t => {
       const st = timbradoStatus(t);
-      const chip = t.active ? (st === "vigente" ? '<span class="chip ok">Activo</span>' : '<span class="chip bad">Activo · ' + st + '</span>')
-        : st === "vencido" ? '<span class="chip neutral">Vencido</span>' : st === "futuro" ? '<span class="chip warn">Todavía no vigente</span>' : '<span class="chip neutral">Inactivo</span>';
-      return `<div class="row" style="cursor:default;align-items:flex-start"><div class="main">
+      const chip = t.estado === "activo" ? (st === "vigente" ? '<span class="chip ok">Activo</span>' : '<span class="chip bad">Activo · ' + st + '</span>')
+        : t.estado === "cargado" ? '<span class="chip warn">Cargado · sin activar</span>' : '<span class="chip neutral">Dado de baja</span>';
+      const habs = Object.keys(t.habilita).map(k => `<div class="hab"><b>${esc(opts.emp ? puntoLabel(opts.emp, k) : k)}</b>
+        <div class="tipos">${habText(t, opts.emp, k).map(x => `<span class="tipo-chip">${esc(x)}</span>`).join("")}</div></div>`).join("");
+      const acts = !opts.editable ? "" : t.estado === "cargado"
+        ? `<button class="link" data-timact="${esc(t.id)}" ${st === "vencido" ? "disabled" : ""}>Activar</button><button class="link" data-timedit="${esc(t.id)}">Corregir</button><button class="link danger" data-timdel="${esc(t.id)}">Eliminar</button>`
+        : t.estado === "activo" ? `<button class="link" data-timamp="${esc(t.id)}">Ampliar</button><button class="link danger" data-timbaja="${esc(t.id)}">Dar de baja</button>` : "";
+      return `<div class="row tim-row" style="cursor:default;align-items:flex-start"><div class="main">
         <div class="title">Nº ${esc(t.number)}</div>
         <div class="sub">${esc(vigenciaText(t))}</div>
-        <div class="tipos">${t.tipos.map(c => `<span class="tipo-chip" title="${esc(deType(c).label)}">${esc(deType(c).short)} · ${String(nextNum(t, c)).padStart(7, "0")}</span>`).join("")}</div>
-        <div style="margin-top:6px">${chip}</div></div>
-        ${opts.editable ? `<span style="display:flex;flex-direction:column;align-items:flex-end">
-          ${t.active ? "" : `<button class="link" data-timact="${esc(t.id)}" ${st === "vencido" ? "disabled" : ""}>Activar</button>`}
-          <button class="link" data-timedit="${esc(t.id)}">Editar</button></span>` : ""}</div>`;
+        ${habs}
+        <div style="margin-top:6px">${chip}</div>
+        ${t.estado === "baja" && t.baja ? `<div class="small muted" style="margin-top:4px">Baja: ${esc(motivoBajaText(t.baja))}${t.baja.at ? " · " + esc(isoToDmy(t.baja.at.slice(0, 10))) : ""}${t.baja.user ? " · " + esc(t.baja.user) : ""}</div>` : ""}</div>
+        ${acts ? `<span class="tim-acts">${acts}</span>` : ""}</div>`;
     }).join("");
-    return (rows || `<div class="muted small">Todavía no hay timbrados cargados.</div>`) +
+    return (rows || `<div class="muted small">${opts.editable ? "Todavía no hay timbrados cargados." : "No hay timbrado activo."}</div>`) +
       (opts.editable ? `<button class="add" data-timadd>+ Cargar timbrado</button>` : "") +
-      `<div class="muted small" style="margin-top:8px">${opts.editable ? "Cada timbrado habilita los tipos de documento elegidos en Marangatu, con numeración propia por tipo. Solo se emite con el activo, y solo mientras esté vigente."
-        : "Los timbrados los administra el estudio. El número al lado de cada tipo es el próximo a usar."}</div>`;
+      `<div class="muted small" style="margin-top:8px">${opts.editable ? "Cargá el timbrado tal como lo aprobó la DNIT en Marangatu, con sus cajas y tipos. Una vez activo no se modifica: si hay un error, se da de baja y se carga otro."
+        : "Los timbrados los administran el admin maestro y el admin de la empresa. El número al lado de cada tipo es el próximo a usar."}</div>`;
   }
   const checkbox = (id, checked, text) => `<label style="display:flex;gap:10px;align-items:center;font-weight:600;color:var(--text);margin-top:12px">
     <input type="checkbox" id="${id}" ${checked ? "checked" : ""} style="width:22px;min-height:22px;height:22px;flex:none;appearance:auto"> ${text}</label>`;
-  // Casillas de tipos habilitados (para timbrado y alta guiada). sel: tipos marcados; nums: próximos números (si se editan)
-  function tiposFieldsHTML(sel, nums, usedTipos) {
+  // Casillas de tipos habilitados (alta guiada, una sola caja). sel: tipos marcados
+  function tiposFieldsHTML(sel) {
     return `<label>Tipos de documento habilitados en este timbrado</label>
-      <div class="card" style="padding:4px 14px">${HABILITABLES.map(c => {
-        const ty = deType(c), on = sel.includes(c), locked = (usedTipos || []).includes(c);
-        return `<div class="tipo-row"><label style="display:flex;gap:10px;align-items:center;margin:0;color:var(--text);font-weight:600;flex:1">
-          <input type="checkbox" data-tipo="${c}" ${on ? "checked" : ""} ${locked ? "disabled" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(ty.short)}</label>
-          ${nums ? `<input data-tiponum="${c}" data-kb="digits" value="${esc(nums[c] || 1)}" ${on ? "" : "disabled"} aria-label="Próximo número de ${esc(ty.short)}" style="width:110px;min-height:40px;padding:6px 10px">` : ""}</div>`;
-      }).join("")}</div>
-      <div class="muted small" style="margin-top:6px">Marcá los mismos tipos que elegiste al habilitarte en Marangatu. SIFEN rechaza un documento cuyo tipo no esté en el timbrado.${nums ? " El número es el próximo a usar en cada tipo." : ""}</div>`;
+      <div class="card" style="padding:4px 14px">${HABILITABLES.map(c => `<div class="tipo-row"><label style="display:flex;gap:10px;align-items:center;margin:0;color:var(--text);font-weight:600;flex:1">
+          <input type="checkbox" data-tipo="${c}" ${sel.includes(c) ? "checked" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(deType(c).short)}</label></div>`).join("")}</div>
+      <div class="muted small" style="margin-top:6px">Marcá los mismos tipos que habilitaste en Marangatu. SIFEN rechaza un documento cuyo tipo no esté en el timbrado.</div>`;
   }
-  function readTipos(el) {
-    const tipos = Array.from(el.querySelectorAll("[data-tipo]")).filter(c => c.checked).map(c => c.dataset.tipo);
-    const nums = {};
-    el.querySelectorAll("[data-tiponum]").forEach(i => { nums[i.dataset.tiponum] = parseInt(i.value.replace(/\D/g, ""), 10) || 1; });
-    return { tipos, nums };
+  function readTipos(el) { return { tipos: Array.from(el.querySelectorAll("[data-tipo]")).filter(c => c.checked).map(c => c.dataset.tipo), nums: {} }; }
+  function bindTipos() {}
+  // Campos de habilitación por caja: para cada punto de la empresa, qué tipos habilita y desde qué número.
+  // hab: habilitaciones actuales; fixed: true = las que ya existen quedan fijas (ampliar un timbrado activo)
+  function habFieldsHTML(emp, hab, fixed) {
+    hab = hab || {};
+    return puntosOf(emp).map(p => {
+      const h = hab[p.key];
+      return `<div class="hab-card"><div class="hab-title">${esc(p.nombre)} <span class="muted small">${esc(p.key)}${p.address ? " · " + esc(p.address) : ""}</span></div>
+        ${HABILITABLES.map(c => {
+          const on = !!h && h.tipos.includes(c), lock = fixed && on, id = p.key + "|" + c;
+          return `<div class="tipo-row"><label style="display:flex;gap:10px;align-items:center;margin:0;color:var(--text);font-weight:600;flex:1">
+            <input type="checkbox" data-ht="${esc(id)}" ${on ? "checked" : ""} ${lock ? "disabled" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(deType(c).short)}</label>
+            ${lock ? `<span class="small muted">próximo ${String(h.numeros[c] || 1).padStart(7, "0")}</span>`
+              : `<input data-hn="${esc(id)}" data-kb="digits" value="${esc((h && h.numeros[c]) || 1)}" ${on ? "" : "disabled"} aria-label="Primer número de ${esc(deType(c).short)} en ${esc(p.nombre)}" style="width:110px;min-height:40px;padding:6px 10px">`}</div>`;
+        }).join("")}</div>`;
+    }).join("") || `<div class="notice warn">La empresa no tiene cajas cargadas. Agregalas en Establecimientos y cajas.</div>`;
   }
-  function bindTipos(el) {
-    el.querySelectorAll("[data-tipo]").forEach(c => c.addEventListener("change", () => { const n = el.querySelector(`[data-tiponum="${c.dataset.tipo}"]`); if (n) n.disabled = !c.checked; }));
+  // Lee las casillas: { "001-001": { tipos, numeros } } (solo lo marcado y no fijo)
+  function readHab(el) {
+    const out = {};
+    el.querySelectorAll("[data-ht]").forEach(cb => {
+      if (!cb.checked || cb.disabled) return;
+      const [key, c] = cb.dataset.ht.split("|"), n = el.querySelector(`[data-hn="${cb.dataset.ht}"]`);
+      const num = n ? parseInt(String(n.value).replace(/\D/g, ""), 10) || 1 : 1;
+      out[key] = out[key] || { tipos: [], numeros: {} }; out[key].tipos.push(c); out[key].numeros[c] = num;
+    });
+    return out;
   }
-  // Hoja para cargar o editar un timbrado. o: { list, t, used, usedTipos, onSave(list, message) }
+  function bindHab(el) { el.querySelectorAll("[data-ht]").forEach(cb => cb.addEventListener("change", () => { const n = el.querySelector(`[data-hn="${cb.dataset.ht}"]`); if (n) n.disabled = !cb.checked; })); }
+  // Cargar o corregir un timbrado (solo si está "cargado"). o: { list, t, emp, onSave(list, message) }
   function timbradoSheet(o) {
-    const list = o.list, t = o.t ? normTimbrado(o.t) : null, editing = !!t, used = editing && !!o.used;
-    const v = t || { number: "", start: FE.todayKey(), end: "", nextNumber: 1, tipos: ["1", "5", "6"], numeros: {} };
-    sheet(`<h3>${editing ? "Editar timbrado" : "Cargar timbrado"}</h3>
-      ${used ? `<p class="muted small">Ya se emitieron documentos con este timbrado: el número y la fecha de inicio no se pueden cambiar.</p>` : ""}
+    const list = o.list, t = o.t ? normTimbrado(o.t) : null, editing = !!t;
+    if (editing && t.estado !== "cargado") { toast("Un timbrado activo o dado de baja no se modifica"); return; }
+    const v = t || { number: "", start: FE.todayKey(), end: "", habilita: (() => { const k = (puntosOf(o.emp)[0] || {}).key; return k ? { [k]: { tipos: ["1", "5", "6"], numeros: { "1": 1, "5": 1, "6": 1 } } } : {}; })() };
+    sheet(`<h3>${editing ? "Corregir timbrado" : "Cargar timbrado"}</h3>
+      <p class="muted small">Cargalo tal como lo aprobó la DNIT. Mientras no lo actives se puede corregir; una vez activo ya no se modifica.</p>
       <label for="tNum">Número de timbrado (8 dígitos)</label>
-      <input id="tNum" inputmode="numeric" maxlength="8" placeholder="12345678" value="${esc(v.number)}" ${used ? "disabled" : ""}>
+      <input id="tNum" inputmode="numeric" maxlength="8" placeholder="12345678" value="${esc(v.number)}">
       <div class="grid2">
-        <div><label for="tStart">Fecha de inicio</label><input id="tStart" type="date" value="${esc(v.start)}" ${used ? "disabled" : ""}></div>
-        <div><label for="tEnd">Fecha de fin</label><input id="tEnd" type="date" value="${esc(v.end)}" ${v.end ? "" : "disabled"}></div>
+        <div><label for="tStart">Inicio de vigencia</label><input id="tStart" type="date" value="${esc(v.start)}"></div>
+        <div><label for="tEnd">Fin de vigencia</label><input id="tEnd" type="date" value="${esc(v.end)}" ${v.end ? "" : "disabled"}></div>
       </div>
-      ${checkbox("tNoEnd", !v.end, "Sin fecha de fin")}
-      ${tiposFieldsHTML(v.tipos, editing ? v.numeros : null, o.usedTipos)}
-      ${editing ? "" : `<label for="tNext">Número del primer documento de cada tipo</label><input id="tNext" inputmode="numeric" value="1">`}
-      ${editing ? "" : checkbox("tAct", true, "Activarlo ahora (el actual queda inactivo)")}
+      ${checkbox("tNoEnd", !v.end, "Sin fecha de fin (timbrado electrónico)")}
+      <label>Cajas y tipos habilitados</label>
+      ${habFieldsHTML(o.emp, v.habilita, false)}
+      <div class="muted small" style="margin-top:6px">Marcá, en cada caja, los tipos que habilitaste en Marangatu. El número es el primero a usar.</div>
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
       const noEnd = el.querySelector("#tNoEnd"), endEl = el.querySelector("#tEnd");
       noEnd.onchange = () => { endEl.disabled = noEnd.checked; if (noEnd.checked) endEl.value = ""; };
-      bindTipos(el);
+      bindHab(el);
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
         const number = el.querySelector("#tNum").value.replace(/\D/g, ""), start = el.querySelector("#tStart").value;
-        const end = noEnd.checked ? "" : endEl.value, sel = readTipos(el);
+        const end = noEnd.checked ? "" : endEl.value, habilita = readHab(el);
         if (!/^\d{8}$/.test(number)) { toast("El timbrado tiene que tener 8 dígitos"); return; }
         if (!start) { toast("Elegí la fecha de inicio"); return; }
         if (!noEnd.checked && !end) { toast("Elegí la fecha de fin o marcá «Sin fecha de fin»"); return; }
         if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return; }
-        if (!sel.tipos.length) { toast("Marcá al menos un tipo de documento"); return; }
+        if (!Object.keys(habilita).length) { toast("Marcá al menos un tipo de documento en una caja"); return; }
+        if (Object.values(habilita).some(h => Object.values(h.numeros).some(n => n > 9999999))) { toast("El número tiene que ser menor a 10.000.000"); return; }
         if (list.some(x => x.number === number && x !== t)) { toast("Ese timbrado ya está cargado"); return; }
-        let msg;
-        if (editing) {
-          const numeros = {};
-          for (const c of sel.tipos) {
-            const n = sel.nums[c] || 1, min = (t.numeros && t.numeros[c]) || 1;
-            if (n > 9999999) { toast("El número tiene que ser menor a 10.000.000"); return; }
-            if (used && n < min && (o.usedTipos || []).includes(c)) { toast(deType(c).short + ": el próximo número no puede ser menor a " + min + ", ya se usaron los anteriores"); return; }
-            numeros[c] = n;
-          }
-          Object.assign(t, used ? { end } : { number, start, end }, { tipos: sel.tipos, numeros });
-          normTimbrado(t);
-          msg = t.active && timbradoStatus(t) === "vencido" ? "Atención: con esa fecha de fin el timbrado activo queda vencido" : "Timbrado " + t.number + " guardado";
-        } else {
-          const next = parseInt(el.querySelector("#tNext").value.replace(/\D/g, ""), 10);
-          if (!(next >= 1 && next <= 9999999)) { toast("El número tiene que estar entre 1 y 9.999.999"); return; }
-          const numeros = {}; sel.tipos.forEach(c => numeros[c] = next);
-          const nt = normTimbrado({ id: randomId(6), number, start, end, tipos: sel.tipos, numeros, active: false, createdAt: new Date().toISOString() });
-          const activate = el.querySelector("#tAct").checked;
-          if (activate && timbradoStatus(nt) === "vencido") { toast("Ese timbrado ya está vencido: no se puede activar"); return; }
-          if (activate) list.forEach(x => x.active = false);
-          nt.active = activate; list.push(nt);
-          msg = activate ? "Timbrado " + number + " cargado y activo" : "Timbrado " + number + " guardado";
-        }
-        close(); o.onSave(list, msg);
+        if (editing) { Object.assign(t, { number, start, end, habilita }); normTimbrado(t); }
+        else list.push(normTimbrado({ id: randomId(6), number, start, end, habilita, estado: "cargado", createdAt: new Date().toISOString() }));
+        close(); o.onSave(list, "Timbrado " + number + (editing ? " corregido" : " cargado. Revisalo y activalo para empezar a emitir"));
       };
     });
   }
-  // Tipos ya usados en documentos emitidos con un timbrado (no se pueden quitar)
+  // Campo de PIN para confirmar acciones que no se deshacen. o.checkPin(pin) → Promise<boolean>
+  const pinFieldHTML = `<label for="cfPin">Confirmá con tu PIN</label><input id="cfPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">`;
+  async function pinOk(el, o) { const pin = el.querySelector("#cfPin").value.trim(); if (!(await o.checkPin(pin))) { toast("PIN incorrecto"); el.querySelector("#cfPin").value = ""; return false; } return true; }
+  // Activar: confirma con PIN. El activo anterior se da de baja por cambio de timbrado. o: { list, id, by, checkPin, onSave(list, msg) }
+  function activarSheet(o) {
+    const t = o.list.find(x => x.id === o.id), prev = o.list.find(x => normTimbrado(x).estado === "activo");
+    if (!t) return;
+    sheet(`<h3>Activar el timbrado ${esc(t.number)}</h3>
+      <p class="muted small">Revisá que el número, la fecha y las cajas coincidan con Marangatu. <b>Una vez activo no se puede modificar.</b>
+      ${prev ? "El timbrado activo actual (Nº " + esc(prev.number) + ") se da de baja por cambio de timbrado." : ""}</p>
+      ${pinFieldHTML}
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Activar</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = async () => {
+        if (!(await pinOk(el, o))) return;
+        const r = activateTimbrado(o.list, o.id, o.by);
+        if (!r) { toast("Ese timbrado no se puede activar (vencido o ya usado)"); return; }
+        close(); o.onSave(o.list, "Timbrado " + r.number + " activo" + (prev ? " · el " + prev.number + " quedó dado de baja" : ""));
+      };
+      setTimeout(() => el.querySelector("#cfPin").focus(), 60);
+    });
+  }
+  // Dar de baja: motivo obligatorio, PIN, no se deshace. o: { list, id, by, checkPin, onSave(list, msg) }
+  function bajaSheet(o) {
+    const t = o.list.find(x => x.id === o.id); if (!t) return;
+    sheet(`<h3>Dar de baja el timbrado ${esc(t.number)}</h3>
+      <p class="muted small">No se puede deshacer. Desde ese momento no se emite con este timbrado; para seguir facturando cargá y activá otro.</p>
+      <label for="bMot">Motivo</label><select id="bMot">${MOTIVOS_BAJA_TIM.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
+      <label for="bDet">Detalle <span class="muted">(obligatorio si elegís «Otro»)</span></label><input id="bDet" data-kb="sentence" placeholder="Ej. Nuevo timbrado 12345678">
+      ${pinFieldHTML}
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok style="background:var(--bad);border-color:var(--bad)">Dar de baja</button></div>`, (el, close) => {
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = async () => {
+        const motivo = el.querySelector("#bMot").value, detalle = el.querySelector("#bDet").value.trim();
+        if (motivo === "otro" && !detalle) { toast("Escribí el detalle del motivo"); return; }
+        if (!(await pinOk(el, o))) return;
+        normTimbrado(t); t.estado = "baja"; t.active = false; t.baja = { motivo, detalle, at: new Date().toISOString(), user: o.by || "" };
+        close(); o.onSave(o.list, "Timbrado " + t.number + " dado de baja");
+      };
+    });
+  }
+  // Ampliar un timbrado activo: solo agregar cajas o tipos habilitados después en Marangatu. o: { list, id, emp, onSave(list, msg) }
+  function ampliarSheet(o) {
+    const t = normTimbrado(o.list.find(x => x.id === o.id)); if (!t) return;
+    sheet(`<h3>Ampliar el timbrado ${esc(t.number)}</h3>
+      <p class="muted small">Solo para agregar cajas o tipos de documento que habilitaste después en Marangatu. Lo que ya está no se cambia ni se quita.</p>
+      ${habFieldsHTML(o.emp, t.habilita, true)}
+      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Agregar</button></div>`, (el, close) => {
+      bindHab(el);
+      el.querySelector("[data-x]").onclick = close;
+      el.querySelector("[data-ok]").onclick = () => {
+        const add = readHab(el), parts = [];
+        Object.keys(add).forEach(k => {
+          const h = t.habilita[k] || (t.habilita[k] = { tipos: [], numeros: {} });
+          add[k].tipos.forEach(c => { if (!h.tipos.includes(c)) { h.tipos.push(c); h.numeros[c] = add[k].numeros[c]; parts.push(puntoLabel(o.emp, k) + ": " + deType(c).short); } });
+        });
+        if (!parts.length) { toast("No marcaste nada nuevo"); return; }
+        normTimbrado(t); close(); o.onSave(o.list, "Timbrado " + t.number + " ampliado: " + parts.join(", "));
+      };
+    });
+  }
+  // Timbrados de una empresa, normalizados (los viejos pasan a la primera caja de la empresa)
+  const timbradosOf = emp => storeFor(emp.id).get("timbrados", []).map(t => normTimbrado(t, (puntosOf(emp, true)[0] || {}).key));
+  // Tipos ya usados en documentos emitidos con un timbrado
   const usedTiposOf = (docs, timbradoId) => Array.from(new Set(docs.filter(d => d.kude && d.kude.timbrado && d.kude.timbrado.id === timbradoId && d.status === "ok").map(d => String(d.deType || "1"))));
-  // Inutilización: rangos de números que no se van a usar. { id, timbradoId, timbrado, deType, est, point, desde, hasta, motivo, at, user }
+  // Inutilización: rangos de números que no se van a usar. { id, timbradoId, timbrado, deType, key, est, point, desde, hasta, motivo, at, user }
   function inutilizar(o) {
-    const { t, deTypeCode, desde, hasta, docs, inutils } = o; // o.prefix: "001-001-" (establecimiento y punto)
+    const { t, deTypeCode, desde, hasta, docs, inutils } = o;
     if (!t) return { ok: false, error: "Elegí un timbrado" };
-    if (!typeEnabled(t, deTypeCode)) return { ok: false, error: "Ese tipo no está habilitado en el timbrado" };
+    const key = o.key || (o.prefix ? o.prefix.replace(/-$/, "") : habKeys(t)[0]), prefix = key + "-";
+    if (!typeEnabled(t, deTypeCode, key)) return { ok: false, error: "Ese tipo no está habilitado en el timbrado para esa caja" };
     if (!(desde >= 1) || !(hasta >= desde) || hasta > 9999999) return { ok: false, error: "Revisá el rango: desde tiene que ser 1 o más y hasta, igual o mayor" };
     if (hasta - desde > 9999) return { ok: false, error: "Un rango puede tener hasta 10.000 números" };
     const numOf = d => parseInt(String(d.number || "").split("-").pop(), 10);
-    // Un número está usado si un documento no rechazado lo tiene: del mismo timbrado, o sin timbrado registrado (documentos viejos) con el mismo establecimiento y punto
-    const sameTim = d => d.kude && d.kude.timbrado ? d.kude.timbrado.id === t.id : !o.prefix || String(d.number || "").startsWith(o.prefix);
+    // Un número está usado si un documento no rechazado lo tiene, en la misma caja: del mismo timbrado, o sin timbrado registrado (documentos viejos)
+    const sameTim = d => String(d.number || "").startsWith(prefix) && (d.kude && d.kude.timbrado ? d.kude.timbrado.id === t.id : true);
     const taken = docs.find(d => sameTim(d) && String(d.deType || "1") === deTypeCode && d.status !== "bad" && numOf(d) >= desde && numOf(d) <= hasta);
     if (taken) return { ok: false, error: "El número " + taken.number + " ya se usó en un documento" };
-    const overlap = (inutils || []).find(x => x.timbradoId === t.id && x.deType === deTypeCode && !(hasta < x.desde || desde > x.hasta));
+    const keyX = x => x.key || (x.est && x.point ? x.est + "-" + x.point : key);
+    const overlap = (inutils || []).find(x => x.timbradoId === t.id && x.deType === deTypeCode && keyX(x) === key && !(hasta < x.desde || desde > x.hasta));
     if (overlap) return { ok: false, error: "Ese rango se superpone con una inutilización anterior (" + overlap.desde + " al " + overlap.hasta + ")" };
-    if (desde <= nextNum(t, deTypeCode) && hasta >= nextNum(t, deTypeCode)) { t.numeros[deTypeCode] = hasta + 1; normTimbrado(t); }
-    return { ok: true };
+    const h = habOf(t, key);
+    if (desde <= h.numeros[deTypeCode] && hasta >= h.numeros[deTypeCode]) { h.numeros[deTypeCode] = hasta + 1; normTimbrado(t); }
+    return { ok: true, key };
   }
-  function activateTimbrado(list, id) {
+  // Activa un timbrado cargado; el activo anterior queda dado de baja por cambio de timbrado.
+  function activateTimbrado(list, id, by) {
     const t = list.find(x => x.id === id);
-    if (!t || timbradoStatus(t) === "vencido") return null;
-    list.forEach(x => x.active = x.id === id);
+    if (!t || normTimbrado(t).estado !== "cargado" || timbradoStatus(t) === "vencido") return null;
+    const at = new Date().toISOString();
+    list.forEach(x => { normTimbrado(x); if (x.estado === "activo") { x.estado = "baja"; x.active = false; x.baja = { motivo: "cambio", detalle: "Se activó el timbrado " + t.number, at, user: by || "" }; } });
+    t.estado = "activo"; t.active = true; t.activatedAt = at;
     return t;
   }
 
@@ -467,7 +597,7 @@
   }
   function alertsFor(emp) {
     const st = storeFor(emp.id), out = [];
-    const tims = st.get("timbrados", []), act = tims.find(t => t.active), ts = timbradoStatus(act);
+    const tims = timbradosOf(emp), act = tims.find(t => t.estado === "activo"), ts = timbradoStatus(act);
     if (ts === "none") out.push({ level: "bad", kind: "timbrado", text: "Sin timbrado activo: no puede facturar" });
     else if (ts === "vencido") out.push({ level: "bad", kind: "timbrado", text: "Timbrado " + act.number + " vencido el " + isoToDmy(act.end) });
     else if (ts === "futuro") out.push({ level: "warn", kind: "timbrado", text: "Timbrado " + act.number + " empieza el " + isoToDmy(act.start) });
@@ -581,12 +711,17 @@
           : `<div class="muted small" style="padding:8px 0">Todavía no hay empresas.</div>`}</div></div>`}
       ${o.modulesFor ? `<label>Puede usar</label><div class="card" style="padding:4px 14px">${MODULES.filter(m => m.perUser && hasModule(o.modulesFor, m.key)).map(m => `<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--text);font-weight:500">
           <input type="checkbox" data-umod="${m.key}" ${(v.sinModulos || []).includes(m.key) ? "" : "checked"} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(m.label)}</label>`).join("") || `<div class="muted small" style="padding:8px 0">La empresa no tiene módulos opcionales habilitados.</div>`}</div>` : ""}
+      ${o.puntosFor && puntosOf(o.puntosFor).length > 1 ? `<div id="uPtoWrap"><label>Cajas que usa</label><div class="card" style="padding:4px 14px">${puntosOf(o.puntosFor).map(p => `<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--text);font-weight:500">
+          <input type="checkbox" data-upto="${esc(p.key)}" ${((v.puntos || {})[o.puntosFor.id] || []).includes(p.key) ? "checked" : ""} style="width:20px;min-height:20px;height:20px;flex:none;appearance:auto"> ${esc(p.nombre)} <span class="muted small">${esc(p.key)}</span></label>`).join("")}</div>
+          <div class="muted small" style="margin-top:6px">Sin ninguna marcada, puede usar todas. Los admins usan todas.</div></div>` : ""}
       <label for="uPin">${u ? "PIN nuevo (dejalo vacío para no cambiarlo)" : "PIN (4 a 6 números)"}</label>
       <input id="uPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
       ${u ? checkbox("uActive", v.active !== false, "Usuario activo") : ""}
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
       const roleSel = el.querySelector("#uRole"), wrap = el.querySelector("#uEmpWrap");
-      const sync = () => { el.querySelector("#uRoleDesc").textContent = ROLES[roleSel.value].desc; if (wrap) wrap.style.display = roleSel.value === "maestro" ? "none" : ""; };
+      const ptoWrap = el.querySelector("#uPtoWrap");
+      const sync = () => { el.querySelector("#uRoleDesc").textContent = ROLES[roleSel.value].desc; if (wrap) wrap.style.display = roleSel.value === "maestro" ? "none" : "";
+        if (ptoWrap) ptoWrap.style.display = ["facturador", "cargador"].includes(roleSel.value) ? "" : "none"; };
       roleSel.onchange = sync; sync();
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = async () => {
@@ -598,6 +733,7 @@
         if (role !== "maestro" && !emps.length) { toast("Elegí al menos una empresa"); return; }
         const target = u ? list.find(x => x.id === u.id) : { id: randomId(8), createdAt: new Date().toISOString() };
         Object.assign(target, { name, role, empresas: role === "maestro" ? [] : emps, active: u ? el.querySelector("#uActive").checked : true });
+        if (o.puntosFor && el.querySelector("[data-upto]")) { target.puntos = Object.assign({}, target.puntos || {}, { [o.puntosFor.id]: Array.from(el.querySelectorAll("[data-upto]:checked")).map(c => c.dataset.upto) }); }
         if (o.modulesFor) target.sinModulos = Array.from(el.querySelectorAll("[data-umod]")).filter(c => !c.checked).map(c => c.dataset.umod);
         if (pin) target.pin = await hashPin(pin, target.id);
         if (!u) list.push(target);
@@ -692,6 +828,8 @@
     audit, auditList, timbradoStatus, vigenciaText, timbradoListHTML, timbradoSheet, activateTimbrado,
     DE_TYPES, deType, HABILITABLES, MOTIVOS_NC, MOTIVOS_ND, MOTIVOS_REM, MODOS_TRANSPORTE, CONSTANCIAS, labelOf,
     normTimbrado, typeEnabled, nextNum, bumpNum, tiposFieldsHTML, readTipos, bindTipos, usedTiposOf, inutilizar,
+    MOTIVOS_BAJA_TIM, motivoBajaText, habKeys, habOf, habFieldsHTML, readHab, bindHab, activarSheet, bajaSheet, ampliarSheet,
+    establecimientosOf, puntosOf, puntoInfo, puntoLabel, puntosDeUsuario, keyOf, pad3, timbradosOf,
     certStatus, PRESTADORES, queueFor, alertsFor, SEND_LIMIT_H, encodeCatalog, decodeCatalog, productSheet,
     Firmador, ONBOARDING, TEST_CHECKS, MODULES, moduleOf, hasModule, userHas,
     TARIFAS_DEF, tarifas, saveTarifas, CONCEPTS, conceptOf, generalMonto, precioDe, incluidosDe, descuentosDe, descuentoVigente, descuentoTexto, addPeriods, periodOf, periodLabel, nextPeriod, planOf, periodsOf, cargoDe, cargoCerrado, pagosDe, registrarPago, cuenta, boletasDe, registrarBoleta, boletaNueva, marcarBoletaVista, userSheet, loginOverlay, changeOwnPin, empresaPicker, checkbox

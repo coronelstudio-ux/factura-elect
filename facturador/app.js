@@ -21,7 +21,7 @@
   let inbox = store.get("pedidos", []);      // pedidos recibidos por QR
   let clients = store.get("clients", []);
   // Timbrados: todos quedan guardados; solo uno está activo y es el único que se usa para facturar (ver shared/tenant.js)
-  let timbrados = store.get("timbrados", []);
+  let timbrados = T.timbradosOf(company);
   let products = store.get("products", []);   // productos frecuentes
   // Preferencias del cliente: valores por defecto, pie del KuDE, formato de impresión, correo automático
   const prefs = Object.assign({ condition: "contado", currency: "PYG", exchange: "", exchangeDate: "", footerText: "", printFormat: "a4", autoEmail: false,
@@ -62,7 +62,14 @@
   // Borradores guardados antes de los tipos de documento: completar campos que faltan
   function fixDraft(d) { const base = newDraft(d.deType); Object.keys(base).forEach(k => { if (d[k] === undefined) d[k] = base[k]; }); return d; }
   state.draft = fixDraft(state.draft);
-  const activeTimbrado = () => { const t = timbrados.find(x => x.active) || null; return t ? T.normTimbrado(t) : null; };
+  const activeTimbrado = () => timbrados.find(x => T.normTimbrado(x).estado === "activo") || null;
+  // Caja (punto de expedición) en uso: una de las asignadas al usuario que esté habilitada en el timbrado activo
+  const ptoStoreKey = () => "punto_" + (user ? user.id : "dev");
+  function myPuntos() { const t = activeTimbrado(), mine = T.puntosDeUsuario(user, company); return t ? mine.filter(k => t.habilita[k]) : mine; }
+  function curPunto() { const list = myPuntos(), saved = store.get(ptoStoreKey(), ""); return list.includes(saved) ? saved : list[0] || ""; }
+  const puntoName = key => (T.puntoInfo(company, key) || { nombre: key }).nombre;
+  // Datos del emisor para el KuDE, el PDF y el XML: la dirección es la del establecimiento que emitió
+  const emisorDe = inv => inv && inv.establecimiento ? Object.assign({}, company, { address: inv.establecimiento.address || company.address, city: inv.establecimiento.city || company.city }) : company;
   const timbradoOk = () => timbradoStatus(activeTimbrado()) === "vigente";
   // Si el tipo se puede emitir ahora: disponible en SIFEN, habilitado en el timbrado activo y timbrado vigente
   function docState(code) {
@@ -71,8 +78,10 @@
     if (!ty.available) return { ok: false, state: "soon", why: ty.reason };
     if (billing.state === "suspendido") return { ok: false, state: "off", why: billing.text + ". Comunicate con el estudio. Tus documentos emitidos se siguen viendo y descargando." };
     if (!t || !timbradoOk()) return { ok: false, state: "off", why: timbradoProblem() || "No hay timbrado activo" };
-    if (!T.typeEnabled(t, ty.code)) return { ok: false, state: "off", why: "No está habilitado en el timbrado " + t.number + ". " +
-      (can("timbrados.editar") ? "Si lo habilitaste en Marangatu, agregalo en Ajustes → Timbrados." : "Si está habilitado en Marangatu, pedile al estudio que lo agregue.") };
+    const key = curPunto();
+    if (!key) return { ok: false, state: "off", why: "No tenés una caja habilitada en el timbrado activo. Pedile al admin que te asigne una." };
+    if (!T.typeEnabled(t, ty.code, key)) return { ok: false, state: "off", why: "No está habilitado en el timbrado " + t.number + " para " + T.puntoLabel(company, key) + ". " +
+      (can("timbrados.editar") ? "Si lo habilitaste en Marangatu, agregalo con «Ampliar» en Ajustes → Timbrados." : "Si está habilitado en Marangatu, pedile al admin que amplíe el timbrado.") };
     return { ok: true, state: "on", why: "" };
   }
   // Total en guaraníes del borrador (en dólares, con el tipo de cambio; 0 si todavía no lo cargó)
@@ -85,7 +94,7 @@
     if (st === "vencido") return "El timbrado activo " + t.number + " venció el " + isoToDmy(t.end) + ". " + where;
     return "";
   }
-  const nextNumberStr = code => { const t = activeTimbrado(); return t ? company.establishment + "-" + company.point + "-" + String(T.nextNum(t, String(code || "1"))).padStart(7, "0") : "Sin timbrado activo"; };
+  const nextNumberStr = code => { const t = activeTimbrado(), key = curPunto(); return t && key ? key + "-" + String(T.nextNum(t, String(code || "1"), key)).padStart(7, "0") : "Sin timbrado activo"; };
 
   // ================= Utilidades de interfaz =================
   const statusChip = s => s === "ok" ? '<span class="chip ok">Aprobada</span>' : s === "bad" ? '<span class="chip bad">Rechazada</span>' : '<span class="chip warn">Pendiente</span>';
@@ -94,7 +103,8 @@
   const pendingCount = () => inbox.filter(p => p.status === "pendiente").length;
   function companyLine() {
     const line = document.getElementById("companyLine"), multi = T.empresasOf(user).length > 1;
-    line.textContent = company.name + " · RUC " + company.ruc + "-" + company.dv + (multi ? "  ▾ cambiar" : "") + (user ? " · " + user.name : "");
+    const pk = typeof curPunto === "function" ? curPunto() : "";
+    line.textContent = company.name + " · RUC " + company.ruc + "-" + company.dv + (pk ? " · " + puntoName(pk) : "") + (multi ? "  ▾ cambiar" : "") + (user ? " · " + user.name : "");
     line.style.cursor = multi ? "pointer" : "";
     document.getElementById("envChip").textContent = company.env === "test" ? "Prueba" : "Producción";
     const b = document.getElementById("pedBadge"), n = mod("pedidos") ? pendingCount() : 0;
@@ -133,7 +143,9 @@
     if (problem) return `<div class="notice bad"><b>No se puede facturar</b>${esc(problem)}</div>`;
     const days = t.end ? Math.round((Date.parse(t.end) - Date.parse(FE.todayKey())) / 86400000) : null;
     if (days !== null && days <= 30) return `<div class="notice warn"><b>El timbrado ${esc(t.number)} vence en ${days} día(s)</b>Vigente hasta el ${isoToDmy(t.end)}. Cargá el nuevo en Ajustes → Timbrados.</div>`;
-    return `<div class="notice ok"><b>Timbrado activo ${esc(t.number)}</b>${esc(vigenciaText(t))} · habilita: ${esc(T.normTimbrado(t).tipos.map(c => T.deType(c).short).join(", "))} · próxima factura ${esc(nextNumberStr("1"))}</div>`;
+    const key = curPunto(), h = key ? t.habilita[key] : null;
+    if (!h) return `<div class="notice bad"><b>No se puede facturar</b>No tenés una caja habilitada en el timbrado activo ${esc(t.number)}. Pedile al admin que te asigne una.</div>`;
+    return `<div class="notice ok"><b>Timbrado activo ${esc(t.number)} · ${esc(T.puntoLabel(company, key))}</b>${esc(vigenciaText(t))} · habilita: ${esc(h.tipos.map(c => T.deType(c).short).join(", "))}${h.tipos.includes("1") ? " · próxima factura " + esc(nextNumberStr("1")) : ""}</div>`;
   }
   function rowInvoice(i) {
     const ty = T.deType(i.deType), tag = ty.code === "1" ? "" : `<span class="tag ${ty.key}">${esc(ty.abbr)}</span>`;
@@ -630,7 +642,7 @@
           <div class="kt b"><span>TOTAL DE LA OPERACIÓN</span><span>${fm(T2.total)}</span></div>
           ${isUSD ? `<div class="kt b"><span>TOTAL EN GUARANÍES</span><span>${fmt(T2.totalPyg)}</span></div>` : ""}
         </div>`;
-    const nom = FE.emisorNombres(company);
+    const nom = FE.emisorNombres(company), em = emisorDe(inv);
     return `
     <div class="kude" id="kudeBody">
       ${test ? `<div class="band">AMBIENTE DE PRUEBA - SIN VALIDEZ TRIBUTARIA</div>
@@ -640,7 +652,7 @@
         <div class="hd-em">
           <div class="hd-logo">${company.logo ? `<img class="logo-img" src="${company.logo}" alt="Logo del emisor">` : `<div class="logo">Logo del emisor</div>`}</div>
           <div class="em"><b>${esc(nom.main)}</b>${nom.sub ? `<span class="em-sub">${esc(nom.sub)}</span>` : ""}
-            <div class="em-dat">${[company.address, [company.city, company.phone ? "Tel. " + company.phone : ""].filter(Boolean).join(" · "), company.mail, company.activity ? "Actividad: " + company.activity : ""].filter(Boolean).map(esc).join("<br>")}</div></div>
+            <div class="em-dat">${[em.address, [em.city, company.phone ? "Tel. " + company.phone : ""].filter(Boolean).join(" · "), company.mail, company.activity ? "Actividad: " + company.activity : ""].filter(Boolean).map(esc).join("<br>")}</div></div>
         </div>
         <div>
           <div style="font-weight:700;font-size:12px">RUC: ${esc(company.ruc)}-${esc(company.dv)}</div>
@@ -685,6 +697,8 @@
     const base = { deType: ty.code, typeLabel: ty.label, typeTitle: ty.title, number: nextNumberStr(ty.code),
       timbrado: { id: tim.id, number: tim.number, start: tim.start, end: tim.end }, issuedAt: FE.localIso(now),
       dateLabel: now.toLocaleDateString("es-PY") + " " + now.toTimeString().slice(0, 8), pedidoId: d.pedidoId || null, servicio: d.servicio || null };
+    const pk = curPunto(), pinfo = T.puntoInfo(company, pk);
+    if (pinfo) Object.assign(base, { punto: { key: pk, nombre: pinfo.nombre }, establecimiento: { code: pinfo.est, address: pinfo.address || company.address, city: pinfo.city || company.city } });
     const totalsOf = (t, cur, ex) => ({ exe: t.exe, b5: t.b5, b10: t.b10, iva5: t.iva5, iva10: t.iva10, iva: t.iva, total: t.total, totalPyg: FE.pygTotal(t.total, cur, ex) || 0 });
     const items = d.items.map(i => Object.assign({}, i));
     if (ty.assoc) {
@@ -934,13 +948,14 @@
       ${section("Empresa", `<div class="card">
           <div class="kv"><span class="muted">Razón social</span><span>${esc(company.name)}</span></div>
           <div class="kv"><span class="muted">RUC</span><span>${esc(company.ruc)}-${esc(company.dv)}</span></div>
-          <div class="kv"><span class="muted">Establecimiento y punto</span><span>${esc(company.establishment)}-${esc(company.point)}</span></div>
+          <div class="kv"><span class="muted">Caja en uso</span><span>${curPunto() ? esc(T.puntoLabel(company, curPunto())) : "Sin caja habilitada"}${myPuntos().length > 1 ? ` <button class="link" data-pickpunto style="min-height:0;padding:0;margin-left:6px">Cambiar</button>` : ""}</span></div>
+          ${curPunto() ? `<div class="kv"><span class="muted">Dirección del establecimiento</span><span>${esc([(T.puntoInfo(company, curPunto()) || {}).address, (T.puntoInfo(company, curPunto()) || {}).city].filter(Boolean).join(", ") || "-")}</span></div>` : ""}
           <div class="kv"><span class="muted">Próxima factura</span><span>${esc(nextNumberStr())}</span></div>
           <div class="kv"><span class="muted">Logo</span><span style="display:flex;gap:10px;align-items:center">${company.logo ? `<img src="${company.logo}" alt="" style="height:28px;max-width:90px;object-fit:contain">` : `<span class="small muted">Sin logo</span>`}
             ${editCfg ? `<label class="link" style="cursor:pointer">Cargar<input type="file" id="logoFile" accept="image/*" hidden></label>${company.logo ? `<button class="link" data-remove-logo="1">Quitar</button>` : ""}` : ""}</span></div>
           <div class="muted small" style="margin-top:6px">Los datos de la empresa, el certificado y el ambiente los configura el estudio en la app Admin.</div>
         </div>`)}
-      ${section("Timbrados", `<div class="card">${T.timbradoListHTML(timbrados, { editable: can("timbrados.editar") })}</div>`)}
+      ${section("Timbrados", `<div class="card">${T.timbradoListHTML(timbrados, { editable: can("timbrados.editar"), emp: company })}</div>`)}
       ${!mod("productos") ? "" : section("Productos frecuentes", `<div class="card">
           ${products.length ? products.map(p => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(p.desc)}</div>
             <div class="sub">${p.code ? esc(p.code) + " · " : ""}Gs ${fmt(p.price)} · ${taxLabel(p.tax)}</div></div>
@@ -1088,12 +1103,19 @@
   }
 
   // ----- Cargar / editar timbrado (hoja compartida en shared/tenant.js) -----
-  function timbradoSheet(t) {
-    if (!can("timbrados.editar")) { toast("Los timbrados los administra el estudio"); return; }
-    const used = !!t && (t.used || invoices.some(i => i.kude && i.kude.timbrado && i.kude.timbrado.id === t.id));
-    T.timbradoSheet({ list: timbrados, t, used, usedTipos: t ? T.usedTiposOf(invoices, t.id) : [], onSave: (list, msg) => {
-      timbrados = list; save(); log(t ? "Timbrado editado" : "Timbrado cargado", msg); toast(msg); render();
-    } });
+  // ----- Timbrados: cargar, corregir (solo sin activar), activar, ampliar y dar de baja -----
+  const checkPin = pin => user ? T.verifyPin(T.getUser(user.id) || user, pin) : Lock.check(pin);
+  function timbradoAction(kind, id) {
+    if (!can("timbrados.editar")) { toast("Los timbrados los administran el admin maestro y el admin de la empresa"); return; }
+    const by = user ? user.name : "Este dispositivo";
+    const done = logText => (list, msg) => { timbrados = list; save(); log(logText, msg); toast(msg); render(); };
+    const t = id ? timbrados.find(x => x.id === id) : null;
+    if (kind === "add" || kind === "edit") { T.timbradoSheet({ list: timbrados, t, emp: company, onSave: done(t ? "Timbrado corregido" : "Timbrado cargado") }); return; }
+    if (kind === "act") { T.activarSheet({ list: timbrados, id, by, checkPin, onSave: done("Timbrado activado") }); return; }
+    if (kind === "baja") { T.bajaSheet({ list: timbrados, id, by, checkPin, onSave: done("Timbrado dado de baja") }); return; }
+    if (kind === "amp") { T.ampliarSheet({ list: timbrados, id, emp: company, onSave: done("Timbrado ampliado") }); return; }
+    if (kind === "del" && t && t.estado === "cargado") confirmSheet("¿Eliminar el timbrado " + t.number + "?", "Todavía no se activó: se borra sin dejar rastro en los documentos.", "Eliminar",
+      () => { timbrados = timbrados.filter(x => x.id !== id); save(); log("Timbrado eliminado (sin activar)", t.number); render(); }, true);
   }
 
   // ----- Recepción de pedidos por QR -----
@@ -1186,7 +1208,8 @@
     }
     const tim = activeTimbrado(), st = docState(ty.code);
     if (!st.ok) { toast(st.why); return; }
-    if (!tim || (inv.timbrado && inv.timbrado.id !== tim.id) || inv.number !== nextNumberStr(ty.code)) { toast("Cambió el timbrado o la numeración. Volvé a abrir la vista previa."); state.preview = null; go("new"); return; }
+    const pkey = curPunto();
+    if (!tim || !pkey || (inv.timbrado && inv.timbrado.id !== tim.id) || inv.number !== nextNumberStr(ty.code)) { toast("Cambió el timbrado o la numeración. Volvé a abrir la vista previa."); state.preview = null; go("new"); return; }
     if (ty.key === "nc") {
       const fac = invoices.find(x => x.id === inv.assoc.id);
       if (!fac || inv.totals.total > saldoOf(fac) + 0.001) { toast("La nota de crédito supera el saldo de la factura"); return; }
@@ -1200,8 +1223,8 @@
       const noAmounts = ty.key === "remision", noIva = noAmounts || ty.key === "autofactura";
       let cdc = "", qrUrl = "";
       if (approved) {
-        cdc = FE.buildCdc({ deType: ty.code, ruc: company.ruc, dv: company.dv, establishment: company.establishment, point: company.point,
-          number: T.nextNum(tim, ty.code), taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
+        cdc = FE.buildCdc({ deType: ty.code, ruc: company.ruc, dv: company.dv, establishment: pkey.split("-")[0], point: pkey.split("-")[1],
+          number: T.nextNum(tim, ty.code, pkey), taxpayerType: company.taxpayerType, date: now, emissionType: "1" });
         const firma = await T.Firmador.firmar({ empresa: company, cdc, payload: { deType: ty.code, items: issued.items, totals: issued.totals, receiver: issued.receiver } });
         qrUrl = await FE.buildQrUrl({ env: company.env, cdc, date: issued.issuedAt, receiver: issued.receiver,
           total: noAmounts ? 0 : issued.totals.total, iva: noIva ? 0 : issued.totals.iva, items: issued.items.length, digest: firma.digestValue, csc: FE.CSC_TEST });
@@ -1216,7 +1239,7 @@
       };
       invoices.unshift(result);
       if (approved) {
-        T.bumpNum(tim, ty.code);
+        T.bumpNum(tim, ty.code, pkey);
         if (mod("correo") && prefs.autoEmail && inv.receiverEmail && ty.key !== "autofactura") result.emailedTo = inv.receiverEmail; // el envío real lo hará el servidor
         if (isFac || ty.key === "remision") clients = upsertClient(clients, inv.receiver);
         if (isFac && inv.pedidoId) {
@@ -1350,7 +1373,7 @@
     if (ds.pdf !== undefined) { downloadKudePdf(prefs.printFormat); return; }
     if (ds.respdf) { downloadKudePdf(prefs.printFormat, +ds.respdf); return; }
     if (ds.retry !== undefined) { const r = state.lastResult; if (r && r.kude) { state.draft = fixDraft(draftFromDoc(r.kude)); goStep(state.draft, "revision"); } go("new"); return; }
-    if (ds.xml !== undefined) { const d = invoices.find(x => String(x.id) === ds.xml); if (d && d.kude && user && user.role === "maestro") { DEXml.download(d.kude, company); log("XML descargado", d.number); toast("XML descargado"); } return; }
+    if (ds.xml !== undefined) { const d = invoices.find(x => String(x.id) === ds.xml); if (d && d.kude && user && user.role === "maestro") { DEXml.download(d.kude, emisorDe(d.kude)); log("XML descargado", d.number); toast("XML descargado"); } return; }
     if (ds.pdfalt !== undefined) { downloadKudePdf(prefs.printFormat === "ticket" ? "a4" : "ticket"); return; }
     if (ds.removeLogo !== undefined) { company.logo = null; save(); toast("Logo quitado"); render(); return; }
     if (ds.emit) { emit(); return; }
@@ -1386,14 +1409,18 @@
       state.draft = fixDraft(draftFromPedido(p)); goStep(state.draft, "productos"); state.preview = null; go("new"); return;
     }
     // Ajustes
-    if (ds.timadd !== undefined) { timbradoSheet(null); return; }
-    if (ds.timedit) { timbradoSheet(timbrados.find(t => t.id === ds.timedit)); return; }
-    if (ds.timact) {
-      const t = timbrados.find(x => x.id === ds.timact); if (!t) return;
-      if (timbradoStatus(t) === "vencido") { toast("Ese timbrado está vencido"); return; }
-      if (!can("timbrados.editar")) { toast("Los timbrados los administra el estudio"); return; }
-      confirmSheet("¿Activar el timbrado " + t.number + "?", "Desde ahora las facturas se emiten con este timbrado. El que estaba activo queda guardado como inactivo.", "Activar", () => {
-        T.activateTimbrado(timbrados, t.id); save(); log("Timbrado activado", t.number); render(); toast("Timbrado " + t.number + " activo");
+    if (ds.timadd !== undefined) { timbradoAction("add"); return; }
+    if (ds.timedit) { timbradoAction("edit", ds.timedit); return; }
+    if (ds.timact) { timbradoAction("act", ds.timact); return; }
+    if (ds.timbaja) { timbradoAction("baja", ds.timbaja); return; }
+    if (ds.timamp) { timbradoAction("amp", ds.timamp); return; }
+    if (ds.timdel) { timbradoAction("del", ds.timdel); return; }
+    if (ds.pickpunto !== undefined) {
+      const opts = myPuntos();
+      sheet(`<h3>¿Con qué caja emitís?</h3><div class="flow-list">${opts.map(k => `<button class="doc-opt ${k === curPunto() ? "on" : ""}" data-pp="${esc(k)}"><span class="abbr">${esc(k.split("-")[1])}</span><span><span class="t">${esc(puntoName(k))}</span><span class="w">${esc(k)} · ${esc((T.puntoInfo(company, k) || {}).address || "")}</span></span></button>`).join("")}</div>
+        <button class="btn" data-x style="margin-top:12px">Cancelar</button>`, (el, close) => {
+        el.querySelector("[data-x]").onclick = close;
+        el.querySelectorAll("[data-pp]").forEach(b => b.onclick = () => { store.set(ptoStoreKey(), b.dataset.pp); close(); state.preview = null; render(); toast("Emitís con " + puntoName(b.dataset.pp)); });
       });
       return;
     }
@@ -1414,7 +1441,7 @@
     // Usuarios de la empresa
     if (ds.useradd !== undefined || ds.useredit) {
       const u = ds.useredit ? T.getUser(ds.useredit) : null;
-      T.userSheet({ user: u, roles: ["facturador", "cargador", "admincliente"], fixedEmpresa: company.id, empresas: [], modulesFor: company,
+      T.userSheet({ user: u, roles: ["facturador", "cargador", "admincliente"], fixedEmpresa: company.id, empresas: [], modulesFor: company, puntosFor: company,
         onSave: (list, saved) => { log(u ? "Usuario editado" : "Usuario creado", saved.name + " · " + T.ROLES[saved.role].label); render(); } });
       return;
     }
@@ -1535,7 +1562,7 @@
     if (!window.KudePdf || !window.jspdf) { toast("No se pudo cargar el generador de PDF. Se abre la impresión"); window.print(); return; }
     try {
       toast("Generando PDF…");
-      await KudePdf.save(inv, company, { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv), pairs: docInfoPairs(inv),
+      await KudePdf.save(inv, emisorDe(inv), { consultUrl: consultUrl(), qrText: inv.qrUrl || "", timbradoLines: timbradoLines(inv), pairs: docInfoPairs(inv),
         footerText: prefs.footerText, format: mod("ticket") ? format || prefs.printFormat : "a4" });
       toast("PDF descargado");
     } catch (err) {
