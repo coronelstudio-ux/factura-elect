@@ -208,110 +208,12 @@
     });
   }
 
-  // ---- Establecimientos (como en el RUC) y sus cajas (puntos de expedición) ----
-  function estPtoHTML(e) {
-    const edit = can("timbrados.editar");
-    return T.establecimientosOf(e).map(est => `<div class="est-block ${est.baja ? "off" : ""}">
-        <div class="est-head"><b>Establecimiento ${esc(est.code)}</b>${est.baja ? ' <span class="chip neutral">De baja</span>' : ""}
-          ${edit && !est.baja ? `<button class="link" data-editest="${esc(est.code)}">${estEnUso(e, est) ? "Ver" : "Editar"}</button>` : ""}</div>
-        <div class="small muted">${esc([est.address, est.city].filter(Boolean).join(", ") || "Sin dirección")}</div>
-        ${est.puntos.map(p => { const key = est.code + "-" + p.code; return `<div class="kv"><span>${esc(p.nombre)} <span class="small muted">${esc(key)}</span>${p.baja ? ' <span class="chip neutral">De baja</span>' : enUso(e, key) ? ' <span class="chip ok">En timbrado</span>' : ""}</span>
-          <span>${edit && !p.baja && !est.baja ? `<button class="link" data-renpto="${esc(key)}">Renombrar</button><button class="link danger" data-bajapto="${esc(key)}">Dar de baja</button>` : ""}</span></div>`; }).join("")}
-      </div>`).join("") +
-      (edit ? `<div class="btn-row" style="margin-top:10px"><button class="btn soft" data-addpto>+ Agregar caja</button><button class="btn soft" data-addest>+ Establecimiento</button></div>` : "") +
-      `<div class="muted small" style="margin-top:8px">Cargalos como figuran en el RUC y en Marangatu. Después, habilitá las cajas nuevas en el timbrado con «Ampliar». Los códigos en uso no se cambian.</div>`;
-  }
-  function estPtoAction(e, ds) {
-    const ests = T.establecimientosOf(e), save = (what, detail) => { T.saveEmpresa(e); log(what, e.name + " · " + detail, e.id); render(); toast(what); };
-    if (ds.addest !== undefined || ds.editest) {
-      const est = ds.editest ? ests.find(x => x.code === ds.editest) : null, locked = est && estEnUso(e, est);
-      sheet(`<h3>${est ? "Establecimiento " + esc(est.code) : "Nuevo establecimiento"}</h3>
-        ${locked ? `<p class="muted small">Ya está habilitado en un timbrado: el código y la dirección no se cambian (son los del RUC). Si dejó de usarse, dalo de baja.</p>` : `<p class="muted small">Como figura en el RUC (Marangatu).</p>`}
-        <label for="esCode">Código (3 dígitos)</label><input id="esCode" inputmode="numeric" maxlength="3" value="${esc(est ? est.code : "")}" ${est ? "disabled" : ""}>
-        <label for="esAdr">Dirección</label><input id="esAdr" data-kb="address" value="${esc(est ? est.address : "")}" ${locked ? "disabled" : ""}>
-        <label for="esCity">Ciudad</label><input id="esCity" data-kb="city" value="${esc(est ? est.city : "")}" ${locked ? "disabled" : ""}>
-        ${est ? "" : `<label for="esPto">Primera caja</label><input id="esPto" value="Caja 1">`}
-        <div class="btn-row" style="margin-top:16px">${est && !est.baja ? `<button class="btn" data-baja style="color:var(--bad)">Dar de baja</button>` : `<button class="btn" data-x>Cancelar</button>`}${locked ? `<button class="btn" data-x>Cerrar</button>` : `<button class="btn primary" data-ok>Guardar</button>`}</div>`, (el, close) => {
-        el.querySelectorAll("[data-x]").forEach(b => b.onclick = close);
-        const bj = el.querySelector("[data-baja]");
-        if (bj) bj.onclick = () => { close(); confirmSheet("¿Dar de baja el establecimiento " + est.code + "?", "Sus cajas dejan de usarse para emitir. No se puede deshacer.", "Dar de baja", () => { est.baja = true; save("Establecimiento dado de baja", est.code); }, true); };
-        const ok = el.querySelector("[data-ok]");
-        if (ok) ok.onclick = () => {
-          const g = id => el.querySelector("#" + id).value.trim();
-          if (!est) {
-            if (!/^\d{1,3}$/.test(g("esCode"))) { toast("El código tiene hasta 3 dígitos"); return; }
-            const code = T.pad3(g("esCode"));
-            if (ests.some(x => x.code === code)) { toast("Ese establecimiento ya está cargado"); return; }
-            ests.push({ code, address: g("esAdr"), city: g("esCity"), puntos: [{ code: "001", nombre: g("esPto") || "Caja 1" }] });
-            close(); save("Establecimiento agregado", code + " · " + g("esAdr"));
-          } else { Object.assign(est, { address: g("esAdr"), city: g("esCity") }); close(); save("Establecimiento editado", est.code); }
-        };
-      });
-      return;
-    }
-    if (ds.addpto !== undefined) {
-      const act = ests.filter(x => !x.baja);
-      sheet(`<h3>Agregar caja</h3><p class="muted small">Un punto de expedición creado en Marangatu.</p>
-        <label for="ptEst">Establecimiento</label><select id="ptEst">${act.map(x => `<option value="${esc(x.code)}">${esc(x.code)} · ${esc(x.address || "")}</option>`).join("")}</select>
-        <div class="grid2"><div><label for="ptCode">Punto (3 dígitos)</label><input id="ptCode" inputmode="numeric" maxlength="3"></div><div><label for="ptName">Nombre</label><input id="ptName"></div></div>
-        <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Agregar</button></div>`, (el, close) => {
-        const estSel = el.querySelector("#ptEst"), sug = () => { const est = ests.find(x => x.code === estSel.value), n = est.puntos.length + 1;
-          el.querySelector("#ptCode").value = String(Math.max(0, ...est.puntos.map(p => +p.code)) + 1).padStart(3, "0"); el.querySelector("#ptName").value = "Caja " + (T.puntosOf(e, true).length + 1); };
-        estSel.onchange = sug; sug();
-        el.querySelector("[data-x]").onclick = close;
-        el.querySelector("[data-ok]").onclick = () => {
-          const est = ests.find(x => x.code === estSel.value), codeIn = el.querySelector("#ptCode").value.trim(), name = el.querySelector("#ptName").value.trim();
-          if (!/^\d{1,3}$/.test(codeIn)) { toast("El punto tiene hasta 3 dígitos"); return; }
-          const code = T.pad3(codeIn);
-          if (est.puntos.some(p => p.code === code)) { toast("Esa caja ya existe en el establecimiento"); return; }
-          if (!name) { toast("Poné un nombre, por ejemplo Caja 2"); return; }
-          est.puntos.push({ code, nombre: name }); close(); save("Caja agregada", name + " (" + est.code + "-" + code + "). Habilitala en el timbrado con «Ampliar»");
-        };
-      });
-      return;
-    }
-    const [ec, pc] = (ds.renpto || ds.bajapto).split("-"), est = ests.find(x => x.code === ec), p = est && est.puntos.find(x => x.code === pc);
-    if (!p) return;
-    if (ds.renpto) {
-      sheet(`<h3>Renombrar ${esc(p.nombre)}</h3><p class="muted small">El nombre es interno; el código ${esc(ec + "-" + pc)} no cambia.</p>
-        <label for="rnName">Nombre</label><input id="rnName" value="${esc(p.nombre)}">
-        <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
-        el.querySelector("[data-x]").onclick = close;
-        el.querySelector("[data-ok]").onclick = () => { const n = el.querySelector("#rnName").value.trim(); if (!n) { toast("Escribí el nombre"); return; } const old = p.nombre; p.nombre = n; close(); save("Caja renombrada", old + " → " + n); };
-      });
-      return;
-    }
-    confirmSheet("¿Dar de baja " + p.nombre + " (" + ec + "-" + pc + ")?", "Deja de usarse para emitir. Lo emitido queda igual. No se puede deshacer.", "Dar de baja", () => { p.baja = true; save("Caja dada de baja", p.nombre + " (" + ec + "-" + pc + ")"); }, true);
-  }
-  function inutilSheet(e) {
-    const st = T.storeFor(e.id), tims = T.timbradosOf(e).filter(t => t.estado !== "cargado"), act = tims.find(t => t.estado === "activo") || tims[0];
-    if (!act) { toast("La empresa no tiene timbrados activos o usados"); return; }
-    // Opciones "caja + tipo" del timbrado elegido
-    const opts = t => Object.keys(t.habilita).flatMap(k => t.habilita[k].tipos.map(c => `<option value="${esc(k + "|" + c)}">${esc(T.puntoLabel(e, k))} · ${esc(T.deType(c).short)} (próximo ${String(T.nextNum(t, c, k)).padStart(7, "0")})</option>`)).join("");
-    sheet(`<h3>Inutilizar números</h3>
-      <p class="muted small">Declara a SIFEN que esos números no se van a usar. No se puede deshacer.</p>
-      <label for="iuTim">Timbrado</label><select id="iuTim">${tims.map(t => `<option value="${esc(t.id)}" ${t === act ? "selected" : ""}>${esc(t.number)}${t.estado === "activo" ? " (activo)" : " (dado de baja)"}</option>`).join("")}</select>
-      <label for="iuTipo">Caja y tipo de documento</label><select id="iuTipo">${opts(act)}</select>
-      <div class="grid2"><div><label for="iuDesde">Desde el número</label><input id="iuDesde" data-kb="digits"></div><div><label for="iuHasta">Hasta el número</label><input id="iuHasta" data-kb="digits"></div></div>
-      <label for="iuMot">Motivo</label><input id="iuMot" data-kb="sentence" placeholder="Ej. Salto de numeración por error del sistema">
-      <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok style="background:var(--bad);border-color:var(--bad)">Inutilizar</button></div>`, (el, close) => {
-      el.querySelector("#iuTim").onchange = ev => { const t = tims.find(x => x.id === ev.target.value); el.querySelector("#iuTipo").innerHTML = opts(t); };
-      el.querySelector("[data-x]").onclick = close;
-      el.querySelector("[data-ok]").onclick = () => {
-        const t = tims.find(x => x.id === el.querySelector("#iuTim").value), [key, code] = el.querySelector("#iuTipo").value.split("|");
-        const desde = parseInt(el.querySelector("#iuDesde").value, 10), hasta = parseInt(el.querySelector("#iuHasta").value, 10), motivo = el.querySelector("#iuMot").value.trim();
-        if (motivo.length < 5) { toast("Escribí el motivo (al menos 5 letras)"); return; }
-        const list = inutilsOf(e), r = T.inutilizar({ t, deTypeCode: code, desde, hasta, docs: invoicesOf(e), inutils: list, key });
-        if (!r.ok) { toast(r.error); return; }
-        const [est, point] = key.split("-");
-        list.unshift({ id: FE.randomId(6), timbradoId: t.id, timbrado: t.number, deType: code, key, est, point, desde, hasta, motivo, at: new Date().toISOString(), user: user.name });
-        const all = T.timbradosOf(e).map(x => x.id === t.id ? t : x);
-        st.set("inutilizaciones", list); st.set("timbrados", all);
-        log("Inutilización de numeración", e.name + " · " + T.puntoLabel(e, key) + " · " + T.deType(code).short + " " + desde + " al " + hasta + " · " + motivo, e.id);
-        close(); render(); toast("Números inutilizados");
-      };
-    });
-  }
+  // Establecimientos, cajas e inutilización: compartidos con Facturación (shared/tenant.js)
+  const estCtx = e => ({ edit: can("timbrados.editar"), by: user.name, checkPin: pin => T.verifyPin(T.getUser(user.id) || user, pin),
+    log: (what, detail) => log(what, detail, e.id), onChange: () => render() });
+  const estPtoHTML = e => T.estPtoHTML(e, estCtx(e));
+  const estPtoAction = (e, ds) => T.estPtoAction(e, ds, estCtx(e));
+  const inutilSheet = e => T.inutilSheet(e, estCtx(e));
 
   // ================= Pantallas =================
   function screenPanel() {
