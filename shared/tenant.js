@@ -14,27 +14,43 @@
 
   // ================= Roles y permisos =================
   const ROLES = {
-    maestro: { label: "Admin maestro", estudio: true, desc: "Todo el estudio: empresas, certificados, usuarios y producción." },
-    operador: { label: "Operador del estudio", estudio: true, desc: "Configura las empresas que tiene asignadas. Sin acceso a certificados ni usuarios del estudio." },
-    admincliente: { label: "Admin del cliente", estudio: false, desc: "Logo, productos, preferencias y usuarios de su empresa. Factura." },
-    facturador: { label: "Facturador", estudio: false, desc: "Emite facturas, recibe pedidos y cancela dentro de las 48 h." },
-    cargador: { label: "Cargador", estudio: false, desc: "Solo carga pedidos en la app Pedidos." }
+    maestro: { label: "Administrador general", estudio: true, desc: "Todo el estudio: empresas, certificados, cobros, usuarios y producción." },
+    operador: { label: "Operador del estudio", estudio: true, desc: "Soporte técnico de las empresas asignadas: datos, CSC, certificado y usuarios. Sin acceso a cobros." },
+    admincliente: { label: "Administrador de la empresa", estudio: false, desc: "Gestión de su empresa: equipo, cajas, timbrados, productos, preferencias y documentos. Emite, cancela y corrige." },
+    facturador: { label: "Facturador", estudio: false, desc: "Emite facturas y recibe notas de pedido. Ve solo los documentos que emitió." },
+    cargador: { label: "Vendedor", estudio: false, desc: "Carga notas de pedido en la app Notas de pedido." }
   };
+  // Permisos por rol. Sin usuario (modo un dispositivo) se actúa como administrador de la empresa.
   const PERMS = {
     "admin.app": ["maestro", "operador"],
     "empresas.alta": ["maestro"],
     "empresa.tecnico": ["maestro", "operador"],
-    "empresa.certificado": ["maestro"],
+    "empresa.certificado": ["maestro", "operador"],
     "empresa.ambiente": ["maestro"],
-    "timbrados.editar": ["maestro", "admincliente"],
+    "timbrados.editar": ["maestro", "admincliente"],      // timbrados, cajas e inutilización
     "usuarios.estudio": ["maestro"],
     "usuarios.empresa": ["maestro", "operador", "admincliente"],
-    "cliente.config": ["maestro", "operador", "admincliente"],
-    "facturar": ["maestro", "operador", "admincliente", "facturador"],
+    "cliente.config": ["maestro", "admincliente"],          // productos, preferencias, logo, copia de seguridad de la empresa
+    "facturar": ["maestro", "admincliente", "facturador"],
+    "documentos.corregir": ["maestro", "admincliente"],     // cancelar, notas de crédito y débito, nominación
+    "documentos.todos": ["maestro", "operador", "admincliente"],
+    "negocio.resumen": ["maestro", "admincliente"],
+    "actividad.empresa": ["maestro", "admincliente"],
+    "cobros": ["maestro"],
     "auditoria": ["maestro", "operador"]
   };
+  const DEVICE_PERMS_EXCLUDE = ["usuarios.estudio", "cobros", "admin.app", "empresas.alta", "empresa.ambiente"];
+  // Lenguaje técnico (estudio) o simple (empresa)
+  const tecnico = u => !!u && (u.role === "maestro" || u.role === "operador");
+  const GLOSARIO = {
+    kude: ["KuDE", "documento (PDF)"], KuDE: ["KuDE", "Documento (PDF)"], cdc: ["CDC", "código de control (CDC)"], CDC: ["CDC", "Código de control (CDC)"],
+    sifenOk: ["Aprobado por SIFEN", "Aprobado por la DNIT"], sifenBad: ["Rechazado por SIFEN", "Rechazado por la DNIT"],
+    prueba: ["Ambiente de prueba", "Modo de prueba"], modulo: ["Módulo", "Función contratada"], innominado: ["Innominado", "Consumidor final sin datos"],
+    nominar: ["Nominación", "Identificar al comprador"]
+  };
+  const term = (key, u) => { const g = GLOSARIO[key]; return g ? g[tecnico(u) ? 0 : 1] : key; };
   // Sin usuario (modo de un solo dispositivo, sin usuarios cargados) se permite todo, como antes.
-  const can = (user, perm) => !user || (PERMS[perm] || []).includes(user.role);
+  const can = (user, perm) => !user ? !DEVICE_PERMS_EXCLUDE.includes(perm) : (PERMS[perm] || []).includes(user.role);
 
   // ================= Fechas =================
   const isoToDmy = v => v ? String(v).slice(8, 10) + "/" + String(v).slice(5, 7) + "/" + String(v).slice(0, 4) : "";
@@ -822,7 +838,7 @@
   }
 
   FE.T = {
-    ROLES, PERMS, can, isoToDmy, dmyToIso, daysUntil, DEMO, profileCardHTML, profileSheet, markLogin,
+    ROLES, PERMS, can, tecnico, term, GLOSARIO, isoToDmy, dmyToIso, daysUntil, DEMO, profileCardHTML, profileSheet, markLogin,
     listEmpresas, getEmpresa, saveEmpresa, activeId, setActive, storeFor, newEmpresa, ensureEmpresas,
     users, saveUsers, getUser, usersFor, empresasOf, accessTo, hashPin, verifyPin, sessionUser, setSession,
     audit, auditList, timbradoStatus, vigenciaText, timbradoListHTML, timbradoSheet, activateTimbrado,

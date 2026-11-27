@@ -142,7 +142,7 @@ test("Sin usuario (un solo dispositivo) se permite todo", () => assert.ok(T.can(
 test("Facturador no edita timbrados ni ve certificados", () => { const u = { role: "facturador" }; assert.ok(T.can(u, "facturar")); assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); });
 test("Timbrados: solo el maestro y el admin del cliente; el operador no", () => {
   assert.ok(T.can({ role: "maestro" }, "timbrados.editar")); assert.ok(T.can({ role: "admincliente" }, "timbrados.editar"));
-  const u = { role: "operador" }; assert.ok(!T.can(u, "timbrados.editar")); assert.ok(!T.can(u, "empresa.certificado")); assert.ok(!T.can(u, "usuarios.estudio"));
+  const u = { role: "operador" }; assert.ok(!T.can(u, "timbrados.editar")); assert.ok(T.can(u, "empresa.certificado")); assert.ok(!T.can(u, "usuarios.estudio"));
   assert.ok(!T.can({ role: "facturador" }, "timbrados.editar"));
 });
 test("Admin del cliente configura su empresa pero no el ambiente", () => { const u = { role: "admincliente" }; assert.ok(T.can(u, "cliente.config")); assert.ok(!T.can(u, "empresa.ambiente")); });
@@ -441,6 +441,22 @@ test("Cajas por usuario: el facturador usa las asignadas; sin asignar, todas; lo
   assert.deepStrictEqual(T.puntosDeUsuario({ role: "admincliente", puntos: { e9: ["001-002"] } }, emp), ["001-001", "001-002"]);
   assert.strictEqual(T.puntoLabel(emp, "001-002"), "Caja 2 (001-002)");
 });
+
+// ---------- Vista por usuario (cambio 6) ----------
+test("Permisos por rol: corregir documentos y ver todo es del administrador; cobros solo del general", () => {
+  const fac = { role: "facturador" }, adm = { role: "admincliente" }, op = { role: "operador" }, ma = { role: "maestro" };
+  assert.ok(T.can(fac, "facturar")); assert.ok(!T.can(fac, "documentos.corregir")); assert.ok(!T.can(fac, "documentos.todos")); assert.ok(!T.can(fac, "negocio.resumen")); assert.ok(!T.can(fac, "cliente.config"));
+  assert.ok(T.can(adm, "documentos.corregir")); assert.ok(T.can(adm, "negocio.resumen")); assert.ok(T.can(adm, "actividad.empresa")); assert.ok(T.can(adm, "timbrados.editar")); assert.ok(!T.can(adm, "cobros"));
+  assert.ok(!T.can(op, "cobros")); assert.ok(!T.can(op, "facturar")); assert.ok(T.can(ma, "cobros"));
+  // Modo un dispositivo = administrador de la empresa
+  assert.ok(T.can(null, "documentos.corregir")); assert.ok(T.can(null, "timbrados.editar")); assert.ok(!T.can(null, "cobros")); assert.ok(!T.can(null, "usuarios.estudio"));
+});
+test("Roles con nombres nuevos y glosario por tipo de usuario", () => {
+  assert.strictEqual(T.ROLES.maestro.label, "Administrador general"); assert.strictEqual(T.ROLES.cargador.label, "Vendedor"); assert.strictEqual(T.ROLES.admincliente.label, "Administrador de la empresa");
+  assert.strictEqual(T.term("KuDE", { role: "maestro" }), "KuDE"); assert.strictEqual(T.term("KuDE", { role: "facturador" }), "Documento (PDF)");
+  assert.strictEqual(T.term("cdc", null), "código de control (CDC)");
+});
+test("Fecha con formato único de 24 horas", () => assert.match(FE.fmtDate("2026-11-26T21:09:00"), /^26\/11\/2026 21:09$/));
 
 Promise.all(pending).then(() => {
   console.log(`\n${passed} correctas, ${failed} con error`);

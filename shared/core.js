@@ -37,8 +37,8 @@
   const fmtDate = iso => {
     const d = new Date(iso);
     if (isNaN(d)) return "";
-    return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }) + " · " +
-      d.toLocaleTimeString("es-PY", { hour: "2-digit", minute: "2-digit" });
+    const p2 = n => String(n).padStart(2, "0"); // formato único: 26/11/2026 09:09 (24 horas)
+    return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + d.getFullYear() + " " + p2(d.getHours()) + ":" + p2(d.getMinutes());
   };
   const todayKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
   const localDayKey = iso => { const d = new Date(iso); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
