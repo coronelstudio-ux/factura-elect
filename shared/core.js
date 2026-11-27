@@ -89,11 +89,11 @@
       const ok = !!String(receiver.name || "").trim() && !!String(receiver.doc || "").trim();
       const dt = EXT_DOC_TYPES.includes(receiver.docType) ? receiver.docType : "2";
       return { mode: "ext", operation: "B2F", label: "Extranjero · " + DOC_SHORT[dt], docType: dt, valid: ok,
-        why: ok ? "Cliente del exterior." : "Para un cliente extranjero escribí el nombre y el número de documento." };
+        why: ok ? "Cliente del exterior." : "Para un cliente extranjero se requieren el nombre y el número de documento." };
     }
     const parsed = parseRuc(receiver.ruc);
-    if (!parsed) return { mode: "con", valid: false, label: "", why: "Escribí el RUC con su dígito verificador, por ejemplo 4567890-1." };
-    if (dv11(parsed.base) !== parsed.dv) return { mode: "con", valid: false, label: "", why: "El dígito verificador no corresponde a ese RUC. Revisá el número." };
+    if (!parsed) return { mode: "con", valid: false, label: "", why: "El RUC va con su dígito verificador, por ejemplo 4567890-1." };
+    if (dv11(parsed.base) !== parsed.dv) return { mode: "con", valid: false, label: "", why: "El dígito verificador no corresponde a ese RUC." };
     const info = registry[parsed.full];
     if (!info) {
       return { mode: "con", valid: true, operation: "B2B", label: "Contribuyente", name: "",
@@ -430,7 +430,7 @@
       q("#iDesc").addEventListener("input", () => { q("#iCode").value = ""; });
       const submit = more => {
         const v = read();
-        if (!v.desc) { toast("Escribí el nombre del producto"); q("#iDesc").focus(); return; }
+        if (!v.desc) { toast("Falta el nombre del producto"); q("#iDesc").focus(); return; }
         if (v.qty <= 0) { toast("La cantidad tiene que ser mayor a cero"); q("#iQty").focus(); return; }
         if (!np && v.price <= 0) { toast("El precio tiene que ser mayor a cero"); q("#iPrice").focus(); return; }
         const item = { desc: v.desc, qty: v.qty, price: v.price, tax: v.tax, discount: v.discount };
@@ -546,7 +546,7 @@
   function decodePedido(text) {
     const m = String(text || "").replace(/\s+/g, "").match(/FEP1\.([0-9a-f]{8})\.([A-Za-z0-9+/=]+)/);
     if (!m) return { ok: false, error: "No es un QR de pedido de esta app." };
-    if (fnv32(m[2]) !== m[1]) return { ok: false, error: "El código está incompleto o fue modificado. Pedí que te lo vuelvan a enviar." };
+    if (fnv32(m[2]) !== m[1]) return { ok: false, error: "El código está incompleto o fue modificado. Es necesario solicitar que lo envíen de nuevo." };
     try {
       const json = global.LZString.decompressFromBase64(m[2]);
       return { ok: true, pedido: compactToPedido(JSON.parse(json)) };
@@ -654,7 +654,7 @@
           const text = decodeImageData(g.getImageData(0, 0, cv.width, cv.height));
           if (text) { resolve(text); return; }
         }
-        reject(new Error("No se encontró un QR en la imagen. Probá con una captura más nítida."));
+        reject(new Error("No se encontró un QR en la imagen. Una captura más nítida puede servir."));
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo abrir la imagen.")); };
       img.src = url;
@@ -663,7 +663,7 @@
   // Escáner con la cámara trasera. Llama onText(texto) al encontrar un QR.
   function openScanner(onText) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast("Este navegador no permite usar la cámara aquí. Usá «Elegir imagen».");
+      toast("Este navegador no permite usar la cámara aquí. Opción disponible: «Elegir imagen».");
       return;
     }
     const wrap = document.createElement("div");
@@ -698,7 +698,7 @@
     }
     navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
       .then(s => { stream = s; if (stop) { close(); return; } video.srcObject = s; video.play().catch(() => {}); tick(); })
-      .catch(() => { close(); toast("No se pudo abrir la cámara. Revisá el permiso o usá «Elegir imagen»."); });
+      .catch(() => { close(); toast("No se pudo abrir la cámara. Puede faltar el permiso; opción disponible: «Elegir imagen»."); });
   }
 
   // ================= Compartir y descargar =================

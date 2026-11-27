@@ -15,25 +15,27 @@ El núcleo compartido está en `shared/tenant.js` (empresas, usuarios, permisos,
 
 ## Roles y permisos
 
-| Permiso | Maestro | Operador | Admin del cliente | Facturador | Cargador |
+| Permiso | Adm. general | Operador | Adm. empresa | Facturador | Vendedor |
 |---|:-:|:-:|:-:|:-:|:-:|
-| Entrar a la app Admin (`admin.app`) | ✓ | ✓ | | | |
-| Crear empresas (`empresas.alta`) | ✓ | | | | |
-| Datos técnicos: RUC, establecimiento, IdCSC (`empresa.tecnico`) | ✓ | ✓ | | | |
-| Certificado (`empresa.certificado`) | ✓ | | | | |
-| Ambiente prueba/producción (`empresa.ambiente`) | ✓ | | | | |
-| Timbrados, establecimientos y cajas (`timbrados.editar`) | ✓ | | ✓ | | |
+| Entrar a Administración (`admin.app`) | ✓ | ✓ | | | |
+| Alta de empresas (`empresas.alta`) | ✓ | | | | |
+| Datos técnicos y CSC (`empresa.tecnico`) | ✓ | ✓ | | | |
+| Certificado (`empresa.certificado`) | ✓ | ✓ | | | |
+| Ambiente (`empresa.ambiente`) | ✓ | | | | |
+| Timbrados, cajas e inutilización (`timbrados.editar`) | ✓ | | ✓ | | |
 | Usuarios del estudio (`usuarios.estudio`) | ✓ | | | | |
 | Usuarios de una empresa (`usuarios.empresa`) | ✓ | ✓ | ✓ | | |
-| Logo, productos, preferencias (`cliente.config`) | ✓ | ✓ | ✓ | | |
-| Facturar, cancelar, recibir pedidos (`facturar`) | ✓ | ✓ | ✓ | ✓ | |
-| Auditoría (`auditoria`) | ✓ | ✓ | | | |
+| Productos, preferencias, logo, copia de seguridad (`cliente.config`) | ✓ | | ✓ | | |
+| Emitir (`facturar`) | ✓ | | ✓ | ✓ | |
+| Cancelar, notas de crédito y débito, identificar comprador (`documentos.corregir`) | ✓ | | ✓ | | |
+| Ver todos los documentos (`documentos.todos`) | ✓ | ✓ | ✓ | | |
+| Resumen del negocio (`negocio.resumen`) | ✓ | | ✓ | | |
+| Actividad de la empresa (`actividad.empresa`) | ✓ | | ✓ | | |
+| Cobros y tarifas (`cobros`) | ✓ | | | | |
+| Auditoría del estudio (`auditoria`) | ✓ | ✓ | | | |
 
-- El **maestro** accede a todas las empresas. Los demás, solo a las asignadas.
-- El **operador** ve solo sus empresas en el panel, la lista y la auditoría.
-- El **cargador** usa solo la app Pedidos.
-- **Modo de un solo dispositivo:** si una empresa no tiene usuarios con acceso, el Facturador usa el PIN del dispositivo y permite todo, como en la primera versión. Apenas se crea un usuario con acceso, cada persona entra con su propio PIN.
-- Las reglas están en `PERMS` de `shared/tenant.js` y se prueban en `tests/run.js`.
+- Sin usuarios (modo un dispositivo) se actúa como administrador de la empresa.
+- El vendedor usa solo la app Notas de pedido.
 
 ## Alta guiada de una empresa (app Admin)
 

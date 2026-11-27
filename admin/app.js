@@ -95,7 +95,7 @@
           const k = sl.dataset.pmodo, modo = sl.value;
           if (modo === "general") continue;
           const monto = FE.parseAmount(el.querySelector(`[data-pmonto="${k}"]`).value);
-          if (modo === "propio" && !(monto >= 0 && el.querySelector(`[data-pmonto="${k}"]`).value.trim())) { toast("Escribí el monto propio de " + T.conceptOf(k).label); return; }
+          if (modo === "propio" && !(monto >= 0 && el.querySelector(`[data-pmonto="${k}"]`).value.trim())) { toast("Falta el monto propio de " + T.conceptOf(k).label); return; }
           precios[k] = modo === "propio" ? { modo, monto } : { modo };
           cambios.push(T.conceptOf(k).label.replace(/^Módulo /, "") + ": " + (modo === "incluido" ? "incluido" : gs(monto)));
         }
@@ -127,11 +127,11 @@
         const raw = el.querySelector("#dsVal").value, valor = tipo === "pct" ? parseFloat(raw.replace(",", ".")) : FE.parseAmount(raw);
         const dur = el.querySelector("#dsDur").value, desde = el.querySelector("#dsDesde").value, hasta = el.querySelector("#dsHasta").value, meses = parseInt(el.querySelector("#dsMeses").value, 10);
         const motivo = el.querySelector("#dsMot").value.trim();
-        if (!(valor > 0) || (tipo === "pct" && valor > 100)) { toast(tipo === "pct" ? "El porcentaje va de 1 a 100" : "Escribí el monto del descuento"); return; }
-        if (!desde) { toast("Elegí desde qué mes"); return; }
+        if (!(valor > 0) || (tipo === "pct" && valor > 100)) { toast(tipo === "pct" ? "El porcentaje va de 1 a 100" : "Falta el monto del descuento"); return; }
+        if (!desde) { toast("Falta seleccionar desde qué mes"); return; }
         if (dur === "meses" && !(meses >= 1 && meses <= 60)) { toast("La cantidad de meses va de 1 a 60"); return; }
         if (dur === "hasta" && (!hasta || hasta < desde)) { toast("El mes final no puede ser anterior al inicial"); return; }
-        if (!motivo) { toast("Escribí el motivo del descuento"); return; }
+        if (!motivo) { toast("Falta el motivo del descuento"); return; }
         const d = { id: FE.randomId(6), tipo, valor, aplica: el.querySelector("#dsApl").value, duracion: dur, desde, motivo, by: user.name, at: new Date().toISOString() };
         if (dur === "meses") d.meses = meses; if (dur === "hasta") d.hasta = hasta;
         const lista = T.descuentosDe(e).filter(x => x.id !== "legacy").concat(T.descuentosDe(e).filter(x => x.id === "legacy").map(x => Object.assign({}, x, { id: FE.randomId(6) })));
@@ -151,7 +151,7 @@
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
         const monto = FE.parseAmount(el.querySelector("#pgMonto").value);
-        if (!(monto > 0)) { toast("Escribí el monto"); return; }
+        if (!(monto > 0)) { toast("Falta el monto"); return; }
         T.registrarPago({ empresaId: e.id, monto, medio: el.querySelector("#pgMedio").value, referencia: el.querySelector("#pgRef").value.trim(), user: user.name });
         log("Pago registrado", e.name + " · " + gs(monto), e.id); close(); render(); toast("Pago registrado");
       };
@@ -160,7 +160,7 @@
   // Prepara en el Facturador de la empresa del estudio una factura al cliente por el servicio del último mes con saldo
   function facturarServicio(e) {
     const t = T.tarifas(), est = T.getEmpresa(t.estudioEmpresaId);
-    if (!est) { toast("Elegí primero la empresa del estudio en Ajustes → Tarifas"); return; }
+    if (!est) { toast("Falta definir la empresa del estudio en Más → Tarifas"); return; }
     if (est.id === e.id) { toast("Es la empresa del estudio"); return; }
     const cta = T.cuenta(e), m = cta.meses.slice().reverse().find(x => x.saldo > 0) || cta.meses[cta.meses.length - 1];
     if (!m) { toast("No hay cargos para facturar"); return; }
@@ -189,7 +189,7 @@
       ${T.CONCEPTS.map(row).join("")}
       <div class="grid2"><div><label for="tfInc">Documentos incluidos</label><input id="tfInc" data-kb="digits" value="${t.incluidos}"></div><div></div></div>
       <div class="grid2"><div><label for="tfVence">Vence el día</label><input id="tfVence" data-kb="digits" value="${t.venceDia}"></div><div><label for="tfGracia">Días de gracia</label><input id="tfGracia" data-kb="digits" value="${t.graciaDias}"></div></div>
-      <label for="tfEst">Empresa del estudio (emite tus facturas a los clientes)</label>
+      <label for="tfEst">Empresa del estudio (emite las facturas del servicio)</label>
       <select id="tfEst"><option value="">Sin elegir</option>${emps.map(x => `<option value="${esc(x.id)}" ${t.estudioEmpresaId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
       <div class="btn-row" style="margin-top:16px"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Guardar</button></div>`, (el, close) => {
       el.querySelectorAll("[data-tincl]").forEach(c => c.onchange = () => { el.querySelector(`[data-tmonto="${c.dataset.tincl}"]`).disabled = c.checked; });
@@ -198,7 +198,7 @@
         const dia = parseInt(el.querySelector("#tfVence").value, 10), gr = parseInt(el.querySelector("#tfGracia").value, 10), inc = parseInt(el.querySelector("#tfInc").value, 10);
         if (!(dia >= 1 && dia <= 28)) { toast("El día de vencimiento tiene que estar entre 1 y 28"); return; }
         if (!(gr >= 0 && gr <= 60)) { toast("Los días de gracia van de 0 a 60"); return; }
-        if (!(inc >= 0)) { toast("Escribí los documentos incluidos"); return; }
+        if (!(inc >= 0)) { toast("Faltan los documentos incluidos"); return; }
         const m = k => FE.parseAmount(el.querySelector(`[data-tmonto="${k}"]`).value), incl = {};
         el.querySelectorAll("[data-tincl]").forEach(c => { if (c.checked) incl[c.dataset.tincl] = true; });
         const nt = { base: m("base"), incluidos: inc, extraDoc: m("extraDoc"), usuarioExtra: m("usuarioExtra"), alta: m("alta"), venceDia: dia, graciaDias: gr,
@@ -235,12 +235,13 @@
       </div>
       ${section("Alertas", `<div class="card">${problems.length ? problems.map(a => `<div class="row" data-openemp="${esc(a.e.id)}" role="button" tabindex="0">
           <div class="main"><div class="title">${esc(a.e.name)}</div><div class="sub">${esc(a.text)}</div></div>${chip(levelCls(a.level), a.level === "bad" ? "Urgente" : "Atención")}</div>`).join("")
-        : `<div class="muted small">Todo en orden: certificados, timbrados y envíos al día.</div>`}</div>`)}
-      ${section("Cola de envíos a SIFEN", `<div class="card">${queue.length ? queue.map(q => `<div class="row" data-openemp="${esc(q.e.id)}" role="button" tabindex="0">
+        : `<div class="muted small">Sin alertas: certificados, timbrados y envíos al día.</div>`}</div>`)}
+      ${can("cobros") ? cobrosResumen(emps) : ""}
+      ${section("Envíos pendientes a SIFEN", `<div class="card">${queue.length ? queue.map(q => `<div class="row" data-openemp="${esc(q.e.id)}" role="button" tabindex="0">
           <div class="main"><div class="title">${esc(q.invoice.number)} · ${esc(q.e.name)}</div><div class="sub">${esc(q.invoice.client)} · Gs ${fmt(q.invoice.total)}</div></div>
           ${q.late ? chip("bad", "Pasaron las 72 h") : chip("warn", "Quedan " + Math.floor(q.left) + " h")}</div>`).join("")
-        : `<div class="muted small">No hay facturas pendientes de envío.</div>`}
-        <div class="muted small" style="margin-top:8px">Plazo: 72 horas desde la firma. El envío y los reintentos los hará el servidor; hoy la respuesta de SIFEN es simulada.</div></div>`)}`;
+        : `<div class="muted small">Sin documentos pendientes de envío.</div>`}
+        <div class="muted small" style="margin-top:8px">Plazo: 72 horas desde la firma. El envío y los reintentos los hará el servidor.</div></div>`)}`;
   }
 
   function screenEmpresas() {
@@ -251,7 +252,7 @@
         const n = T.alertsFor(e).filter(a => a.level !== "info").length;
         return `<div class="row" data-openemp="${esc(e.id)}" role="button" tabindex="0"><div class="main"><div class="title">${esc(e.name)}</div>
           <div class="sub">RUC ${esc(e.ruc)}-${esc(e.dv)}${n ? " · " + n + " alerta(s)" : ""}</div></div>
-          <div style="text-align:right">${statusChip(e)}</div></div>`; }).join("") : `<div class="muted small">No tenés empresas asignadas.</div>`}</div>
+          <div style="text-align:right">${statusChip(e)}</div></div>`; }).join("") : `<div class="muted small">Sin empresas asignadas.</div>`}</div>
       ${can("empresas.alta") ? `<button class="btn primary" data-newemp style="margin-top:14px">Nueva empresa (alta guiada)</button>` : ""}`;
   }
 
@@ -290,7 +291,7 @@
           ${can("empresa.ambiente") ? `<div class="seg" style="margin-top:8px"><button data-setenv="test" class="${e.env !== "prod" ? "on" : ""}">Prueba</button><button data-setenv="prod" class="${e.env === "prod" ? "on" : ""}">Producción</button></div>` : ""}
           ${can("empresa.tecnico") ? `<button class="btn soft" data-editcsc style="margin-top:10px">Editar IdCSC</button>` : ""}
         </div>`)}
-      ${planSection(e)}
+      ${can("cobros") ? planSection(e) : ""}
       ${section("Inutilización de numeración", `<div class="card">
           ${inutilsOf(e).length ? inutilsOf(e).map(x => `<div class="kv"><span><b>${esc(T.deType(x.deType).short)} · ${esc(T.puntoLabel(e, x.key || x.est + "-" + x.point))} · ${String(x.desde).padStart(7, "0")} al ${String(x.hasta).padStart(7, "0")}</b>
             <br><span class="small muted">Timbrado ${esc(x.timbrado)} · ${esc(x.motivo)} · ${esc(x.user)}</span></span><span class="small muted">${fmtDate(x.at)}</span></div>`).join("")
@@ -337,10 +338,34 @@
         : `<div class="muted small">Sin registros todavía.</div>`}</div>`;
   }
 
+  // Cobros: estado de cuenta de todas las empresas (solo el administrador general)
+  function cobrosResumen(emps) {
+    const ctas = emps.map(e => ({ e, c: T.cuenta(e) })), deuda = ctas.reduce((a, x) => a + (x.c.deuda || 0), 0);
+    const susp = ctas.filter(x => x.c.state === "suspendido").length, venc = ctas.filter(x => x.c.state === "vencido").length;
+    return section("Cobros", `<div class="card"><div class="kv"><span class="muted">Deuda vencida</span><span class="amount">${gs(deuda)}</span></div>
+      <div class="kv"><span class="muted">Empresas con pago vencido</span><span>${venc}</span></div><div class="kv"><span class="muted">Empresas suspendidas</span><span>${susp}</span></div>
+      <button class="btn soft" data-go="cobros" style="margin-top:10px">Ver cobros</button></div>`);
+  }
+  function screenCobros() {
+    if (!can("cobros")) return screenPanel();
+    const emps = myEmpresas(), ctas = emps.map(e => ({ e, c: T.cuenta(e), mes: T.cargoDe(e, T.periodOf(new Date().toISOString())) }));
+    const deuda = ctas.reduce((a, x) => a + (x.c.deuda || 0), 0), mesTotal = ctas.reduce((a, x) => a + (x.mes.total || 0), 0);
+    const order = { suspendido: 0, vencido: 1, al_dia: 2, inactivo: 3 };
+    const stChip = st => st === "suspendido" ? chip("bad", "Suspendida") : st === "vencido" ? chip("warn", "Vencida") : st === "inactivo" ? chip("neutral", "Sin plan") : chip("ok", "Al día");
+    return `
+      <h2>Cobros</h2>
+      <div class="hero"><div class="label">Deuda vencida</div><div class="value">${gs(deuda)}</div><div class="meta">Cargos del mes en curso: ${gs(mesTotal)} · ${emps.length} empresa(s)</div></div>
+      <div class="quick"><button class="btn soft" data-tarifas>Tarifas del servicio</button></div>
+      ${section("Empresas", `<div class="card">${ctas.sort((a, b) => order[a.c.state] - order[b.c.state]).map(x => `<div class="row" data-openemp="${esc(x.e.id)}" role="button" tabindex="0">
+        <div class="main"><div class="title">${esc(x.e.name)}</div><div class="sub">${esc(x.c.text)} · mes en curso ${gs(x.mes.total)}</div></div>
+        <div style="text-align:right"><div class="amount">${gs(x.c.deuda || 0)}</div><div style="margin-top:4px">${stChip(x.c.state)}</div></div></div>`).join("") || `<div class="muted small">Sin empresas.</div>`}</div>`)}
+      <div class="muted small">Pagos, precios propios, descuentos y la factura del servicio se gestionan en la ficha de cada empresa (sección Plan y cobros).</div>`;
+  }
   function screenAjustes() {
     return `
-      <h2>Ajustes</h2>
+      <h2>Más</h2>
       ${T.profileCardHTML({ name: user.name, sub: T.ROLES[user.role].label + " · Estudio" })}
+      ${can("auditoria") ? `<button class="profile-card" data-go="auditoria" style="min-height:52px"><span class="pf-t"><b>Auditoría</b><span>Actividad de ${user.role === "maestro" ? "todas las empresas" : "sus empresas"}</span></span><span class="pf-go">›</span></button>` : ""}
       ${user.role === "maestro" ? section("Tarifas del servicio", `<div class="card">
           ${(t => `<div class="kv"><span class="muted">Plan base</span><span>${t.incl.base ? "Incluido" : "Gs " + fmt(t.base)} · ${t.incluidos} documentos</span></div>
           ${T.MODULES.map(m => `<div class="kv"><span class="muted">${esc(m.label)}</span><span>${t.incl[m.key] ? "Incluido" : "Gs " + fmt(t.modulos[m.key] || 0)}</span></div>`).join("")}
@@ -349,9 +374,9 @@
           <button class="btn soft" data-tarifas style="margin-top:10px">Editar tarifas</button></div>`) : ""}
       ${section("Apariencia", FE.themeHTML())}
       ${section("Instalar en este dispositivo", `<div class="card">${FE.installHTML("Admin")}</div>`)}
-      ${user.role === "maestro" ? section("Respaldo completo", `<div class="card">
+      ${user.role === "maestro" ? section("Copia de seguridad completa", `<div class="card">
           <p class="small muted" style="margin-top:0">Empresas, usuarios, auditoría y los datos de todas las empresas guardados en este dispositivo.</p>
-          <div class="btn-row"><button class="btn soft" data-backupall>Descargar respaldo</button>
+          <div class="btn-row"><button class="btn soft" data-backupall>Descargar copia</button>
           <label class="btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Restaurar<input type="file" id="restoreAll" accept="application/json,.json" hidden></label></div>
         </div>`) : ""}
       <div class="muted small" style="margin-top:16px">Mientras no exista el servidor, esta app administra los datos guardados en este dispositivo. Ver docs/arquitectura-multiempresa.md.</div>`;
@@ -378,7 +403,7 @@
         <div class="muted small" style="margin-top:6px">Los datos tienen que ser iguales a los de Marangatu.</div>`;
     } else if (step === 2) {
       const est0 = T.establecimientosOf(e)[0], pto0 = est0.puntos[0] || { code: "001", nombre: "Caja 1" }, locked = estEnUso(e, est0);
-      body = locked ? `<div class="notice ok" style="margin-top:0"><b>Establecimiento ${esc(est0.code)} · ${esc(pto0.nombre)} (${esc(est0.code)}-${esc(pto0.code)})</b>Ya está en uso en un timbrado: no se cambia. Agregá otros establecimientos o cajas desde la ficha de la empresa.</div>`
+      body = locked ? `<div class="notice ok" style="margin-top:0"><b>Establecimiento ${esc(est0.code)} · ${esc(pto0.nombre)} (${esc(est0.code)}-${esc(pto0.code)})</b>Ya está en uso en un timbrado: no se cambia. Otros establecimientos y cajas se agregan desde la ficha de la empresa.</div>`
         : `<div class="grid2"><div>${inp("aEst", "Establecimiento", est0.code, 'inputmode="numeric" maxlength="3"')}</div><div>${inp("aPoint", "Punto de expedición", pto0.code, 'inputmode="numeric" maxlength="3"')}</div></div>
         ${inp("aPtoName", "Nombre de la caja", pto0.nombre)}
         <div class="muted small" style="margin-top:6px">Como figuran en el RUC y en Marangatu (tres dígitos cada uno, por ejemplo 001 y 001). Van en el número de factura y en el CDC. La dirección del establecimiento es la del paso 1; otros establecimientos y cajas se agregan desde la ficha de la empresa.</div>`;
@@ -392,19 +417,19 @@
         <button class="link" data-altaskip>Lo registro después</button>`;
     } else if (step === 4) {
       const tims = timbradosOf(e), act = tims.find(t => t.estado === "activo"), p0 = T.puntosOf(e)[0];
-      body = act ? `<div class="notice ok" style="margin-top:0"><b>Timbrado activo ${esc(act.number)}</b>${esc(T.vigenciaText(act))} · ya no se modifica. Para cambiarlo, dalo de baja en la ficha de la empresa y cargá el nuevo.</div>`
+      body = act ? `<div class="notice ok" style="margin-top:0"><b>Timbrado activo ${esc(act.number)}</b>${esc(T.vigenciaText(act))} · ya no se modifica. Para cambiarlo se da de baja en la ficha de la empresa y se carga el nuevo.</div>`
         : `${inp("tNum4", "Número de timbrado (8 dígitos)", "", 'inputmode="numeric" maxlength="8"')}
         <div class="grid2"><div>${inp("tStart4", "Fecha de inicio", FE.todayKey(), 'type="date"')}</div><div>${inp("tEnd4", "Fecha de fin (vacío = sin fin)", "", 'type="date"')}</div></div>
         ${inp("tNext4", "Número del primer documento de cada tipo", 1, 'inputmode="numeric"')}
         <div class="muted small">Se habilita en ${esc(p0 ? T.puntoLabel(e, p0.key) : "la primera caja")}. Más cajas se agregan después con «Ampliar».</div>
         ${T.tiposFieldsHTML(["1", "5", "6"])}
-        <div class="notice warn">Al continuar, el timbrado queda <b>activo</b> y ya no se puede modificar. Revisá que coincida con Marangatu.</div>`;
+        <div class="notice warn">Al continuar, el timbrado queda <b>activo</b> y ya no se puede modificar. Debe coincidir con Marangatu.</div>`;
       body += `
         ${inp("aCsc", "IdCSC de prueba", e.csc || "0001", 'inputmode="numeric" maxlength="4"')}
         <div class="muted small" style="margin-top:6px">En prueba se usa el CSC del manual. El CSC de producción se carga en el paso 6.</div>`;
     } else if (step === 5) {
       const ch = (e.onboarding && e.onboarding.checks) || {};
-      body = `<p class="small muted" style="margin-top:0">Marcá lo que ya se completó en el ambiente de prueba de la DNIT. Esto requiere el servidor (XML, firma y envío).</p>
+      body = `<p class="small muted" style="margin-top:0">Pasos ya completados en el ambiente de prueba de la DNIT. Esto requiere el servidor (XML, firma y envío).</p>
         <div class="card">${T.TEST_CHECKS.map(([k, t]) => `<label style="display:flex;gap:10px;align-items:flex-start;margin:10px 0;color:var(--text);font-weight:500">
           <input type="checkbox" data-check="${k}" ${ch[k] ? "checked" : ""} style="width:20px;min-height:20px;height:20px;flex:none;margin-top:2px;appearance:auto"> ${esc(t)}</label>`).join("")}</div>`;
     } else {
@@ -438,8 +463,8 @@
     e.onboarding = e.onboarding || { step: 1, checks: {}, habilitado: false };
     if (a.step === 1) {
       const p = parseRuc(v("aRuc"));
-      if (!v("aName")) { toast("Escribí la razón social"); return false; }
-      if (!p) { toast("Escribí el RUC con su dígito verificador, por ejemplo 80012345-0"); return false; }
+      if (!v("aName")) { toast("Falta la razón social"); return false; }
+      if (!p) { toast("El RUC va con su dígito verificador, por ejemplo 80012345-0"); return false; }
       if (dv11(p.base) !== p.dv) { toast("El dígito verificador no corresponde a ese RUC"); return false; }
       if (T.listEmpresas().some(x => x.ruc === p.base && x.id !== e.id)) { toast("Ya hay una empresa con ese RUC"); return false; }
       Object.assign(e, { name: v("aName"), ruc: p.base, dv: String(p.dv), fantasy: v("aFantasy"), activity: v("aActivity"), address: v("aAddress"),
@@ -455,7 +480,7 @@
     } else if (a.step === 3) {
       if (a.skipCert) { a.skipCert = false; }
       else {
-        if (!v("cVence")) { toast("Elegí la fecha de vencimiento del certificado, o tocá «Lo registro después»"); return false; }
+        if (!v("cVence")) { toast("Falta la fecha de vencimiento del certificado (o «Lo registro después»)"); return false; }
         const cr = parseRuc(v("cRuc"));
         if (!cr || cr.base !== e.ruc) { toast("El RUC del certificado tiene que ser el de la empresa (" + e.ruc + "-" + e.dv + ")"); return false; }
         if (v("cDesde") && v("cVence") < v("cDesde")) { toast("El vencimiento no puede ser anterior a la fecha de inicio"); return false; }
@@ -468,11 +493,11 @@
       if (!act) {
         const num = v("tNum4").replace(/\D/g, ""), start = v("tStart4"), end = v("tEnd4"), next = parseInt(v("tNext4"), 10);
         if (!/^\d{8}$/.test(num)) { toast("El timbrado tiene que tener 8 dígitos"); return false; }
-        if (!start) { toast("Elegí la fecha de inicio del timbrado"); return false; }
+        if (!start) { toast("Falta seleccionar la fecha de inicio del timbrado"); return false; }
         if (end && end < start) { toast("La fecha de fin no puede ser anterior a la de inicio"); return false; }
         if (!(next >= 1 && next <= 9999999)) { toast("El número del primer documento tiene que estar entre 1 y 9.999.999"); return false; }
         const tipos = T.readTipos(document.getElementById("screen")).tipos;
-        if (!tipos.length) { toast("Marcá al menos un tipo de documento habilitado"); return false; }
+        if (!tipos.length) { toast("Falta marcar al menos un tipo de documento habilitado"); return false; }
         if (tims.some(t => t.number === num)) { toast("Ese timbrado ya está cargado en la empresa"); return false; }
         const key = (T.puntosOf(e)[0] || {}).key || "001-001", numeros = {}; tipos.forEach(c => numeros[c] = next);
         const nt = T.normTimbrado({ id: FE.randomId(6), number: num, start, end, habilita: { [key]: { tipos, numeros } }, estado: "cargado", createdAt: new Date().toISOString() });
@@ -533,7 +558,7 @@
       el.querySelector("[data-x]").onclick = close;
       el.querySelector("[data-ok]").onclick = () => {
         const v = id => el.querySelector("#" + id).value.trim();
-        if (!v("eName")) { toast("Escribí la razón social"); return; }
+        if (!v("eName")) { toast("Falta la razón social"); return; }
         Object.assign(e, { name: v("eName"), fantasy: v("eFan"), activity: v("eAct"), address: v("eAdr"), city: v("eCity"), phone: v("ePhone"), mail: v("eMail"),
           taxpayerType: v("eTp") });
         T.saveEmpresa(e); log("Datos de empresa editados", e.name, e.id); close(); render(); toast("Datos guardados");
@@ -554,7 +579,7 @@
       el.querySelector("[data-ok]").onclick = () => {
         const v = id => el.querySelector("#" + id).value.trim(), cr = parseRuc(v("cRuc"));
         if (!cr || cr.base !== e.ruc) { toast("El RUC del certificado tiene que ser el de la empresa (" + e.ruc + "-" + e.dv + ")"); return; }
-        if (!v("cVence")) { toast("Elegí la fecha de vencimiento"); return; }
+        if (!v("cVence")) { toast("Falta seleccionar la fecha de vencimiento"); return; }
         if (v("cDesde") && v("cVence") < v("cDesde")) { toast("El vencimiento no puede ser anterior a la fecha de inicio"); return; }
         e.cert = { titular: v("cTit"), ruc: cr.full, prestador: v("cPre"), tipo: "F1", serie: v("cSerie"), desde: v("cDesde"), vence: v("cVence"), archivo: false };
         T.saveEmpresa(e); log("Certificado actualizado", e.name + " · vence " + T.isoToDmy(e.cert.vence), e.id); close(); render(); toast("Certificado guardado");
@@ -600,11 +625,11 @@
   }
 
   // ================= Render =================
-  const titles = { panel: "Panel", empresas: "Empresas", empresa: "Empresa", alta: "Alta de empresa", usuarios: "Usuarios", auditoria: "Auditoría", ajustes: "Ajustes" };
+  const titles = { panel: "Inicio", empresas: "Empresas", empresa: "Empresa", alta: "Alta de empresa", usuarios: "Usuarios", auditoria: "Auditoría", ajustes: "Más", cobros: "Cobros" };
   function render() {
     if (!user) { document.getElementById("screen").innerHTML = ""; return; }
     const s = state.screen;
-    const map = { panel: screenPanel, empresas: screenEmpresas, empresa: screenEmpresa, alta: screenAlta, usuarios: screenUsuarios, auditoria: screenAuditoria, ajustes: screenAjustes };
+    const map = { panel: screenPanel, empresas: screenEmpresas, empresa: screenEmpresa, alta: screenAlta, usuarios: screenUsuarios, auditoria: screenAuditoria, ajustes: screenAjustes, cobros: screenCobros };
     document.getElementById("screen").innerHTML = (map[s] || screenPanel)();
     FE.enhance(document.getElementById("screen"));
     document.getElementById("title").textContent = titles[s] || "Panel";
@@ -613,8 +638,10 @@
       const k = t.dataset.go;
       t.classList.toggle("on", s === k || (k === "empresas" && (s === "empresa" || s === "alta")));
       if (k === "usuarios") t.style.display = can("usuarios.estudio") ? "" : "none";
+      if (k === "cobros") t.style.display = can("cobros") ? "" : "none";
+      if (k === "ajustes") t.classList.toggle("on", s === "ajustes" || s === "auditoria");
     });
-    document.querySelector(".tabbar").style.setProperty("--tabs", can("usuarios.estudio") ? 5 : 4);
+    document.querySelector(".tabbar").style.setProperty("--tabs", 3 + (can("usuarios.estudio") ? 1 : 0) + (can("cobros") ? 1 : 0));
     window.scrollTo(0, 0);
   }
   function go(s) { state.screen = s; render(); }
@@ -642,7 +669,7 @@
     if (ds.editcsc !== undefined && emp) { editCsc(emp); return; }
     if (ds.setenv && emp) {
       if (!can("empresa.ambiente")) return;
-      if (ds.setenv === "prod" && emp.env !== "prod") { startAlta(emp); state.alta.step = 6; render(); toast("Completá el paso 6 para pasar a producción"); return; }
+      if (ds.setenv === "prod" && emp.env !== "prod") { startAlta(emp); state.alta.step = 6; render(); toast("Para pasar a producción falta completar el paso 6"); return; }
       if (ds.setenv === "test" && emp.env === "prod") {
         confirmSheet("¿Volver a prueba?", "Las facturas dejan de tener validez tributaria.", "Volver a prueba", () => { emp.env = "test"; emp.status = "prueba"; T.saveEmpresa(emp); log("Ambiente cambiado a prueba", emp.name, emp.id); render(); }, true);
       }
@@ -701,7 +728,7 @@
     if (ds.useraddall !== undefined || ds.usereditall) {
       if (!can("usuarios.estudio")) return;
       const u = ds.usereditall ? T.getUser(ds.usereditall) : null;
-      if (u && u.id === user.id) { toast("Tu propio usuario: cambiá tu PIN en Ajustes"); }
+      if (u && u.id === user.id) { toast("Usuario propio: el PIN se cambia en Más → Mi perfil"); }
       T.userSheet({ user: u, roles: Object.keys(T.ROLES), empresas: T.listEmpresas(), onSave: (list, saved) => {
         if (saved.id === user.id) user = T.getUser(user.id);
         log(u ? "Usuario editado" : "Usuario creado", saved.name + " · " + T.ROLES[saved.role].label); render();
@@ -714,7 +741,7 @@
       T.profileSheet({ name: user.name, sub: T.ROLES[user.role].label + " · Estudio",
         rows: [["Rol", T.ROLES[user.role].label], ["Empresas", user.role === "maestro" ? "Todas (" + emps.length + ")" : String(emps.length)], ["Último ingreso", u.lastLoginAt ? fmtDate(u.lastLoginAt) : ""]],
         actions: [{ id: "pin", label: "Cambiar mi PIN" }, { id: "fac", label: "Abrir el Facturador" }],
-        exit: { label: "Cerrar sesión", confirm: "¿Cerrar sesión?", text: "Para volver a entrar vas a necesitar tu PIN." },
+        exit: { label: "Cerrar sesión", confirm: "¿Cerrar sesión?", text: "Para volver a ingresar se necesita el PIN." },
         onAction: (id, close) => {
           close();
           if (id === "pin") { T.changeOwnPin(user); return; }
@@ -774,7 +801,7 @@
       el.className = "lock";
       el.innerHTML = `<div class="box">
         <div style="font-size:40px;line-height:1">&#128273;</div>
-        <h2>Crear admin maestro</h2>
+        <h2>Crear administrador general</h2>
         <p class="lead">Es el usuario del estudio con acceso a todo: empresas, certificados y usuarios.</p>
         <input id="fmName" placeholder="Tu nombre" style="text-align:left">
         <input id="fmPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (4 a 6 números)" style="margin-top:10px">
@@ -784,7 +811,7 @@
       document.body.appendChild(el);
       el.querySelector("#fmOk").onclick = async () => {
         const name = el.querySelector("#fmName").value.trim(), p1 = el.querySelector("#fmPin").value.trim(), p2 = el.querySelector("#fmPin2").value.trim();
-        if (!name) { toast("Escribí tu nombre"); return; }
+        if (!name) { toast("Falta el nombre"); return; }
         if (!/^\d{4,6}$/.test(p1)) { toast("El PIN tiene que tener de 4 a 6 números"); return; }
         if (p1 !== p2) { toast("Los PIN no coinciden"); return; }
         const list = T.users(), u = { id: FE.randomId(8), name, role: "maestro", empresas: [], active: true, createdAt: new Date().toISOString() };

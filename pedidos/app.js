@@ -28,20 +28,20 @@
   // Nota de pedido por pasos, como la emisión del Facturador: cliente → productos → condición y nota → revisión
   const STEPS = ["cliente", "productos", "pago", "revision"];
   const STEP_Q = {
-    cliente: ["¿A quién le vendés?", "Buscalo en tus clientes, escribí su RUC o elegí otra opción."],
-    productos: ["¿Qué te pide?", "Tocá un producto del catálogo o agregá uno nuevo."],
-    pago: ["¿Cómo paga?", "Condición, moneda y una nota para el facturador."],
-    revision: ["Revisá la nota de pedido", "Tocá una línea para corregirla. Al guardar podés enviarle el PDF al cliente."]
+    cliente: ["Cliente", "Clientes frecuentes, búsqueda por RUC u otras opciones."],
+    productos: ["Productos", "Productos del catálogo o carga de uno nuevo."],
+    pago: ["Condición de venta", "Condición, moneda y una nota para el facturador."],
+    revision: ["Revisión", "Cada línea abre su paso para corregirlo. Al guardar, el PDF queda listo para enviar al cliente."]
   };
   const stepKey = d => STEPS[Math.min(Math.max(d.step || 0, 0), STEPS.length - 1)];
   const initials = n => String(n || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "?";
   function stepCheck(d, key) {
     const t = calcItems(d.items, d.currency), r = classify(d, pygOf(d, t));
-    const cli = r.valid && (d.mode !== "con" || String(d.ruc || "").trim()) ? { ok: true } : { ok: false, why: d.mode === "con" && !String(d.ruc || "").trim() ? "Elegí o cargá el cliente" : r.why };
+    const cli = r.valid && (d.mode !== "con" || String(d.ruc || "").trim()) ? { ok: true } : { ok: false, why: d.mode === "con" && !String(d.ruc || "").trim() ? "Falta el cliente" : r.why };
     if (key === "cliente") return cli;
-    const prod = d.items.length ? { ok: true } : { ok: false, why: "Agregá al menos un producto" };
+    const prod = d.items.length ? { ok: true } : { ok: false, why: "Falta agregar al menos un producto" };
     if (key === "productos") return prod;
-    const pago = d.currency === "USD" && FE.pygTotal(t.total, "USD", d.exchange) == null ? { ok: false, why: "Escribí el tipo de cambio" } : { ok: true };
+    const pago = d.currency === "USD" && FE.pygTotal(t.total, "USD", d.exchange) == null ? { ok: false, why: "Falta el tipo de cambio" } : { ok: true };
     if (key === "pago") return pago;
     return !cli.ok ? cli : !prod.ok ? prod : pago;
   }
@@ -150,7 +150,7 @@
 
   const pedidoTotal = p => calcItems(p.items, p.currency).total;
   const clientName = p => FE.receiverDisplayName(p.client);
-  const shareChip = p => p.sharedAt ? '<span class="chip ok">Compartido</span>' : '<span class="chip warn">Sin compartir</span>';
+  const shareChip = p => p.sharedAt ? '<span class="chip ok">Enviada</span>' : '<span class="chip warn">No enviada</span>';
 
   function screenList() {
     const list = pedidos.filter(p => (state.filter === "all" || (state.filter === "shared" ? !!p.sharedAt : !p.sharedAt)) && FE.matches(state.q, clientName(p), p.id, p.client.ruc, p.client.doc));
@@ -158,7 +158,7 @@
     const seg = (k, l) => `<button data-filter="${k}" class="${state.filter === k ? "on" : ""}">${l} · ${count(k)}</button>`;
     return `
       <h2>Mis notas de pedido</h2>
-      <div class="seg">${seg("all", "Todos")}${seg("pending", "Sin compartir")}${seg("shared", "Compartidos")}</div>
+      <div class="seg">${seg("all", "Todas")}${seg("pending", "No enviadas")}${seg("shared", "Enviadas")}</div>
       ${pedidos.length > 3 || state.q ? FE.searchBox(state.q, "Buscar por cliente, número o RUC") : ""}
       <div class="card" style="margin-top:12px">
         ${list.length ? list.map(p => `<div class="row" data-open="${esc(p.id)}" role="button" tabindex="0">
@@ -212,7 +212,7 @@
   function screenClients() {
     return `
       <h2>Clientes frecuentes</h2>
-      <p class="lead">Se guardan solos al crear una nota de pedido. También podés agregarlos aquí.</p>
+      <p class="lead">Se guardan solos al crear una nota de pedido. También se agregan desde aquí.</p>
       <div class="card">
         ${clients.length ? clients.map(c => `<div class="row" style="cursor:default"><div class="main"><div class="title">${esc(c.name || "Sin nombre")}</div>
           <div class="sub">${c.mode === "con" ? "RUC " : ""}${esc(FE.receiverIdText(c))}${c.email ? " · " + esc(c.email) : ""}</div></div>
@@ -231,7 +231,7 @@
         <div class="card">
           ${catalog.products.length ? `<div class="kv"><span class="muted">Catálogo</span><span>${esc(catalog.empresa || "Sin nombre")} · ${catalog.products.length} producto(s)</span></div>
             <div class="kv"><span class="muted">Cargado</span><span>${fmtDate(catalog.loadedAt)}</span></div>`
-            : `<p class="small muted" style="margin-top:0">Cargá el catálogo que te comparte el facturador (Facturador → Ajustes → Productos frecuentes → Compartir). Después elegís los productos de una lista.</p>`}
+            : `<p class="small muted" style="margin-top:0">El catálogo lo comparte la empresa desde Facturación (Gestión → Productos frecuentes → Compartir). Después los productos se eligen de una lista.</p>`}
           <div class="btn-row" style="margin-top:10px">
             <label class="btn soft" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar desde imagen<input type="file" id="catFile" accept="image/*" hidden></label>
             <button class="btn" data-catpaste>Pegar código</button>
@@ -240,11 +240,11 @@
         </div></div>
       <div class="section"><div class="section-title">Instalar en este dispositivo</div>
         <div class="card">${FE.installHTML("Pedidos")}</div></div>
-      <div class="section"><div class="section-title">Respaldo</div>
+      <div class="section"><div class="section-title">Copia de seguridad</div>
         <div class="card">
-          <p class="small muted" style="margin-top:0">Las notas de pedido se guardan solo en este dispositivo. Descargá un respaldo de vez en cuando.</p>
+          <p class="small muted" style="margin-top:0">Las notas de pedido se guardan solo en este dispositivo. Se recomienda descargar una copia de seguridad cada tanto.</p>
           <div class="btn-row">
-            <button class="btn soft" data-backup>Descargar respaldo</button>
+            <button class="btn soft" data-backup>Descargar copia</button>
             <label class="btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Restaurar<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
           </div>
         </div></div>
@@ -276,7 +276,7 @@
     const p = pedidos.find(x => x.id === state.detailId), holder = document.getElementById("qrHolder");
     if (!p || !holder) return;
     const cv = qrFor(p);
-    if (!cv) { holder.innerHTML = `<div class="notice bad" style="margin:0"><b>El pedido es demasiado grande para un QR</b>Dividilo en dos pedidos más chicos.</div>`; return; }
+    if (!cv) { holder.innerHTML = `<div class="notice bad" style="margin:0"><b>El pedido es demasiado grande para un QR</b>Conviene dividirla en dos notas más chicas.</div>`; return; }
     holder.appendChild(cv);
   }
 
@@ -293,12 +293,12 @@
     saveDraft();
   }
   function askSeller(then) {
-    sheet(`<h3>¿Cómo te llamás?</h3><p class="muted small">Tu nombre va en cada nota de pedido: lo ven el cliente y el facturador.</p>
+    sheet(`<h3>Nombre del vendedor</h3><p class="muted small">Tu nombre va en cada nota de pedido: lo ven el cliente y el facturador.</p>
       <input id="aSeller" placeholder="Ej. Ana Benítez" value="${esc(settings.seller)}">
       <button class="btn primary" id="aOk" style="margin-top:14px">Continuar</button>`, (el, close) => {
       el.querySelector("#aOk").onclick = () => {
         const v = el.querySelector("#aSeller").value.trim();
-        if (!v) { toast("Escribí tu nombre"); return; }
+        if (!v) { toast("Falta el nombre"); return; }
         settings.seller = v; save(); close(); render(); then && then();
       };
       setTimeout(() => el.querySelector("#aSeller").focus(), 60);
@@ -360,7 +360,7 @@
         FE.syncReceiver(c); c.email = el.querySelector("#nMail").value.trim();
         const r = classify(c, 0);
         if (!r.valid) { toast(r.why); return; }
-        if (c.mode === "sin" && !c.doc.trim() && !c.name.trim()) { toast("Escribí al menos el nombre o el documento"); return; }
+        if (c.mode === "sin" && !c.doc.trim() && !c.name.trim()) { toast("Falta el nombre o el documento"); return; }
         clients = upsertClient(clients, FE.receiverFromDraft(c, r));
         save(); close(); render(); toast("Cliente guardado");
       };
@@ -412,7 +412,7 @@
       if (ds.pdfdown) { FE.downloadBlob(NotaPedidoPdf.build(p).output("blob"), NotaPedidoPdf.fileName(p)); toast("PDF descargado"); return; }
       NotaPedidoPdf.share(p).then(r => {
         if (r === "cancelled") return;
-        if (r === "downloaded") toast("PDF descargado. Envialo por WhatsApp desde tus archivos.");
+        if (r === "downloaded") toast("PDF descargado. Se puede enviar por WhatsApp desde los archivos del teléfono.");
         p.pdfAt = new Date().toISOString(); save(); render();
       }).catch(err => { console.error(err); toast("No se pudo generar el PDF"); });
       return;
@@ -456,7 +456,7 @@
       state.wq = ""; state.wmanual = false; saveDraft(); go("new"); return;
     }
     if (ds.delete) {
-      confirmSheet("¿Eliminar esta nota de pedido?", "Hacelo solo si todavía no se facturó. Esta acción no se puede deshacer.", "Eliminar", () => {
+      confirmSheet("¿Eliminar esta nota de pedido?", "Solo si todavía no se facturó. Esta acción no se puede deshacer.", "Eliminar", () => {
         pedidos = pedidos.filter(x => x.id !== ds.delete); save(); go("list"); toast("Nota de pedido eliminada");
       }, true);
       return;
@@ -474,7 +474,7 @@
     }
     if (ds.saveseller !== undefined) {
       const v = document.getElementById("sSeller").value.trim();
-      if (!v) { toast("Escribí tu nombre"); return; }
+      if (!v) { toast("Falta el nombre"); return; }
       settings.seller = v; save(); render(); toast("Nombre guardado"); return;
     }
     if (ds.themeSet) { FE.setTheme(ds.themeSet); render(); return; }

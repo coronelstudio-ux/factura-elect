@@ -127,6 +127,20 @@ Emitir un documento sigue el flujo de una transferencia bancaria, tomando como m
 - **Suspensión:** pasados los días de gracia, se bloquea solo la **emisión de documentos nuevos**. El cliente lo ve en Inicio y puede seguir viendo y descargando lo emitido.
 - **Facturar el servicio:** prepara la factura al cliente en el Facturador de la empresa del estudio y la abre en la revisión. Como una factura no admite ítems negativos, los descuentos se restan del precio del concepto (o de los ítems mayores, si son sobre el total) y los conceptos incluidos no aparecen.
 
+## Usuarios y vista de cada uno
+
+| Rol | App | Qué ve y qué hace |
+|---|---|---|
+| **Administrador general** (estudio) | Administración | Inicio con alertas, cobros y envíos pendientes. Pestañas: Inicio, Empresas, Cobros, Usuarios, Más (perfil, auditoría, tarifas, copia de seguridad). Controla todo. Único que ve el lenguaje técnico completo y descarga el XML. |
+| **Operador del estudio** | Administración | Soporte técnico de sus empresas asignadas: datos, CSC, certificado y usuarios. Sin cobros ni tarifas. |
+| **Administrador de la empresa** | Facturación | Inicio **Mi negocio** (hoy, mes, por caja y por usuario). **Gestión**: equipo, cajas y establecimientos, timbrados e inutilización, productos, clientes, preferencias, actividad, cuenta del servicio y copia de seguridad. Emite, cancela y corrige. |
+| **Facturador** | Facturación | Inicio **Mi caja**. Emite facturas y recibe notas de pedido. Ve **solo los documentos que emitió**. Cancelar y notas de crédito o débito son del administrador. Ajustes reducido. |
+| **Vendedor** | Notas de pedido | Sus notas y clientes; envía el PDF y el QR. |
+| **Modo un dispositivo** | Facturación | Sin usuarios cargados funciona como administrador de la empresa. |
+
+- Permisos en `PERMS` de `shared/tenant.js` (`documentos.corregir`, `documentos.todos`, `negocio.resumen`, `actividad.empresa`, `cobros`…).
+- **Lenguaje:** impersonal y descriptivo (sin voseo). Glosario con versión técnica para el estudio y simple para la empresa (`T.term`): por ejemplo KuDE → "Documento (PDF)", CDC → "Código de control (CDC)", ambiente de prueba → "Modo de prueba". Fechas en formato `26/11/2026 09:09`.
+
 ## Timbrados, establecimientos y cajas (reglas de la DNIT)
 
 - **Establecimientos** (Admin → empresa → Establecimientos y cajas): como figuran en el RUC, con código y dirección. Cada uno tiene sus **cajas** (puntos de expedición), con código y un nombre interno ("Caja 1", "Caja 2"…). Los códigos en uso no se cambian; se dan de baja.
