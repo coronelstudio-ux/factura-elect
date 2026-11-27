@@ -5,6 +5,87 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 
 ## Pendientes
 
+### 7. Timbrado unificado: establecimientos y cajas dentro del timbrado, y cuánto controla el contribuyente
+
+- **Pedido:**
+  - Unificar en una sola sección el timbrado, los establecimientos y las cajas (puntos de expedición). Las cajas siempre están vinculadas a un timbrado.
+  - Se pueden agregar, pero no eliminar. Se dan de baja cuando se da de baja el timbrado.
+  - Decidir cuánto control tiene el contribuyente: un cambio indebido puede provocar rechazos de SIFEN y de la DNIT en las facturas emitidas.
+
+- **Cómo está hoy:**
+  - **Secciones separadas.** En Facturación (Gestión) y en Administración hay tres: "Cajas y establecimientos", "Timbrados" e "Inutilización".
+  - **Cajas sueltas.** Se crean aparte y después hay que "ampliar" el timbrado para habilitarlas. Una caja o un establecimiento se puede **dar de baja por separado**, aunque su timbrado siga activo.
+  - **Control del administrador de la empresa.** Hoy puede, con PIN:
+    - cargar, activar, ampliar y dar de baja timbrados;
+    - crear cajas y establecimientos;
+    - inutilizar números.
+
+- **Riesgos de un cambio indebido** (rechazos de SIFEN):
+  - Un código de establecimiento o de caja que no coincide con Marangatu → el CDC y el número no corresponden a lo habilitado.
+  - Un tipo de documento marcado que no está habilitado → rechazo por tipo no autorizado.
+  - Un número de inicio equivocado → números repetidos o saltos sin inutilizar.
+  - Una fecha de inicio errónea → documentos emitidos antes de la vigencia.
+  - Una dirección del establecimiento distinta a la del RUC → datos del emisor inconsistentes.
+  - Dar de baja por error el timbrado activo → se corta la emisión.
+
+- **Propuesta:**
+  1. **Una sola sección "Timbrado"**, con esta estructura:
+     ```
+     Timbrado Nº 12345678 · Activo · desde 01/11/2026
+       Establecimiento 001 · Av. Principal 1234, Asunción
+         Caja 1 (001-001): Factura 0000014 · Nota de crédito 0000001 · …
+         Caja 2 (001-002): Factura 0000002
+       Establecimiento 002 · …
+       [Ampliar: agregar caja, establecimiento o tipo]   [Inutilizar números]   [Dar de baja]
+     Timbrados anteriores (dados de baja) ▸
+     ```
+     - Desaparece la sección "Cajas y establecimientos".
+     - Las cajas y los establecimientos se **cargan dentro del timbrado**: al cargarlo y al ampliarlo, con código, dirección y nombre de la caja.
+  2. **Reglas de las cajas y los establecimientos:**
+     - Se **agregan** al cargar o ampliar el timbrado. **No se eliminan ni se dan de baja por separado.**
+     - Al **dar de baja el timbrado**, sus cajas quedan dadas de baja con él.
+     - Al **cargar un timbrado nuevo**, se proponen las cajas del anterior (mismos códigos), para confirmar o ajustar antes de activar.
+     - El código y la dirección quedan fijos una vez activo el timbrado. Solo se puede cambiar el **nombre interno** de la caja ("Caja 1" → "Caja mostrador"), porque no va a SIFEN.
+     - La asignación de cajas a los usuarios se mantiene entre timbrados, porque usa el código (001-002).
+  3. **Doble control antes de activar.** La pantalla de activación muestra un resumen para comparar con Marangatu → Datos del timbrado:
+     - número de timbrado;
+     - fecha de inicio;
+     - establecimientos con su dirección;
+     - cajas;
+     - tipos y primer número de cada caja.
+
+     Se marca "Coincide con Marangatu" y se confirma con PIN.
+  4. **Cuánto controla cada uno.** Tres niveles posibles:
+
+| Acción | Opción A: todo el estudio (más seguro) | Opción B: mixto (propuesta) | Opción C: como hoy |
+|---|---|---|---|
+| Ver el timbrado, las cajas y los números | Empresa y estudio | Empresa y estudio | Empresa y estudio |
+| Cambiar el nombre interno de una caja | Empresa | Empresa | Empresa |
+| Asignar cajas a los usuarios | Empresa | Empresa | Empresa |
+| Cargar y activar un timbrado | Estudio | **Estudio** | Empresa |
+| Ampliar (agregar caja, establecimiento o tipo) | Estudio | **Empresa solicita, estudio aprueba** | Empresa |
+| Inutilizar números | Estudio | **Empresa, con PIN** | Empresa |
+| Dar de baja un timbrado | Estudio | **Estudio** | Empresa |
+
+     - **Propuesta: opción B.** El estudio, que conoce las reglas de la DNIT, es el único que carga, activa y da de baja. La empresa opera el día a día: nombres, cajas de sus usuarios e inutilización de un salto propio.
+     - Las ampliaciones las **solicita** la empresa desde la app (qué caja o qué tipo y desde qué número) y quedan como alerta en el inicio del estudio para aprobarlas.
+     - Sin servidor, la solicitud queda en el dispositivo, igual que la boleta. Con la base de datos llegará al estudio como notificación.
+  5. **Bloqueos de seguridad**, que ya existen en parte y se refuerzan:
+     - no se emite con una caja que no esté habilitada en el timbrado activo;
+     - no se emite fuera de la vigencia;
+     - un número de inicio menor que uno ya usado se rechaza;
+     - las fechas futuras y los tipos no habilitados se avisan antes de activar.
+  6. **Administración (estudio):** la misma sección unificada en la ficha de la empresa, con la bandeja de **solicitudes de ampliación** para aprobar o rechazar con motivo.
+  7. **Modo un dispositivo** (sin estudio): funciona como hoy, con todo el control y doble confirmación, porque no hay a quién derivar.
+
+- **Dudas:**
+  1. ¿Qué nivel de control preferís: **A**, **B** (mi propuesta) o **C**?
+  2. Al cargar un timbrado nuevo, ¿se proponen las cajas del anterior para confirmarlas, o se cargan desde cero?
+  3. La decisión anterior era que la empresa puede inutilizar números. ¿La mantenemos con la opción B, o pasa también al estudio?
+  4. En el modo un dispositivo, ¿de acuerdo con que tenga todo el control con doble confirmación?
+
+- **Tamaño:** mediano. Reorganiza la sección de timbrado en las dos apps y agrega las solicitudes de ampliación. El modelo de datos actual ya vincula las cajas al timbrado, así que no hay migración de datos.
+
 ## Previstos para más adelante
 
 Temas que no se programan ahora. **Cada vez que se apliquen cambios, preguntar al usuario si se profundiza en alguno o se aplaza.**
