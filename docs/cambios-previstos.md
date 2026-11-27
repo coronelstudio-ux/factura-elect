@@ -106,7 +106,25 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   - **Revisión del estudio:** ve la solicitud junto con lo que ya tiene cargado, con las diferencias resaltadas, y la aprueba o la rechaza con motivo.
   - **Al aprobar,** el timbrado o la ampliación queda cargado y activo automáticamente, con el registro de quién solicitó y quién aprobó.
   - **Sin servidor,** la solicitud solo existe en el dispositivo. El circuito completo (empresa → estudio) necesita la base de datos.
-- **Estado:** por definir. Se trabaja en la próxima vuelta, antes de aplicar el cambio 7.
+- **Estado:** idea central confirmada por el usuario. Falta definir el detalle antes de aplicar el cambio 7.
+
+### 9. Recargo por punto de expedición (caja) adicional
+
+- **Pedido:** habilitar un punto de expedición nuevo tiene un recargo en la tarifa. Por ahora, **Gs 15.000 por punto de expedición**.
+- **Propuesta:**
+  - Nuevo concepto en las tarifas: **"Caja adicional"**, Gs 15.000, con la misma lógica que los demás conceptos:
+    - editable en Más → Tarifas;
+    - con la casilla "Incluido";
+    - con precio propio o incluido por empresa;
+    - con descuentos aplicables.
+  - **El plan base incluye 1 caja.** Se cobra cada caja adicional **habilitada en el timbrado activo** (las dadas de baja no cuentan).
+  - **Cobro mensual**, como el usuario adicional. Aparece como línea del cargo del mes: "2 caja(s) adicional(es) × Gs 15.000".
+  - **Aviso al pedir una ampliación** (cambio 8): "Cada caja adicional suma Gs 15.000 por mes al servicio".
+  - Los meses cerrados no cambian (como el resto de los cargos).
+- **Dudas:**
+  1. ¿El plan base incluye **1 caja** y se cobra desde la segunda (propuesta), o se cobra cada caja?
+  2. ¿El recargo es **mensual** (propuesta) o un **cargo único** al habilitarla, como el alta?
+  3. ¿Se cuenta **por caja** (punto de expedición), también cuando está en otro establecimiento? Propuesta: sí, por caja.
 
 ## Previstos para más adelante
 
