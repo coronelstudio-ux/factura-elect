@@ -149,10 +149,172 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 - **Tamaño:** mediano a grande. Toca casi todos los textos de las tres apps, pero no cambia cómo funcionan. Se prueba revisando pantalla por pantalla.
 
 
-### 6. Qué funciones ve cada usuario (próximo análisis)
+### 6. Vista enfocada por usuario: qué ve, qué controla, qué le sirve y qué no
 
-- **Pedido:** después del lenguaje, analizar qué funciones ve cada usuario, cuáles necesita y cuáles no.
-- **Estado:** por analizar. Se registrará aquí, con una tabla de funciones por rol (administrador general, operador del estudio, administrador de la empresa, facturador, vendedor), y se aplicará junto con el cambio 5.
+- **Pedido:** analizar a fondo lo que ve y lo que puede cambiar cada usuario y tipo de usuario, qué controla, qué le sirve y qué no, para que cada uno tenga una **vista enfocada en su función**.
+
+#### 6.1 Cómo está hoy (relevamiento)
+
+| Usuario | App que usa | Qué ve hoy | Qué puede cambiar hoy |
+|---|---|---|---|
+| **Administrador general** | Administración (y Facturación) | Panel con alertas de todas las empresas, empresas, usuarios, auditoría, tarifas. En Facturación ve todo y descarga el XML. | Todo |
+| **Operador del estudio** | Administración | Panel, empresas asignadas, usuarios, auditoría. Ve la sección "Plan y cobros" (sin editar). | Datos técnicos, CSC y usuarios de sus empresas. Ya **no** timbrados (cambio 2). |
+| **Administrador de la empresa** | Facturación | Lo mismo que el facturador, más Preferencias, Usuarios, Boletas y los botones de timbrados | Timbrados, productos, preferencias, logo, usuarios de su empresa |
+| **Facturador** | Facturación | Inicio con **el total facturado de toda la empresa**, historial de **todas las cajas y usuarios**, y en Ajustes: Empresa, Timbrados, **Certificado y ambiente (IdCSC)**, Productos, Clientes, **Respaldo (descargar y restaurar todos los datos)** | Emitir, cancelar, notas de crédito y débito, remisión, nominación, recibir y rechazar notas de pedido, clientes |
+| **Vendedor** | Notas de pedido (sin usuario) | Sus notas, clientes, catálogo, copia de seguridad | Sus notas y clientes |
+| **Modo un dispositivo** (sin usuarios) | Facturación | Todo | Todo |
+
+#### 6.2 Problemas encontrados
+
+1. **El facturador ve y puede hacer demasiado:**
+   - el total facturado de toda la empresa;
+   - los documentos de todas las cajas;
+   - datos técnicos (certificado, IdCSC, ambiente);
+   - y puede **descargar y restaurar la copia de seguridad de toda la empresa**: se lleva todos los datos o los pisa.
+2. **El administrador de la empresa no tiene "su" lugar:**
+   - usa la misma pantalla que el cajero, con más secciones mezcladas en Ajustes;
+   - no tiene un resumen del negocio (ventas por caja, por usuario o por mes), ni auditoría de su empresa.
+3. **Hueco de permisos:** el administrador de la empresa gestiona timbrados, pero **no puede crear cajas** (eso está solo en Administración, donde no entra). Tampoco puede inutilizar números.
+4. **El operador del estudio** quedó sin una función clara después del cambio 2: no gestiona timbrados, no da de alta empresas y ve montos de cobro que no le corresponden.
+5. **Permisos de todo o nada:** no se puede limitar a un facturador, por ejemplo para que no cancele o que solo vea lo suyo.
+6. **El vendedor** podría quedar en la lista de ingreso de Facturación aunque no factura.
+7. **Pestañas iguales para todos** dentro de cada app, aunque cada rol usa cosas distintas.
+
+#### 6.3 Propuesta: una vista por rol
+
+**A. Administrador general (estudio) · app Administración**
+- **Inicio:** tablero del estudio.
+  - Alertas por empresa (timbrado, certificado, rechazos, envíos atrasados).
+  - Cobros: deuda, vencidos y suspendidos.
+  - Altas en curso.
+- **Pestañas:**
+  - **Inicio**.
+  - **Empresas**.
+  - **Cobros** (nuevo: todo lo de planes, pagos y facturar el servicio, que hoy está dentro de cada empresa).
+  - **Usuarios**.
+  - **Más**: auditoría, tarifas, copia de seguridad general y perfil.
+- **Controla:**
+  - empresas, alta guiada, certificados, ambiente y CSC;
+  - timbrados, cajas e inutilización (puede actuar en nombre de la empresa);
+  - usuarios del estudio y de las empresas;
+  - tarifas, precios, descuentos y pagos;
+  - XML.
+- **No necesita:** nada fuera de su alcance. Es el único que ve abreviaturas y términos técnicos (cambio 5).
+
+**B. Operador del estudio · app Administración**
+- **Función propuesta:** soporte técnico de las empresas asignadas.
+- **Inicio:** alertas de **sus** empresas.
+- **Pestañas:** Inicio, Empresas (solo las suyas), Más (auditoría de sus empresas, perfil).
+- **Controla:**
+  - datos de la empresa;
+  - CSC;
+  - registro del certificado (sin el archivo);
+  - usuarios de sus empresas;
+  - seguimiento del alta guiada.
+- **No ve:** cobros, tarifas ni montos del plan; empresas que no tiene asignadas.
+
+**C. Administrador de la empresa (dueño) · app Facturación, con vista de gestión**
+- **Inicio "Mi negocio":**
+  - ventas de hoy y del mes, por caja y por usuario;
+  - documentos pendientes o rechazados;
+  - notas de pedido por facturar;
+  - aviso de la cuenta del servicio.
+- **Pestañas:**
+  - **Inicio**.
+  - **Emitir**.
+  - **Documentos** (todas las cajas, con filtro por caja y por usuario).
+  - **Notas** (si tiene la función).
+  - **Gestión**.
+- **Gestión** reemplaza a la mitad de Ajustes:
+  - **Equipo:** usuarios, sus cajas y sus permisos (ver 6.4).
+  - **Cajas y establecimientos** (se trae de Administración).
+  - **Timbrados**: cargar, activar, ampliar, dar de baja e **inutilizar números**.
+  - **Productos** y **clientes**.
+  - **Preferencias del documento**: condición, moneda, pie del documento, formato e impresión.
+  - **Cuenta del servicio**: boletas y estado de cuenta.
+  - **Actividad**: auditoría de su empresa (quién emitió, canceló, cambió qué).
+  - **Copia de seguridad.**
+- **No ve:** IdCSC, ambiente, XML ni SIFEN. El certificado aparece solo como aviso si está por vencer ("El certificado de firma vence el …; el estudio lo renueva").
+
+**D. Facturador (cajero) · app Facturación, vista operativa**
+- **Inicio "Mi caja":**
+  - caja en uso;
+  - lo que **él** emitió hoy (cantidad y total);
+  - un botón grande **Emitir**;
+  - notas de pedido por facturar;
+  - si no puede emitir, un solo aviso claro ("No es posible emitir: el timbrado no está vigente. Contacte al administrador de la empresa").
+- **Pestañas:** Inicio, Emitir, Documentos (**solo los suyos o los de su caja**), Notas (si corresponde), Perfil.
+- **Controla:**
+  - emitir;
+  - enviar y descargar el PDF;
+  - cancelar dentro del plazo y notas de crédito (**si el administrador se lo permite**);
+  - recibir y rechazar notas de pedido;
+  - cargar clientes al emitir.
+- **Ajustes reducido a:** Mi perfil, caja en uso, apariencia e instalar.
+- **No ve:**
+  - totales de la empresa;
+  - documentos de otras cajas (salvo permiso);
+  - timbrados (solo el número que sale en el documento);
+  - certificado, ambiente e IdCSC;
+  - preferencias;
+  - usuarios;
+  - copia de seguridad;
+  - boletas.
+
+**E. Vendedor · app Notas de pedido**
+- **Inicio "Mis notas":** pendientes de enviar y enviadas.
+- **Pestañas:** Notas, Nueva nota, Clientes, Perfil.
+- **Controla:** sus notas y sus clientes, enviar el PDF y compartir el QR.
+- **Ajustes:** perfil (nombre), catálogo, apariencia, instalar y copia de seguridad de **sus** notas (sus datos viven solo en su celular).
+- **No ve:** nada de facturación.
+- No aparece en la lista de ingreso de Facturación.
+
+**F. Modo un dispositivo** (sin usuarios cargados): funciona como **administrador de la empresa**. Así un negocio chico de una sola persona sigue teniendo todo.
+
+#### 6.4 Permisos finos por usuario (los marca el administrador de la empresa)
+
+| Permiso | Facturador (por defecto) | Vendedor |
+|---|---|---|
+| Emitir facturas | Sí | — |
+| Emitir notas de crédito y débito | Sí | — |
+| Emitir remisión y autofactura (si la empresa las tiene) | Sí | — |
+| Cancelar documentos dentro del plazo | Sí | — |
+| Ver documentos de todas las cajas | No | — |
+| Ver totales del día de la empresa | No | — |
+| Recibir y facturar notas de pedido | Sí | — |
+| Cargar notas de pedido | — | Sí |
+| Cajas asignadas | Las que marque el admin | — |
+
+Esto amplía lo que ya existe ("funciones por usuario" y "cajas por usuario") y lo reúne en una sola ficha del usuario.
+
+#### 6.5 Matriz final (resumen)
+
+| Función | Adm. general | Operador | Adm. empresa | Facturador | Vendedor |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Empresas: alta, certificado, ambiente | ✓ | Datos y CSC | | | |
+| Cobros, tarifas, descuentos | ✓ | | Ve su cuenta | | |
+| Timbrados, cajas e inutilización | ✓ | | ✓ | Ve el activo | |
+| Usuarios y permisos | ✓ | Sus empresas | Su empresa | | |
+| Emitir y cancelar | ✓ | | ✓ | Según permiso | |
+| Documentos | Todos | Sus empresas | Todos los de la empresa | Los suyos o su caja | |
+| Resumen del negocio | Todas | Sus empresas | ✓ | Solo lo suyo | |
+| Actividad (auditoría) | ✓ | Sus empresas | Su empresa | | |
+| Productos, clientes, preferencias | ✓ | | ✓ | Clientes al emitir | Sus clientes |
+| Notas de pedido | | | ✓ | Recibir y facturar | Cargar y enviar |
+| Copia de seguridad | General | | Su empresa | | Sus notas |
+| XML sin firma | ✓ | | | | |
+
+#### 6.6 Dudas
+
+1. **Facturador y documentos:** ¿por defecto ve **solo lo que emitió él**, o **todo lo de su caja** (si dos personas comparten la caja)? Propuesta: **su caja**.
+2. **Cancelar y notas de crédito:** ¿el facturador puede hacerlo por defecto, o solo si el administrador lo habilita? Propuesta: **sí por defecto**; el administrador puede quitarlo.
+3. **Inutilización:** ¿la puede hacer el administrador de la empresa, o solo el estudio? Propuesta: **los dos**, con PIN y registro en la actividad.
+4. **Operador del estudio:** ¿se mantiene como "soporte técnico de las empresas asignadas", sin ver cobros? ¿O se elimina el rol?
+5. **Cobros como pestaña propia** del administrador general: ¿de acuerdo?
+6. **Modo un dispositivo** = administrador de la empresa: ¿de acuerdo?
+
+- **Relación:** se aplica junto con el cambio 5 (lenguaje), pantalla por pantalla.
+- **Tamaño:** grande. Cambia la navegación de las tres apps, el inicio de cada rol y los permisos. Las funciones existentes se reubican; no se pierde ninguna.
 
 ## Previstos para más adelante
 
