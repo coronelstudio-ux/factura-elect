@@ -243,11 +243,10 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   - un botón grande **Emitir**;
   - notas de pedido por facturar;
   - si no puede emitir, un solo aviso claro ("No es posible emitir: el timbrado no está vigente. Contacte al administrador de la empresa").
-- **Pestañas:** Inicio, Emitir, Documentos (**solo los suyos o los de su caja**), Notas (si corresponde), Perfil.
+- **Pestañas:** Inicio, Emitir, Documentos (**solo los que emitió él**), Notas (si corresponde), Perfil.
 - **Controla:**
   - emitir;
   - enviar y descargar el PDF;
-  - cancelar dentro del plazo y notas de crédito (**si el administrador se lo permite**);
   - recibir y rechazar notas de pedido;
   - cargar clientes al emitir.
 - **Ajustes reducido a:** Mi perfil, caja en uso, apariencia e instalar.
@@ -276,10 +275,10 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
 | Permiso | Facturador (por defecto) | Vendedor |
 |---|---|---|
 | Emitir facturas | Sí | — |
-| Emitir notas de crédito y débito | Sí | — |
+| Emitir notas de crédito y débito | **No: exclusivo del administrador** | — |
 | Emitir remisión y autofactura (si la empresa las tiene) | Sí | — |
-| Cancelar documentos dentro del plazo | Sí | — |
-| Ver documentos de todas las cajas | No | — |
+| Cancelar documentos dentro del plazo | **No: exclusivo del administrador** | — |
+| Ver documentos de otros usuarios | No (ve solo lo que emitió él) | — |
 | Ver totales del día de la empresa | No | — |
 | Recibir y facturar notas de pedido | Sí | — |
 | Cargar notas de pedido | — | Sí |
@@ -295,8 +294,9 @@ Esto amplía lo que ya existe ("funciones por usuario" y "cajas por usuario") y 
 | Cobros, tarifas, descuentos | ✓ | | Ve su cuenta | | |
 | Timbrados, cajas e inutilización | ✓ | | ✓ | Ve el activo | |
 | Usuarios y permisos | ✓ | Sus empresas | Su empresa | | |
-| Emitir y cancelar | ✓ | | ✓ | Según permiso | |
-| Documentos | Todos | Sus empresas | Todos los de la empresa | Los suyos o su caja | |
+| Emitir facturas | ✓ | | ✓ | ✓ | |
+| Cancelar, notas de crédito y débito | ✓ | | ✓ | | |
+| Documentos | Todos | Sus empresas | Todos los de la empresa | Solo los que emitió él | |
 | Resumen del negocio | Todas | Sus empresas | ✓ | Solo lo suyo | |
 | Actividad (auditoría) | ✓ | Sus empresas | Su empresa | | |
 | Productos, clientes, preferencias | ✓ | | ✓ | Clientes al emitir | Sus clientes |
@@ -304,14 +304,16 @@ Esto amplía lo que ya existe ("funciones por usuario" y "cajas por usuario") y 
 | Copia de seguridad | General | | Su empresa | | Sus notas |
 | XML sin firma | ✓ | | | | |
 
-#### 6.6 Dudas
+#### 6.6 Decisiones del usuario
 
-1. **Facturador y documentos:** ¿por defecto ve **solo lo que emitió él**, o **todo lo de su caja** (si dos personas comparten la caja)? Propuesta: **su caja**.
-2. **Cancelar y notas de crédito:** ¿el facturador puede hacerlo por defecto, o solo si el administrador lo habilita? Propuesta: **sí por defecto**; el administrador puede quitarlo.
-3. **Inutilización:** ¿la puede hacer el administrador de la empresa, o solo el estudio? Propuesta: **los dos**, con PIN y registro en la actividad.
-4. **Operador del estudio:** ¿se mantiene como "soporte técnico de las empresas asignadas", sin ver cobros? ¿O se elimina el rol?
-5. **Cobros como pestaña propia** del administrador general: ¿de acuerdo?
-6. **Modo un dispositivo** = administrador de la empresa: ¿de acuerdo?
+1. **Documentos del facturador:** ve **solo lo que emitió él**.
+2. **Cancelar y emitir notas de crédito y débito:** **exclusivo del administrador** (de la empresa y del estudio). El facturador no lo hace. Si un documento suyo necesita corregirse, lo pide al administrador; la app muestra "Para cancelar o corregir, contacte al administrador de la empresa".
+3. **Inutilización:** también la hace el **administrador de la empresa**, con PIN y registro en la actividad.
+4. **Operador del estudio:** se mantiene como **soporte técnico de sus empresas asignadas**, sin ver cobros ni tarifas.
+5. **Cobros:** pestaña propia del administrador general.
+6. **Modo un dispositivo:** funciona como **administrador de la empresa**.
+
+- **Estado:** definido. Se aplica junto con el cambio 5, cuando se autorice.
 
 - **Relación:** se aplica junto con el cambio 5 (lenguaje), pantalla por pantalla.
 - **Tamaño:** grande. Cambia la navegación de las tres apps, el inicio de cada rol y los permisos. Las funciones existentes se reubican; no se pierde ninguna.
