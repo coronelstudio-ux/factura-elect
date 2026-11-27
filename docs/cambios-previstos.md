@@ -78,13 +78,35 @@ Formato: lo que pidió el usuario, la propuesta y las dudas abiertas.
   6. **Administración (estudio):** la misma sección unificada en la ficha de la empresa, con la bandeja de **solicitudes de ampliación** para aprobar o rechazar con motivo.
   7. **Modo un dispositivo** (sin estudio): funciona como hoy, con todo el control y doble confirmación, porque no hay a quién derivar.
 
-- **Dudas:**
-  1. ¿Qué nivel de control preferís: **A**, **B** (mi propuesta) o **C**?
-  2. Al cargar un timbrado nuevo, ¿se proponen las cajas del anterior para confirmarlas, o se cargan desde cero?
-  3. La decisión anterior era que la empresa puede inutilizar números. ¿La mantenemos con la opción B, o pasa también al estudio?
-  4. En el modo un dispositivo, ¿de acuerdo con que tenga todo el control con doble confirmación?
+- **Decidido (se aceptan las propuestas):**
+  1. Nivel de control **B (mixto)**:
+     - el estudio carga, activa y da de baja;
+     - la empresa cambia nombres de cajas, las asigna a usuarios e inutiliza con PIN;
+     - las ampliaciones se solicitan y las aprueba el estudio (ver cambio 8).
+  2. Al cargar un timbrado nuevo **se proponen las cajas del anterior** para confirmarlas.
+  3. La empresa **mantiene la inutilización**, con PIN.
+  4. El **modo un dispositivo** tiene todo el control, con doble confirmación.
+  5. **Nuevo:** el control de timbrados va en una **ventana desplegable separada del resto**, que resalte su importancia:
+     - en Gestión, una tarjeta propia arriba, con borde y título destacados: "Timbrado: datos autorizados por la DNIT";
+     - cerrada, muestra el resumen (número, estado, cajas, próximo número); al tocarla se despliega el detalle completo y las acciones.
+  6. **Nuevo:** una **alerta sencilla para el contribuyente** dentro de esa ventana, con este texto: "Estos datos deben coincidir con lo autorizado por la DNIT en Marangatu. Un cambio indebido puede causar el rechazo de las facturas."
+     - También se muestran alertas cortas cuando corresponde, por ejemplo "Timbrado sin cajas habilitadas", "Caja sin tipos habilitados" o "Solicitud de ampliación pendiente de aprobación".
+- **Estado:** definido. Las solicitudes de ampliación se definen en el cambio 8, antes de aplicar.
+- **Tamaño:** mediano. Reorganiza la sección de timbrado en las dos apps. El modelo de datos actual ya vincula las cajas al timbrado, así que no hay migración de datos.
 
-- **Tamaño:** mediano. Reorganiza la sección de timbrado en las dos apps y agrega las solicitudes de ampliación. El modelo de datos actual ya vincula las cajas al timbrado, así que no hay migración de datos.
+### 8. Solicitud de timbrado y ampliación cargada por el contribuyente (por definir)
+
+- **Idea del usuario:**
+  - El contribuyente es quien maneja su Marangatu.
+  - Después de pedir el timbrado o la ampliación en Marangatu y de que la DNIT lo **apruebe**, el contribuyente **carga en la app una solicitud con los datos reales autorizados**.
+  - La solicitud **le llega al administrador** del estudio, que la revisa. Con eso crea el timbrado o la ampliación o, directamente, **aprueba** y queda **cargado de forma automática**.
+- **Primeras ideas para trabajar después:**
+  - **Formulario de la solicitud**, con los mismos campos que Marangatu → Datos del timbrado: número, fecha de inicio, establecimientos, cajas, tipos y primer número.
+  - **Comprobante:** se adjunta una captura o el PDF de la aprobación de la DNIT, por ejemplo el mensaje del buzón Marandu.
+  - **Revisión del estudio:** ve la solicitud junto con lo que ya tiene cargado, con las diferencias resaltadas, y la aprueba o la rechaza con motivo.
+  - **Al aprobar,** el timbrado o la ampliación queda cargado y activo automáticamente, con el registro de quién solicitó y quién aprobó.
+  - **Sin servidor,** la solicitud solo existe en el dispositivo. El circuito completo (empresa → estudio) necesita la base de datos.
+- **Estado:** por definir. Se trabaja en la próxima vuelta, antes de aplicar el cambio 7.
 
 ## Previstos para más adelante
 
